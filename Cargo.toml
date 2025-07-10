@@ -1,0 +1,12 @@
+[package]
+name = "rust-demo"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+anyhow = "1.0.98"
+clap = { version = "4.5.41", features = ["derive"] }
+config = "0.15.13"
+dialoguer = "0.11.0"
+indicatif = "0.18.0"
+walkdir = "2.5.0"
