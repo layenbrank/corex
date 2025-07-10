@@ -23,7 +23,8 @@ fn main() {
 
     match args.command {
         Commands::CopyPlugin(args) => {
-            process_copy(Path::new(&args.from), Path::new(&args.to)).expect("复制出错");
+            process_copy(Path::new(&args.from), Path::new(&args.to), args.ignores)
+                .expect("复制出错");
 
             println!("from {} || to {}", args.from, args.to)
         }

@@ -25,3 +25,15 @@ fn run() {
     }
     println!("Hello, world!");
 }
+
+fn recursive(dir_path: &Path) {
+    for entry in fs::read_dir(dir_path).unwrap() {
+        let entry = entry.unwrap();
+        let file_type = entry.file_type().unwrap();
+        if file_type.is_file() {
+            println!("entry {}", entry.path().display());
+        } else if file_type.is_dir() {
+            recursive(entry.path().as_path());
+        }
+    }
+}
