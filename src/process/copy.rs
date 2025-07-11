@@ -1,6 +1,7 @@
 use std::{fs, path::Path};
 
 use anyhow::{Context, Result};
+// use glob::glob;
 use walkdir::WalkDir;
 
 pub fn process_copy(source: &Path, target: &Path, ignores: Vec<String>) -> Result<()> {
@@ -18,6 +19,8 @@ pub fn process_copy(source: &Path, target: &Path, ignores: Vec<String>) -> Resul
         let real_path = source_path.strip_prefix(source).context("路径解析失败")?;
 
         let target_path = target.join(real_path);
+
+        // glob(source_path.to_str().expect("匹配失败"))?;
 
         // 处理子目录
         if source_path.is_dir() {

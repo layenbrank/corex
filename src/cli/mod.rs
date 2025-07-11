@@ -1,8 +1,9 @@
 use std::path::Path;
 
 use clap::Parser;
+use serde::Deserialize;
 
-#[derive(Debug, Parser)]
+#[derive(Debug, Parser, Deserialize)]
 pub struct CopyArgs {
     #[arg(short, long)]
     pub from: String,

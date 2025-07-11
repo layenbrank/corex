@@ -1,25 +1,24 @@
-// use std::fs;
-
-use std::path::Path;
+use std::{collections::HashMap, path::Path};
 
 use clap::Parser;
+use config::Config;
 
-use rust_demo::{process_copy, Args, Commands};
-
-// #[derive(Parser, Debug)]
-// #[command(version, about)]
-// struct Args {
-//     #[arg(short, long)]
-//     copy: String,
-
-//     #[arg(short, long)]
-//     generate_path: String,
-// }
+use rust_demo::{process_copy, Args, Commands, CopyArgs};
 
 fn main() {
-    let args = Args::parse();
+    let settings = Config::builder()
+        .add_source(config::File::with_name("config.json"))
+        .add_source(config::Environment::with_prefix("config"))
+        .build()
+        .expect("配置文件获取失败");
 
-    // println!("{:?}", args);
+    let deserialize = settings
+        .try_deserialize::<HashMap<String, CopyArgs>>()
+        .expect("转换失败");
+
+    println!("{:?}", deserialize);
+
+    let args = Args::parse();
 
     match args.command {
         Commands::CopyPlugin(args) => {
