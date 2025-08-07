@@ -23,7 +23,26 @@ fn run() {
             println!("{}", entry.path().display());
         }
     }
-    println!("Hello, world!");
+
+    /**
+     * 追加写入
+     */
+    let file = OpenOptions::new()
+        .append(true)
+        .create(true)
+        .open("./cache/process_copy.txt")?;
+
+    let mut writer = BufWriter::new(file);
+
+    // 写入三个路径并换行
+    writer.write_all(source_path.as_os_str().as_encoded_bytes())?;
+    writer.write_all(b"\n")?; // 换行符
+    writer.write_all(real_path.as_os_str().as_encoded_bytes())?;
+    writer.write_all(b"\n")?;
+    writer.write_all(target_path.as_os_str().as_encoded_bytes())?;
+    writer.write_all(b"\n\n")?; // 两个换行符作为分隔
+
+    writer.flush()?; // 确保缓冲区数据写入磁盘
 }
 
 fn recursive(dir_path: &Path) {

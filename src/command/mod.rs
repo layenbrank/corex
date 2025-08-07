@@ -1,19 +1,11 @@
 use std::path::Path;
 
-use clap::Parser;
+use clap::{ArgAction, Parser};
 use serde::Deserialize;
 
-#[derive(Debug, Parser, Deserialize)]
-pub struct CopyArgs {
-    #[arg(short, long)]
-    pub from: String,
+mod copy;
 
-    #[arg(short, long)]
-    pub to: String,
-
-    #[arg(short, long)]
-    pub ignores: Vec<String>,
-}
+pub use copy::CopyArgs;
 
 #[derive(Debug, Parser)]
 pub struct GeneratePathArgs {
@@ -34,9 +26,9 @@ pub struct GeneratePathArgs {
 
 #[derive(Parser, Debug)]
 pub enum Commands {
-    CopyPlugin(CopyArgs),
+    Copy(CopyArgs),
 
-    GeneratePath(GeneratePathArgs),
+    Path(GeneratePathArgs),
 }
 
 #[derive(Debug, Parser)]

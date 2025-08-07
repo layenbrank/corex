@@ -1,9 +1,7 @@
-use std::{collections::HashMap, path::Path};
-
 use clap::Parser;
 use config::Config;
-
 use rust_demo::{process_copy, Args, Commands, CopyArgs};
+use std::{collections::HashMap, path::Path};
 
 fn main() {
     let settings = Config::builder()
@@ -16,18 +14,25 @@ fn main() {
         .try_deserialize::<HashMap<String, CopyArgs>>()
         .expect("转换失败");
 
-    println!("{:?}", deserialize);
+    println!("deserialize {:?}", deserialize);
 
     let args = Args::parse();
 
     match args.command {
-        Commands::CopyPlugin(args) => {
-            process_copy(Path::new(&args.from), Path::new(&args.to), args.ignores)
-                .expect("复制出错");
+        Commands::Copy(args) => {
+            process_copy(
+                Path::new(&args.from),
+                Path::new(&args.to),
+                args.ignores.clone(),
+            )
+            .expect("复制出错");
 
-            println!("from {} || to {}", args.from, args.to)
+            println!(
+                "from {} || to {} || ignores {:?}",
+                args.from, args.to, args.ignores
+            );
         }
-        Commands::GeneratePath(args) => {
+        Commands::Path(args) => {
             println!("input {} || output {}", args.input, args.output)
         }
     }

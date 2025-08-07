@@ -1,5 +1,5 @@
 mod copy;
-mod generate_path;
+mod path;
 
 pub use copy::process_copy;
 // pub use generate_path;

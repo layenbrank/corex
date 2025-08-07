@@ -1,6 +1,6 @@
-mod cli;
+mod command;
 mod process;
 mod util;
 
-pub use cli::*;
+pub use command::*;
 pub use process::*;
