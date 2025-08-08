@@ -28,7 +28,7 @@ pub struct GeneratePathArgs {
 pub enum Commands {
     Copy(CopyArgs),
 
-    Path(GeneratePathArgs),
+    Generate(GeneratePathArgs),
 }
 
 #[derive(Debug, Parser)]

@@ -2,6 +2,12 @@ use anyhow::{Context, Result};
 use glob::Pattern;
 use std::{fs, path::Path};
 use walkdir::WalkDir;
+use windows::{
+    core,
+    Data::Xml::Dom,
+    Win32::Foundation::{HWND, LPARAM, WPARAM},
+    Win32::UI::WindowsAndMessaging::{MessageBoxA, SendNotifyMessageA, MB_ICONINFORMATION, MB_OK},
+};
 
 // 不能在常量中直接使用 Vec，因为 Vec 的分配是在堆上完成的，
 // 而常量要求所有内容在编译期就确定且存储在只读内存中。
@@ -52,6 +58,39 @@ pub fn process_copy(source: &Path, target: &Path, ignores: Vec<String>) -> Resul
         }
     }
 
+    // let xml = Dom::XmlDocument::new()?;
+
+    // xml.LoadXml(core::h!(
+    //     r#"<toast>
+    //         <visual>
+    //             <binding template="ToastGeneric">
+    //                 <text>提示</text>
+    //                 <text>复制完成!</text>
+    //             </binding>
+    //         </visual>
+    //     </toast>"#
+    // ))?;
+
+    // let toast = ToastNotificatio::CreateToastNotification(&xml)?;
+    // ToastNotificationManager::CreateToastNotifierWithId(h!("RustApp"))?.Show(&toast)?;
+
+    unsafe {
+        let _ = SendNotifyMessageA(
+            HWND(std::ptr::null_mut()), // 窗口句柄
+            0x0400,                     // WM_USER 消息
+            WPARAM(0),                  // wParam
+            LPARAM(0),                  // lParam
+        );
+    }
+
+    // unsafe {
+    //     MessageBoxA(
+    //         None,                       // 父窗口句柄
+    //         core::s!("复制完成!"),      // 消息内容
+    //         core::s!("提示"),           // 标题
+    //         MB_OK | MB_ICONINFORMATION, // 按钮和图标
+    //     );
+    // }
     Ok(())
 }
 
