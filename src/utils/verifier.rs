@@ -1,7 +1,7 @@
 use std::path::Path;
 
 #[derive(Debug, Clone)]
-pub struct Verifier {}
+pub struct Verifier;
 
 impl Verifier {
     pub fn path(path: &str) -> Result<String, &'static str> {

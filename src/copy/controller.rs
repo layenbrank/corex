@@ -4,10 +4,10 @@ use serde::Deserialize;
 
 #[derive(Debug, Clone, Parser, Deserialize)]
 pub struct CopyArgs {
-    #[arg(short, long, value_parser = Verifier::path)]
+    #[arg(short, long, value_parser = Verifier::path, help = "源路径")]
     pub from: String,
 
-    #[arg(short, long, value_parser = Verifier::path)]
+    #[arg(short, long, value_parser = Verifier::path,help = "目标路径")]
     pub to: String,
 
     #[arg(short, long, help = "是否清空目标文件夹")]

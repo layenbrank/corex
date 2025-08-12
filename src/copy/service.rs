@@ -1,3 +1,4 @@
+use crate::utils::notification;
 use anyhow::{Context, Result};
 use glob::Pattern;
 use std::{fs, path::Path};
@@ -7,7 +8,7 @@ use walkdir::WalkDir;
 // 而常量要求所有内容在编译期就确定且存储在只读内存中。
 // 你可以使用数组（如 IGNORES_VEC），在需要 Vec 时再转换：
 
-pub fn run(source: &Path, target: &Path, ignores: Vec<String>) -> Result<()> {
+pub fn run(source: &Path, target: &Path, empty: bool, ignores: Vec<String>) -> Result<()> {
     // 确保目标目录存在
     if !target.exists() {
         fs::create_dir_all(target).context("创建目录失败")?;
@@ -51,6 +52,8 @@ pub fn run(source: &Path, target: &Path, ignores: Vec<String>) -> Result<()> {
             ))?;
         }
     }
+
+    notification::Notification::new("文件复制完成", "所有文件已成功复制到目标目录").unwrap();
 
     Ok(())
 }

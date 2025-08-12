@@ -39,13 +39,14 @@ fn main() {
             copy::service::run(
                 Path::new(&args.from),
                 Path::new(&args.to),
+                args.empty,
                 args.ignores.clone(),
             )
             .expect("复制出错");
 
             println!(
-                "from {} || to {} || ignores {:?}",
-                args.from, args.to, args.ignores
+                "from {} || to {} || empty {} || ignores {:?}",
+                args.from, args.to, args.empty, args.ignores
             );
 
             // 显示完成通知
