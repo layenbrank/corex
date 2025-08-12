@@ -1,4 +1,4 @@
-use crate::utils::notification;
+use crate::utils::notification::Notification;
 use anyhow::{Context, Result};
 use glob::Pattern;
 use std::{fs, path::Path};
@@ -9,16 +9,21 @@ use walkdir::WalkDir;
 // 你可以使用数组（如 IGNORES_VEC），在需要 Vec 时再转换：
 
 pub fn run(source: &Path, target: &Path, empty: bool, ignores: Vec<String>) -> Result<()> {
-    // 确保目标目录存在
-    if !target.exists() {
-        fs::create_dir_all(target).context("创建目录失败")?;
-    }
-
     // 预编译 glob 模式以提高性能
     let ignore_patterns: Vec<Pattern> = ignores
         .iter()
         .filter_map(|pattern| Pattern::new(pattern).ok())
         .collect();
+
+    // 确保目标目录存在
+    if !target.exists() {
+        fs::create_dir_all(target).context("创建目录失败")?;
+    }
+
+    // 如果需要清空，删除目标目录下的所有内容，但保留目录本身
+    if empty && target.exists() {
+        clear_directory_contents(target).context("清空目标目录内容失败")?;
+    }
 
     // 递归遍历源目录
     for entry in WalkDir::new(source).into_iter().filter_map(|e| e.ok()) {
@@ -42,7 +47,7 @@ pub fn run(source: &Path, target: &Path, empty: bool, ignores: Vec<String>) -> R
         // 复制文件
         else if source_path.is_file() {
             if let Some(parent) = target_path.parent() {
-                if parent.exists() {
+                if !parent.exists() {
                     fs::create_dir_all(parent).context("创建父目录失败")?;
                 }
             }
@@ -53,7 +58,27 @@ pub fn run(source: &Path, target: &Path, empty: bool, ignores: Vec<String>) -> R
         }
     }
 
-    notification::Notification::new("文件复制完成", "所有文件已成功复制到目标目录").unwrap();
+    Notification::new("文件复制完成", "所有文件已成功复制到目标目录").expect("创建通知失败");
+
+    Ok(())
+}
+
+/// 清空目录内容，但保留目录本身
+fn clear_directory_contents(dir: &Path) -> Result<()> {
+    if !dir.is_dir() {
+        return Ok(());
+    }
+
+    for entry in fs::read_dir(dir).context("读取目录失败")? {
+        let entry = entry.context("读取目录项失败")?;
+        let path = entry.path();
+
+        if path.is_dir() {
+            fs::remove_dir_all(&path).context(format!("删除子目录失败: {:?}", path))?;
+        } else {
+            fs::remove_file(&path).context(format!("删除文件失败: {:?}", path))?;
+        }
+    }
 
     Ok(())
 }

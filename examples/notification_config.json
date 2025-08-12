@@ -1,0 +1,18 @@
+{
+  "notification": {
+    "app_id": "com.fluxor.corex",
+    "sound_enabled": true,
+    "duration": "short",
+    "icon_path": null,
+    "templates": {
+      "basic": "templates/notification_basic.xml",
+      "advanced": "templates/notification_advanced.xml",
+      "task_complete": "templates/notification_task_complete.xml"
+    },
+    "auto_notify": {
+      "file_operations": true,
+      "task_completion": true,
+      "error_alerts": true
+    }
+  }
+}

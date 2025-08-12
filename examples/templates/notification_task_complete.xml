@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<toast scenario="alarm">
+  <visual>
+    <binding template="ToastGeneric">
+      <text id="1">Fluxor 任务提醒</text>
+      <text id="2">您的文件操作已完成</text>
+      <text id="3">状态: 成功处理 {file_count} 个文件</text>
+      <progress title="处理进度" status="完成" value="1" />
+    </binding>
+  </visual>
+  <actions>
+    <action content="查看结果" arguments="view_results" />
+    <action content="打开目录" arguments="open_folder" />
+    <action content="关闭" arguments="dismiss" />
+  </actions>
+  <audio src="ms-winsoundevent:Notification.Default" loop="false" />
+</toast>
