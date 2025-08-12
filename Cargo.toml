@@ -3,6 +3,15 @@ name = "fluxor"
 version = "0.1.0"
 edition = "2021"
 
+[profile.release]
+opt-level = 3       # 最高优化级别
+lto = true          # 链接时优化（平衡大小与速度）
+codegen-units = 1   # 单线程代码生成（提升优化）
+incremental = false # 禁用增量编译（避免优化冲突）
+panic = "abort"     # 替换展开为直接终止（减小体积）
+strip = "symbols"   # 移除调试符号（Rust 1.59+）
+# strip = true        # Rust 1.59+ 原生支持
+
 [dependencies]
 anyhow = "1.0.98"
 clap = { version = "4.5.41", features = ["derive"] }
