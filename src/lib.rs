@@ -9,7 +9,7 @@ pub mod generate {
 }
 
 pub mod utils {
-    pub mod notification;
+    // pub mod notification;
     pub mod verifier;
 }
 

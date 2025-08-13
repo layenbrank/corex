@@ -1,6 +1,7 @@
-use crate::utils::notification::Notification;
+// use crate::utils::notification::Notification;
 use anyhow::{Context, Result};
 use glob::Pattern;
+use notify_rust::Notification;
 use std::{fs, path::Path};
 use walkdir::WalkDir;
 
@@ -58,7 +59,12 @@ pub fn run(source: &Path, target: &Path, empty: bool, ignores: Vec<String>) -> R
         }
     }
 
-    Notification::new("文件复制完成", "所有文件已成功复制到目标目录").expect("创建通知失败");
+    Notification::new()
+        .summary("文件复制完成")
+        .body("所有文件已成功复制到目标目录")
+        .icon("dialog-information")
+        .show()
+        .context("显示通知失败")?;
 
     Ok(())
 }
