@@ -1,2 +1,2 @@
-# [build]
-# target-dir = "C:/Users/MACHENIKE/Documents/Rust/Builds/fluxor"
+[build]
+target-dir = "C:/Users/MACHENIKE/Documents/Rust/Builds/fluxor"

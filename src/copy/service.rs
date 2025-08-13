@@ -1,4 +1,4 @@
-// use crate::utils::notification::Notification;
+use crate::copy::controller::CopyArgs;
 use anyhow::{Context, Result};
 use glob::Pattern;
 use notify_rust::Notification;
@@ -9,32 +9,63 @@ use walkdir::WalkDir;
 // 而常量要求所有内容在编译期就确定且存储在只读内存中。
 // 你可以使用数组（如 IGNORES_VEC），在需要 Vec 时再转换：
 
-pub fn run(source: &Path, target: &Path, empty: bool, ignores: Vec<String>) -> Result<()> {
+// pub fn run(source: &Path, target: &Path, empty: bool, ignores: Vec<String>) -> Result<()> {
+pub fn run(args: &CopyArgs) -> Result<()> {
+    let from = Path::new(&args.from);
+    let to = Path::new(&args.to);
+    let empty = args.empty;
+    let ignores = args.ignores.clone();
+
     // 预编译 glob 模式以提高性能
-    let ignore_patterns: Vec<Pattern> = ignores
+    let patterns: Vec<Pattern> = ignores
         .iter()
         .filter_map(|pattern| Pattern::new(pattern).ok())
         .collect();
 
+    // 执行复制操作
+    let copy_resp = copy_task(from, to, empty, &patterns);
+
+    match &copy_resp {
+        Ok(_) => {
+            let _ = Notification::new()
+                .summary("复制成功")
+                .body("文件复制操作已成功完成")
+                .icon("dialog-information")
+                .show()
+                .context("显示成功通知失败");
+        }
+        Err(e) => {
+            let _ = Notification::new()
+                .summary("文件复制失败")
+                .body(&format!("复制过程中发生错误: {}", e))
+                .icon("dialog-error")
+                .show();
+        }
+    }
+
+    copy_resp
+}
+
+fn copy_task(from: &Path, to: &Path, empty: bool, patterns: &[Pattern]) -> Result<()> {
     // 确保目标目录存在
-    if !target.exists() {
-        fs::create_dir_all(target).context("创建目录失败")?;
+    if !to.exists() {
+        fs::create_dir_all(to).context("创建目录失败")?;
     }
 
     // 如果需要清空，删除目标目录下的所有内容，但保留目录本身
-    if empty && target.exists() {
-        clear_directory_contents(target).context("清空目标目录内容失败")?;
+    if empty && to.exists() {
+        dir_empty(to).context("清空目标目录内容失败")?;
     }
 
     // 递归遍历源目录
-    for entry in WalkDir::new(source).into_iter().filter_map(|e| e.ok()) {
+    for entry in WalkDir::new(from).into_iter().filter_map(|e| e.ok()) {
         let source_path = entry.path();
 
-        let raw_path = source_path.strip_prefix(source).context("路径解析失败")?;
+        let raw_path = source_path.strip_prefix(from).context("路径解析失败")?;
 
-        let target_path = target.join(raw_path);
+        let target_path = to.join(raw_path);
 
-        if is_ignored(&raw_path, &ignore_patterns) {
+        if ignored(&raw_path, &patterns) {
             println!("忽略路径: {:?}", raw_path);
             continue;
         }
@@ -59,18 +90,11 @@ pub fn run(source: &Path, target: &Path, empty: bool, ignores: Vec<String>) -> R
         }
     }
 
-    Notification::new()
-        .summary("文件复制完成")
-        .body("所有文件已成功复制到目标目录")
-        .icon("dialog-information")
-        .show()
-        .context("显示通知失败")?;
-
     Ok(())
 }
 
 /// 清空目录内容，但保留目录本身
-fn clear_directory_contents(dir: &Path) -> Result<()> {
+fn dir_empty(dir: &Path) -> Result<()> {
     if !dir.is_dir() {
         return Ok(());
     }
@@ -89,7 +113,7 @@ fn clear_directory_contents(dir: &Path) -> Result<()> {
     Ok(())
 }
 
-fn is_ignored(path: &Path, patterns: &[Pattern]) -> bool {
+fn ignored(path: &Path, patterns: &[Pattern]) -> bool {
     let path_str = path.to_string_lossy();
 
     for pattern in patterns {

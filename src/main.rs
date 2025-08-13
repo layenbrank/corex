@@ -1,13 +1,16 @@
-use clap::{ArgAction, Parser};
-use config::Config;
+use clap::Parser;
+// use config::Config;
 use fluxor::{copy, generate};
-use serde::Deserialize;
-use std::{collections::HashMap, path::Path};
+// use serde::Deserialize;
+// use std::{collections::HashMap};
+use std::path::Path;
 
-#[derive(Parser, Debug)]
+#[derive(Debug, Parser)]
 pub enum Commands {
     Copy(copy::controller::CopyArgs),
-    Generate(generate::controller::GeneratePathArgs),
+
+    #[command(subcommand)]
+    Generate(generate::controller::GenerateArgs),
 }
 
 #[derive(Debug, Parser)]
@@ -36,29 +39,25 @@ fn main() {
 
     match args.command {
         Commands::Copy(args) => {
-            copy::service::run(
-                Path::new(&args.from),
-                Path::new(&args.to),
-                args.empty,
-                args.ignores.clone(),
-            )
-            .expect("复制出错");
+            copy::service::run(&args).expect("复制出错");
 
             println!(
-                "from {} || to {} || empty {} || ignores {:?}",
+                "from: {}\nto: {}\nempty: {}\nignores: {:?}",
                 args.from, args.to, args.empty, args.ignores
             );
-
-            // 显示完成通知
-            // if let Err(e) = NotificationHelper::show_toast_notification(
-            //     "Fluxor - 复制完成",
-            //     &format!("文件已从 {} 复制到 {}", args.from, args.to),
-            // ) {
-            //     eprintln!("通知显示失败: {:?}", e);
-            // }
         }
-        Commands::Generate(args) => {
-            println!("input {} || output {}", args.input, args.output)
+        Commands::Generate(generate_args) => {
+            match generate_args {
+                generate::controller::GenerateArgs::Path(args) => {
+                    println!(
+                        "from: {:?}\nto: {:?}",
+                        Path::new(&args.from),
+                        Path::new(&args.to)
+                    );
+                    generate::service::run_path(&args).expect("生成路径出错");
+                    // 这里添加您的 generate 逻辑
+                }
+            }
         }
     }
 }
