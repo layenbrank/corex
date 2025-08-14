@@ -15,6 +15,9 @@ pub fn run_path(args: &PathArgs) -> Result<()> {
     let to = Path::new(&args.to);
     let transform = args.transform.clone();
     let ignores = args.ignores.clone();
+    let separator = args.separator.clone();
+
+    let uppercase = args.uppercase.clone();
 
     if to.is_dir() {
         return Err(anyhow::anyhow!("目标路径应是一个文件路径!"));
@@ -42,7 +45,7 @@ pub fn run_path(args: &PathArgs) -> Result<()> {
         .filter_map(|pattern| Pattern::new(pattern).ok())
         .collect();
 
-    let entries: Vec<_> = WalkDir::new(from)
+    let mut entries: Vec<_> = WalkDir::new(from)
         .into_iter()
         .filter_map(|e| e.ok())
         .filter(|entry| {
@@ -51,16 +54,54 @@ pub fn run_path(args: &PathArgs) -> Result<()> {
         })
         .collect();
 
+    // 按文件扩展名进行字母排序
+    entries.sort_by(|a, b| {
+        let ext_a = a
+            .path()
+            .extension()
+            .map(|ext| ext.to_string_lossy())
+            .unwrap_or_default();
+        let ext_b = b
+            .path()
+            .extension()
+            .map(|ext| ext.to_string_lossy())
+            .unwrap_or_default();
+
+        // 先按扩展名排序，如果扩展名相同再按文件名排序
+        match ext_a.cmp(&ext_b) {
+            std::cmp::Ordering::Equal => {
+                let name_a = a.file_name().to_string_lossy();
+                let name_b = b.file_name().to_string_lossy();
+                name_a.cmp(&name_b)
+            }
+            other => other,
+        }
+    });
+
+    // 根据 entries 的长度动态计算补零位数
+    let count = entries.len();
+    // 计算需要的位数：文件总数的位数
+    let width = count.to_string().len();
+
     for (index, entry) in entries.iter().enumerate() {
         let source = entry.path();
 
         // 将 transform 字符串中的 "index" 替换为当前索引
-        let transformed = transform
+        let mut transformed = transform
             // .replace("{{index}}", &index.to_string())
             // 将 transform 字符串中的 "index" 替换为当前索引（补0占位）
-            .replace("{{index}}", &format!("{:02}", index))
-            .replace("{{name}}", entry.file_name().to_string_lossy().as_ref())
-            .replace("{{path}}", source.to_str().unwrap_or(""));
+            .replace("{{index}}", &format!("{:0width$}", index, width = width))
+            // .replace("{{index}}", &format!("{:0count$}", index, count = count))
+            .replace("{{filename}}", entry.file_name().to_string_lossy().as_ref())
+            // .replace("{{ext}}", entry.extension().unwrap_or_default().to_string_lossy().as_ref())
+            // .replace("{{stem}}", entry.file_stem().unwrap_or_default().to_string_lossy().as_ref())
+            // 只有文件路径,但路径不包含文件名 // 获取父目录路径字符串（如果没有则用空字符串）
+            .replace(
+                "{{path}}",
+                source.parent().and_then(|p| p.to_str()).unwrap_or(""),
+            );
+
+        transformed = transformed.replace("{{separator}}", &separator);
 
         println!("转换结果: {}", transformed);
 
@@ -71,6 +112,8 @@ pub fn run_path(args: &PathArgs) -> Result<()> {
             writeln!(writer, "{}", transformed).context("写入文件失败")?;
         }
     }
+
+    // uppercase
 
     // 确保所有数据都被写入到文件
     writer.flush().context("刷新缓冲区失败")?;
