@@ -4,13 +4,17 @@ version = "0.1.0"
 edition = "2021"
 
 [profile.release]
-opt-level = 3       # 最高优化级别
+# opt-level = 3       # 最高优化级别
+opt-level = 2       # 降低优化级别 (从 3 改为 2)
 lto = true          # 链接时优化（平衡大小与速度）
+# lto = "thin"        # 使用轻量级 LTO (从 true 改为 "thin")
 codegen-units = 1   # 单线程代码生成（提升优化）
+# codegen-units = 16  # 增加代码生成单元 (从 1 改为 16)
 incremental = false # 禁用增量编译（避免优化冲突）
 panic = "abort"     # 替换展开为直接终止（减小体积）
 strip = "symbols"   # 移除调试符号（Rust 1.59+）
 # strip = true        # Rust 1.59+ 原生支持
+# strip = "debuginfo" # 只移除调试信息，保留符号表
 
 [dependencies]
 anyhow = "1.0.98"

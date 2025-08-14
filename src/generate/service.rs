@@ -1,13 +1,13 @@
 use crate::generate::controller::PathArgs;
 use crate::utils::verifier::Verifier;
-use anyhow::{Context, Result};
+use anyhow::{Context, Ok, Result};
 use glob::Pattern;
 use std::{
-    fs::{self, File, OpenOptions},
+    fs::{File, OpenOptions},
     io::{BufWriter, Write},
     path::Path,
 };
-use walkdir::WalkDir;
+use walkdir::{DirEntry, WalkDir};
 
 pub fn run_path(args: &PathArgs) -> Result<()> {
     // 这里是具体的实现逻辑
@@ -16,7 +16,7 @@ pub fn run_path(args: &PathArgs) -> Result<()> {
     let transform = args.transform.clone();
     let ignores = args.ignores.clone();
     let separator = args.separator.clone();
-
+    let index = args.index.clone();
     let uppercase = args.uppercase.clone();
 
     if to.is_dir() {
@@ -78,30 +78,20 @@ pub fn run_path(args: &PathArgs) -> Result<()> {
         }
     });
 
-    // 根据 entries 的长度动态计算补零位数
-    let count = entries.len();
-    // 计算需要的位数：文件总数的位数
-    let width = count.to_string().len();
+    // 根据 entries 的长度动态计算补零位数 计算需要的位数：文件总数的位数
+    let count = entries.len().to_string().len();
 
-    for (index, entry) in entries.iter().enumerate() {
-        let source = entry.path();
-
-        // 将 transform 字符串中的 "index" 替换为当前索引
-        let mut transformed = transform
-            // .replace("{{index}}", &index.to_string())
-            // 将 transform 字符串中的 "index" 替换为当前索引（补0占位）
-            .replace("{{index}}", &format!("{:0width$}", index, width = width))
-            // .replace("{{index}}", &format!("{:0count$}", index, count = count))
-            .replace("{{filename}}", entry.file_name().to_string_lossy().as_ref())
-            // .replace("{{ext}}", entry.extension().unwrap_or_default().to_string_lossy().as_ref())
-            // .replace("{{stem}}", entry.file_stem().unwrap_or_default().to_string_lossy().as_ref())
-            // 只有文件路径,但路径不包含文件名 // 获取父目录路径字符串（如果没有则用空字符串）
-            .replace(
-                "{{path}}",
-                source.parent().and_then(|p| p.to_str()).unwrap_or(""),
-            );
-
-        transformed = transformed.replace("{{separator}}", &separator);
+    for (key, value) in entries.iter().enumerate() {
+        let replacement = Replacement {
+            transform: transform.clone(),
+            entry: value.clone(),
+            index: key + index,
+            count: count,
+            uppercase: uppercase.clone(),
+            separator: separator.clone(),
+            from: from.to_path_buf(),
+        };
+        let transformed = replacement.run()?;
 
         println!("转换结果: {}", transformed);
 
@@ -112,8 +102,6 @@ pub fn run_path(args: &PathArgs) -> Result<()> {
             writeln!(writer, "{}", transformed).context("写入文件失败")?;
         }
     }
-
-    // uppercase
 
     // 确保所有数据都被写入到文件
     writer.flush().context("刷新缓冲区失败")?;
@@ -142,4 +130,97 @@ fn ignored(path: &Path, patterns: &[Pattern]) -> bool {
     }
 
     false
+}
+
+struct Replacement {
+    transform: String,
+    entry: DirEntry,
+    index: usize,
+    count: usize,
+    uppercase: Vec<String>,
+    separator: String,
+    from: std::path::PathBuf,
+}
+
+impl Replacement {
+    fn run(&self) -> Result<String> {
+        let mut transform = self.transform.to_string();
+        let extension = self
+            .entry
+            .path()
+            .extension()
+            .unwrap_or_default()
+            .to_string_lossy();
+
+        let filename = self.entry.file_name().to_string_lossy();
+        let relative = self
+            .entry
+            .path()
+            .strip_prefix(&self.from)
+            .unwrap_or(self.entry.path());
+        let dirpart = relative
+            .parent()
+            .map(|p| p.to_string_lossy().to_string())
+            .unwrap_or_default();
+        let fullpath = if dirpart.is_empty() {
+            filename.to_string()
+        } else {
+            let sep = if !self.separator.is_empty() {
+                &self.separator
+            } else {
+                std::path::MAIN_SEPARATOR_STR
+            };
+            format!("{}{}{}", dirpart, sep, filename)
+        };
+
+        let index = format!("{:0count$}", self.index, count = self.count);
+
+        let replacements = vec![
+            ("{{index}}", index),
+            (
+                "{{filename}}",
+                if self.uppercase.contains(&"filename".to_string()) {
+                    filename.to_uppercase()
+                } else {
+                    filename.to_string()
+                },
+            ),
+            (
+                "{{extension}}",
+                if self.uppercase.contains(&"extension".to_string()) {
+                    extension.to_uppercase()
+                } else {
+                    extension.to_string()
+                },
+            ),
+            (
+                "{{path}}",
+                if self.uppercase.contains(&"path".to_string()) {
+                    dirpart.to_uppercase()
+                } else {
+                    dirpart.to_string()
+                },
+            ),
+            (
+                "{{fullpath}}",
+                if self.uppercase.contains(&"fullpath".to_string()) {
+                    fullpath.to_uppercase()
+                } else {
+                    fullpath
+                },
+            ),
+        ];
+
+        for (key, value) in replacements {
+            transform = transform.replace(key, &value);
+        }
+
+        if !self.separator.is_empty() {
+            transform = transform
+                .replace("\\", &self.separator) // Windows 路径分隔符
+                .replace("/", &self.separator); // Unix 路径分隔符
+        }
+
+        Ok(transform)
+    }
 }

@@ -1,3 +1,7 @@
+pub mod setup {
+    pub mod controller;
+    pub mod service;
+}
 pub mod copy {
     pub mod controller;
     pub mod service;

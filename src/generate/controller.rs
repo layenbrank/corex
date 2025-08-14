@@ -20,17 +20,17 @@ pub struct PathArgs {
     pub transform: String,
 
     #[arg(long, help = "起始索引")]
-    pub index: String,
+    pub index: usize,
 
-    #[arg(short, long, help = "路径分隔符")]
+    #[arg(long, help = "路径分隔符")]
     pub separator: String,
 
     #[arg(long, action = ArgAction::SetTrue, help = "填充索引")]
     pub pad: bool,
 
-    #[arg(short, long, action = ArgAction::Append, value_delimiter = ',', help = "忽略模式，可多次使用或用逗号分隔")]
+    #[arg(long, action = ArgAction::Append, value_delimiter = ',', help = "忽略模式，可多次使用或用逗号分隔")]
     pub ignores: Vec<String>,
 
-    #[arg(short, long, action = ArgAction::Append, value_delimiter = ',', help = "将某个规则转换为大写，可多次使用或用逗号分隔")]
+    #[arg(long, action = ArgAction::Append, value_delimiter = ',', help = "将某个规则转换为大写，可多次使用或用逗号分隔")]
     pub uppercase: Vec<String>,
 }

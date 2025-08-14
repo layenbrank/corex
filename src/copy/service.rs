@@ -1,7 +1,6 @@
 use crate::copy::controller::CopyArgs;
 use anyhow::{Context, Result};
 use glob::Pattern;
-use notify_rust::Notification;
 use std::{fs, path::Path};
 use walkdir::WalkDir;
 
@@ -25,24 +24,6 @@ pub fn run(args: &CopyArgs) -> Result<()> {
     // 执行复制操作
     let copy_resp = copy_task(from, to, empty, &patterns);
 
-    match &copy_resp {
-        Ok(_) => {
-            let _ = Notification::new()
-                .summary("复制成功")
-                .body("文件复制操作已成功完成")
-                .icon("dialog-information")
-                .show()
-                .context("显示成功通知失败");
-        }
-        Err(e) => {
-            let _ = Notification::new()
-                .summary("文件复制失败")
-                .body(&format!("复制过程中发生错误: {}", e))
-                .icon("dialog-error")
-                .show();
-        }
-    }
-
     copy_resp
 }
 
@@ -54,7 +35,7 @@ fn copy_task(from: &Path, to: &Path, empty: bool, patterns: &[Pattern]) -> Resul
 
     // 如果需要清空，删除目标目录下的所有内容，但保留目录本身
     if empty && to.exists() {
-        dir_empty(to).context("清空目标目录内容失败")?;
+        empty_dir(to).context("清空目标目录内容失败")?;
     }
 
     // 递归遍历源目录
@@ -94,7 +75,7 @@ fn copy_task(from: &Path, to: &Path, empty: bool, patterns: &[Pattern]) -> Resul
 }
 
 /// 清空目录内容，但保留目录本身
-fn dir_empty(dir: &Path) -> Result<()> {
+fn empty_dir(dir: &Path) -> Result<()> {
     if !dir.is_dir() {
         return Ok(());
     }
