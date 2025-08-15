@@ -17,10 +17,13 @@ pub enum Commands {
 }
 
 #[derive(Debug, Parser)]
+#[command(
+    author = "李贺 <15638470820@163.com>",
+    version = env!("CARGO_PKG_VERSION"),
+    about = "Fluxor 工具",
+    long_about = "Fluxor 工具\n\n作者: 李贺 <15638470820@163.com>"
+)]
 pub struct Args {
-    #[arg(short, long, help = "Enable verbose mode")]
-    pub verbose: bool,
-
     #[command(subcommand)]
     pub command: Commands,
 }

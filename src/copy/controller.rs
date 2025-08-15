@@ -14,5 +14,5 @@ pub struct CopyArgs {
     pub empty: bool,
 
     #[arg(short, long, action = ArgAction::Append, value_delimiter = ',', help = "忽略模式，用逗号分隔")]
-    pub ignores: Vec<String>,
+    pub ignore: Vec<String>,
 }

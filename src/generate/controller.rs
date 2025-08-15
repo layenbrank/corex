@@ -29,7 +29,7 @@ pub struct PathArgs {
     pub pad: bool,
 
     #[arg(long, action = ArgAction::Append, value_delimiter = ',', help = "忽略模式，可多次使用或用逗号分隔")]
-    pub ignores: Vec<String>,
+    pub ignore: Vec<String>,
 
     #[arg(long, action = ArgAction::Append, value_delimiter = ',', help = "将某个规则转换为大写，可多次使用或用逗号分隔")]
     pub uppercase: Vec<String>,

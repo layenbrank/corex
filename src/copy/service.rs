@@ -13,10 +13,10 @@ pub fn run(args: &CopyArgs) -> Result<()> {
     let from = Path::new(&args.from);
     let to = Path::new(&args.to);
     let empty = args.empty;
-    let ignores = args.ignores.clone();
+    let ignore = args.ignore.clone();
 
     // 预编译 glob 模式以提高性能
-    let patterns: Vec<Pattern> = ignores
+    let patterns: Vec<Pattern> = ignore
         .iter()
         .filter_map(|pattern| Pattern::new(pattern).ok())
         .collect();

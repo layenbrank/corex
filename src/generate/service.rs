@@ -14,7 +14,7 @@ pub fn run_path(args: &PathArgs) -> Result<()> {
     let from = Path::new(&args.from);
     let to = Path::new(&args.to);
     let transform = args.transform.clone();
-    let ignores = args.ignores.clone();
+    let ignore = args.ignore.clone();
     let separator = args.separator.clone();
     let index = args.index.clone();
     let uppercase = args.uppercase.clone();
@@ -40,7 +40,7 @@ pub fn run_path(args: &PathArgs) -> Result<()> {
     let mut writer = BufWriter::new(file);
 
     // 预编译 glob 模式以提高性能
-    let patterns: Vec<Pattern> = ignores
+    let patterns: Vec<Pattern> = ignore
         .iter()
         .filter_map(|pattern| Pattern::new(pattern).ok())
         .collect();
