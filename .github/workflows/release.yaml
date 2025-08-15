@@ -5,6 +5,12 @@ on:
     tags:
       - v*
 
+permissions:
+  contents: write
+  packages: write
+  issues: write
+  pull-requests: write
+
 env:
   CARGO_TERM_COLOR: always
 
@@ -61,7 +67,7 @@ jobs:
           powershell Compress-Archive -Path release-package\* -DestinationPath "fluxor-${{ github.ref_name }}-windows-x64.zip"
 
       - name: Create GitHub Release
-        uses: softprops/action-gh-release@v1
+        uses: softprops/action-gh-release@v2
         with:
           files: |
             fluxor-${{ github.ref_name }}-windows-x64.zip
@@ -76,5 +82,5 @@ jobs:
           draft: false
           prerelease: ${{ contains(github.ref_name, 'alpha') || contains(github.ref_name, 'beta') || contains(github.ref_name, 'rc') }}
           generate_release_notes: true
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        # env:
+        #   GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
