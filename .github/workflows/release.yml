@@ -1,0 +1,84 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  create_release:
+    runs-on: windows-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: stable
+
+      - name: Cache cargo dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Update dependencies
+        run: cargo update
+
+      - name: Run tests
+        run: cargo test --release
+
+      - name: Build release binary
+        run: cargo build --release --verbose
+
+      - name: Strip binary (optional)
+        run: |
+          if (Test-Path "target\release\fluxor.exe") {
+            Write-Host "Binary built successfully"
+          } else {
+            Write-Error "Binary not found"
+            exit 1
+          }
+
+      - name: Create release package
+        run: |
+          mkdir release-package
+          copy target\release\fluxor.exe release-package\
+
+          # 添加其他文件（如果存在）
+          if (Test-Path "README.md") { copy README.md release-package\ }
+          if (Test-Path "LICENSE") { copy LICENSE release-package\ }
+          if (Test-Path "CHANGELOG.md") { copy CHANGELOG.md release-package\ }
+
+          # 创建压缩包
+          powershell Compress-Archive -Path release-package\* -DestinationPath "fluxor-${{ github.ref_name }}-windows-x64.zip"
+
+      - name: Generate changelog
+        id: changelog
+        run: |
+          $tag = "${{ github.ref_name }}"
+          $changelog = "## What's Changed in $tag`n`n"
+          $changelog += "Binary built for Windows x64`n"
+          $changelog += "Built with Rust stable toolchain`n"
+          echo "CHANGELOG=$changelog" >> $env:GITHUB_OUTPUT
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: |
+            fluxor-${{ github.ref_name }}-windows-x64.zip
+            target/release/fluxor.exe
+          name: Release ${{ github.ref_name }}
+          body: ${{ steps.changelog.outputs.CHANGELOG }}
+          draft: false
+          prerelease: ${{ contains(github.ref_name, 'alpha') || contains(github.ref_name, 'beta') || contains(github.ref_name, 'rc') }}
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
