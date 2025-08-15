@@ -60,24 +60,6 @@ jobs:
           # 创建压缩包
           powershell Compress-Archive -Path release-package\* -DestinationPath "fluxor-${{ github.ref_name }}-windows-x64.zip"
 
-      - name: Generate changelog
-        id: changelog
-        run: |
-          $tag = "${{ github.ref_name }}"
-          $changelog = @"
-          ## What's Changed in $tag
-
-          - Binary built for Windows x64
-          - Built with Rust stable toolchain
-          - Optimized release build with LTO enabled
-          "@
-
-          # 将多行内容写入环境文件
-          $changelog | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
-          "CHANGELOG<<EOF" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
-          $changelog | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
-          "EOF" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
-
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v1
         with:
@@ -85,7 +67,12 @@ jobs:
             fluxor-${{ github.ref_name }}-windows-x64.zip
             target/release/fluxor.exe
           name: Release ${{ github.ref_name }}
-          body: ${{ steps.changelog.outputs.CHANGELOG }}
+          body: |
+            ## What's Changed in ${{ github.ref_name }}
+
+            - Binary built for Windows x64
+            - Built with Rust stable toolchain
+            - Optimized release build with LTO enabled
           draft: false
           prerelease: ${{ contains(github.ref_name, 'alpha') || contains(github.ref_name, 'beta') || contains(github.ref_name, 'rc') }}
           generate_release_notes: true
