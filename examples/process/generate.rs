@@ -1,1 +1,0 @@
-fn process_generate() {}
