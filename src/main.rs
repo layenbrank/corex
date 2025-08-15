@@ -18,7 +18,7 @@ pub enum Commands {
 
 #[derive(Debug, Parser)]
 #[command(
-    author = "李贺 <15638470820@163.com>",
+    author = "layen <15638470820@163.com>",
     version = env!("CARGO_PKG_VERSION"),
     about = "Fluxor 工具",
     long_about = "Fluxor 工具\n\n作者: 李贺 <15638470820@163.com>"
