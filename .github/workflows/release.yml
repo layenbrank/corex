@@ -3,7 +3,7 @@ name: Release
 on:
   push:
     tags:
-      - "v*"
+      - v*
 
 env:
   CARGO_TERM_COLOR: always
@@ -64,10 +64,19 @@ jobs:
         id: changelog
         run: |
           $tag = "${{ github.ref_name }}"
-          $changelog = "## What's Changed in $tag`n`n"
-          $changelog += "Binary built for Windows x64`n"
-          $changelog += "Built with Rust stable toolchain`n"
-          echo "CHANGELOG=$changelog" >> $env:GITHUB_OUTPUT
+          $changelog = @"
+          ## What's Changed in $tag
+
+          - Binary built for Windows x64
+          - Built with Rust stable toolchain
+          - Optimized release build with LTO enabled
+          "@
+
+          # 将多行内容写入环境文件
+          $changelog | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          "CHANGELOG<<EOF" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          $changelog | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          "EOF" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v1
