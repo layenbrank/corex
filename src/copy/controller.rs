@@ -1,8 +1,8 @@
 use crate::utils::verifier::Verifier;
 use clap::{ArgAction, Parser};
-use serde::Deserialize;
+// use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Parser, Deserialize)]
+#[derive(Debug, Clone, Parser)]
 pub struct CopyArgs {
     #[arg(short, long, value_parser = Verifier::path, help = "源路径")]
     pub from: String,
