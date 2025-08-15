@@ -28,7 +28,7 @@
 
   ```powershell
   fluxor copy --from ./input --to ./output --ignore "example.js,*.git,node_modules"
-
+  
   fluxor copy -f ./input -t ./output --ignore "example.js,*.git,node_modules"
   ```
 
@@ -59,3 +59,45 @@
   ```powershell
   fluxor generate path --from dist --to path.txt --ignore "example.js,*.git,node_modules" --index 1 --separator "\" --uppercase "extension" --transform '<include name="IDR_ITAB_{{extension}}_{{index}}" file="{{fullpath}}" type="BINDATA" />'
   ```
+
+## node
+
+- 依赖
+  - npm-run-all2
+  
+  - post-build.js
+  
+    ```javascript
+    import { spawn } from 'node:child_process'
+    import { homedir } from 'node:os'
+    
+    const from = '../dist'
+    const toPath = resolve(homedir(), 'Documents', 'Vue', 'resources', 'desktop_lite')
+    const ignore = 'index.html'
+    
+    spawn('fluxor', ['copy', '--from', from, '--to', toPath, '--ignore', ignore, '--empty'], {
+    	stdio: 'inherit'
+    })
+    ```
+  
+  - package.json
+  
+    ```json
+    {
+    	"name": "example",
+    	"private": true,
+    	"version": "0.0.1",
+    	"type": "module",
+    	"scripts": {
+    		"dev": "vite",
+    		"build": "run-s build:core build:post",
+    		"build-only": "vite build",
+    		"build:pre": "node ./scripts/pre-build.js",
+    		"build:post": "node ./scripts/post-build.js",
+    		"build:core": "run-p type-check \"build-only {@}\" --",
+    		"type-check": "vue-tsc --build",
+    	}
+    }
+    ```
+  
+    
