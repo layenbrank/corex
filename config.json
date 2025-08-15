@@ -1,7 +1,0 @@
-{
-  "copy": {
-    "from": "../input",
-    "to": "../../output",
-    "ignores": [".ts"]
-  }
-}

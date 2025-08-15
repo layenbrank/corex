@@ -1,0 +1,27 @@
+{
+  "copy": [
+    {
+      "task-1": {
+        "from": "../input",
+        "to": "../output",
+        "ignores": [".ts"],
+        "empty": false
+      }
+    }
+  ],
+  "generate": {
+    "path": [
+      {
+        "task-1": {
+          "from": "../input",
+          "to": "../output.txt",
+          "ignores": [".ts"],
+          "index": 0,
+          "separator": "\\",
+          "uppercase": ["extension"],
+          "transform": "<include name=\"IDR_ITAB_{{extension}}_{{index}}\" file=\"{{fullpath}}\" type=\"BINDATA\" />"
+        }
+      }
+    ]
+  }
+}
