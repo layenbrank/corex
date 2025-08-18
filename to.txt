@@ -2,7 +2,7 @@
 <include name="IDR_ITAB_JSON_02" file="config.json" type="BINDATA" />
 <include name="IDR_ITAB_JSON_03" file="examples/notification_config.json" type="BINDATA" />
 <include name="IDR_ITAB_LOCK_04" file="Cargo.lock" type="BINDATA" />
-<include name="IDR_ITAB_MANIFEST_05" file="examples/fluxor.manifest" type="BINDATA" />
+<include name="IDR_ITAB_MANIFEST_05" file="examples/corex.manifest" type="BINDATA" />
 <include name="IDR_ITAB_MD_06" file="examples/NOTIFICATION_README.md" type="BINDATA" />
 <include name="IDR_ITAB_RS_07" file="examples/comprehensive_notification_test.rs" type="BINDATA" />
 <include name="IDR_ITAB_RS_08" file="src/copy/controller.rs" type="BINDATA" />

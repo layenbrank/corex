@@ -1,4 +1,4 @@
-name: Fluxor CI
+name: Corex CI
 
 on:
   push:

@@ -30,7 +30,7 @@ pub fn run(args: &SetupArgs) -> Result<()> {
         } else {
             println!("❌ 工具尚未添加到系统环境变量中");
             println!("📁 当前路径: {}", exe_dir);
-            println!("💡 运行 'fluxor setup --env' 来添加到环境变量");
+            println!("💡 运行 'corex setup --env' 来添加到环境变量");
         }
     }
 
@@ -72,7 +72,7 @@ pub fn run(args: &SetupArgs) -> Result<()> {
         println!("📋 使用说明:");
         println!("1. 重启命令行窗口");
         println!("2. 在任意目录下输入工具名称即可使用");
-        println!("3. 使用 'fluxor setup --check' 验证配置");
+        println!("3. 使用 'corex setup --check' 验证配置");
     }
 
     if args.force {

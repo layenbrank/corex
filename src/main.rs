@@ -1,6 +1,6 @@
 use clap::Parser;
 // use config::Config;
-use fluxor::{copy, generate, setup};
+use corex::{copy, generate, setup};
 use notify_rust::Notification;
 // use serde::Deserialize;
 // use std::{collections::HashMap};
@@ -20,8 +20,8 @@ pub enum Commands {
 #[command(
     author = "layen <15638470820@163.com>",
     version = env!("CARGO_PKG_VERSION"),
-    about = "Fluxor 工具",
-    long_about = "Fluxor 工具\n\n作者: 李贺 <15638470820@163.com>"
+    about = "Corex 工具",
+    long_about = "Corex 工具\n\n作者: 李贺 <15638470820@163.com>"
 )]
 pub struct Args {
     #[command(subcommand)]

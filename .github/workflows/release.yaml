@@ -46,7 +46,7 @@ jobs:
 
       - name: Strip binary (optional)
         run: |
-          if (Test-Path "target\release\fluxor.exe") {
+          if (Test-Path "target\release\corex.exe") {
             Write-Host "Binary built successfully"
           } else {
             Write-Error "Binary not found"
@@ -56,7 +56,7 @@ jobs:
       - name: Create release package
         run: |
           mkdir release-package
-          copy target\release\fluxor.exe release-package\
+          copy target\release\corex.exe release-package\
 
           # 添加其他文件（如果存在）
           if (Test-Path "README.md") { copy README.md release-package\ }
@@ -64,14 +64,14 @@ jobs:
           if (Test-Path "CHANGELOG.md") { copy CHANGELOG.md release-package\ }
 
           # 创建压缩包
-          powershell Compress-Archive -Path release-package\* -DestinationPath "fluxor-${{ github.ref_name }}-windows-x64.zip"
+          powershell Compress-Archive -Path release-package\* -DestinationPath "corex-${{ github.ref_name }}-windows-x64.zip"
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           files: |
-            fluxor-${{ github.ref_name }}-windows-x64.zip
-            target/release/fluxor.exe
+            corex-${{ github.ref_name }}-windows-x64.zip
+            target/release/corex.exe
           name: Release ${{ github.ref_name }}
           body: |
             ## What's Changed in ${{ github.ref_name }}

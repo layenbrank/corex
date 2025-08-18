@@ -7,7 +7,7 @@ use std::collections::HashMap;
 pub struct Task {}
 
 // #[derive(Debug)]
-// pub struct FluxorConfig {
+// pub struct CorexConfig {
 //     pub copy: Option<Vec<HashMap<String, CopyTask>>>,
 //     pub generate: Option<GenerateConfig>,
 // }
@@ -80,7 +80,7 @@ pub struct GenerateConfig {
 }
 
 #[derive(Debug)]
-pub struct FluxorConfig {
+pub struct CorexConfig {
     pub copy: Option<Vec<HashMap<String, CopyTask>>>,
     pub generate: Option<GenerateConfig>,
 }

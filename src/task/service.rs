@@ -4,11 +4,11 @@
 // use std::fs;
 // use std::path::Path;
 
-// impl FluxorConfig {
+// impl CorexConfig {
 //     /// 从文件加载配置
 //     pub fn load_from_file<P: AsRef<Path>>(path: P) -> Result<Self, Box<dyn std::error::Error>> {
 //         let content = fs::read_to_string(path)?;
-//         let config: FluxorConfig = serde_json::from_str(&content)?;
+//         let config: CorexConfig = serde_json::from_str(&content)?;
 //         Ok(config)
 //     }
 
@@ -21,7 +21,7 @@
 
 //     /// 创建默认配置
 //     pub fn default() -> Self {
-//         FluxorConfig {
+//         CorexConfig {
 //             copy: None,
 //             generate: None,
 //         }
@@ -32,16 +32,16 @@
 // 在主程序中使用
 // mod config;
 
-// use config::FluxorConfig;
+// use config::CorexConfig;
 // use std::env;
 
 // fn main() -> Result<(), Box<dyn std::error::Error>> {
 //     // 获取配置文件路径
 //     let config_path = env::args().nth(1)
-//         .unwrap_or_else(|| "fluxor.task.json".to_string());
+//         .unwrap_or_else(|| "Corex.task.json".to_string());
 
 //     // 加载配置
-//     let config = FluxorConfig::load_from_file(&config_path)?;
+//     let config = CorexConfig::load_from_file(&config_path)?;
 
 //     println!("加载配置成功: {:#?}", config);
 
@@ -51,7 +51,7 @@
 //     Ok(())
 // }
 
-// fn execute_tasks(config: &FluxorConfig) -> Result<(), Box<dyn std::error::Error>> {
+// fn execute_tasks(config: &CorexConfig) -> Result<(), Box<dyn std::error::Error>> {
 //     // 执行复制任务
 //     if let Some(copy_tasks) = &config.copy {
 //         for task_map in copy_tasks {
@@ -94,34 +94,34 @@
 // use std::fmt;
 
 // #[derive(Debug)]
-// pub enum FluxorError {
+// pub enum CorexError {
 //     ConfigNotFound(String),
 //     InvalidConfig(String),
 //     IoError(std::io::Error),
 //     JsonError(serde_json::Error),
 // }
 
-// impl fmt::Display for FluxorError {
+// impl fmt::Display for CorexError {
 //     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
 //         match self {
-//             FluxorError::ConfigNotFound(path) => write!(f, "配置文件未找到: {}", path),
-//             FluxorError::InvalidConfig(msg) => write!(f, "配置文件无效: {}", msg),
-//             FluxorError::IoError(err) => write!(f, "IO错误: {}", err),
-//             FluxorError::JsonError(err) => write!(f, "JSON解析错误: {}", err),
+//             CorexError::ConfigNotFound(path) => write!(f, "配置文件未找到: {}", path),
+//             CorexError::InvalidConfig(msg) => write!(f, "配置文件无效: {}", msg),
+//             CorexError::IoError(err) => write!(f, "IO错误: {}", err),
+//             CorexError::JsonError(err) => write!(f, "JSON解析错误: {}", err),
 //         }
 //     }
 // }
 
-// impl std::error::Error for FluxorError {}
+// impl std::error::Error for CorexError {}
 
-// impl From<std::io::Error> for FluxorError {
+// impl From<std::io::Error> for CorexError {
 //     fn from(err: std::io::Error) -> Self {
-//         FluxorError::IoError(err)
+//         CorexError::IoError(err)
 //     }
 // }
 
-// impl From<serde_json::Error> for FluxorError {
+// impl From<serde_json::Error> for CorexError {
 //     fn from(err: serde_json::Error) -> Self {
-//         FluxorError::JsonError(err)
+//         CorexError::JsonError(err)
 //     }
 // }
