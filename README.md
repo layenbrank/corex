@@ -5,14 +5,14 @@
   - 初始化，将当前可执行文件，添加至环境变量
 
   ```powershell
-  corex setup --env
+  corex setup env
 
   ```
 
 - 检查是否在环境变量中
 
   ```powershell
-  corex setup --check
+  corex setup check
   ```
 
 ## copy
