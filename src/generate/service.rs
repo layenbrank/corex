@@ -1,7 +1,8 @@
-use crate::generate::controller::PathArgs;
+use crate::generate::controller::{GenerateArgs, PathArgs};
 use crate::utils::verifier::Verifier;
-use anyhow::{Context, Ok, Result};
+use anyhow::{Context, Result};
 use glob::Pattern;
+use notify_rust::Notification;
 use std::{
     fs::{File, OpenOptions},
     io::{BufWriter, Write},
@@ -9,7 +10,33 @@ use std::{
 };
 use walkdir::{DirEntry, WalkDir};
 
-pub fn run_path(args: &PathArgs) -> Result<()> {
+pub fn run(args: &GenerateArgs) {
+    match args {
+        GenerateArgs::Path(path_args) => {
+            let resp = path_task(&path_args);
+            match &resp {
+                Ok(_) => {
+                    let _ = Notification::new()
+                        .summary("路径生成成功")
+                        .body("路径生成操作已成功完成")
+                        .icon("dialog-information")
+                        .show()
+                        .expect("显示成功通知失败");
+                }
+                Err(e) => {
+                    let _ = Notification::new()
+                        .summary("文件复制失败")
+                        .body(&format!("复制过程中发生错误: {}", e))
+                        .icon("dialog-error")
+                        .show()
+                        .expect("显示错误通知失败");
+                }
+            }
+        }
+    }
+}
+
+pub fn path_task(args: &PathArgs) -> Result<()> {
     // 这里是具体的实现逻辑
     let from = Path::new(&args.from);
     let to = Path::new(&args.to);
@@ -106,7 +133,7 @@ pub fn run_path(args: &PathArgs) -> Result<()> {
     // 确保所有数据都被写入到文件
     writer.flush().context("刷新缓冲区失败")?;
 
-    Ok(())
+    anyhow::Ok(())
 }
 
 fn ignored(path: &Path, patterns: &[Pattern]) -> bool {
@@ -221,6 +248,6 @@ impl Replacement {
                 .replace("/", &self.separator); // Unix 路径分隔符
         }
 
-        Ok(transform)
+        anyhow::Ok(transform)
     }
 }

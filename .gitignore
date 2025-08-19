@@ -1,5 +1,4 @@
 /target
 cache
-.cargo/
-config.toml
+/.cargo
 examples/

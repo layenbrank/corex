@@ -1,6 +1,5 @@
 use crate::utils::verifier::Verifier;
 use clap::{ArgAction, Parser};
-// use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Parser)]
 pub struct CopyArgs {

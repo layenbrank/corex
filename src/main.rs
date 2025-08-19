@@ -1,10 +1,9 @@
 use clap::Parser;
 // use config::Config;
-use corex::{copy, generate, setup};
+use corex::{copy, generate, setup, task};
 use notify_rust::Notification;
 // use serde::Deserialize;
 // use std::{collections::HashMap};
-use std::path::Path;
 
 #[derive(Debug, Parser)]
 pub enum Commands {
@@ -13,7 +12,11 @@ pub enum Commands {
     #[command(subcommand)]
     Generate(generate::controller::GenerateArgs),
 
+    #[command(subcommand)]
     Setup(setup::controller::SetupArgs),
+
+    #[command(subcommand)]
+    Task(task::controller::TaskArgs),
 }
 
 #[derive(Debug, Parser)]
@@ -66,36 +69,14 @@ fn main() {
                 }
             }
         }
-        Commands::Generate(generate_args) => match generate_args {
-            generate::controller::GenerateArgs::Path(args) => {
-                println!(
-                    "from: {:?}\nto: {:?}",
-                    Path::new(&args.from),
-                    Path::new(&args.to)
-                );
-                let resp = generate::service::run_path(&args);
-                match &resp {
-                    Ok(_) => {
-                        let _ = Notification::new()
-                            .summary("路径生成成功")
-                            .body("路径生成操作已成功完成")
-                            .icon("dialog-information")
-                            .show()
-                            .expect("显示成功通知失败");
-                    }
-                    Err(e) => {
-                        let _ = Notification::new()
-                            .summary("文件复制失败")
-                            .body(&format!("复制过程中发生错误: {}", e))
-                            .icon("dialog-error")
-                            .show()
-                            .expect("显示错误通知失败");
-                    }
-                }
-            }
-        },
+        Commands::Generate(args) => {
+            generate::service::run(&args);
+        }
         Commands::Setup(args) => {
             setup::service::run(&args).expect("命令执行失败");
+        }
+        Commands::Task(args) => {
+            task::controller::run(args);
         }
     }
 }

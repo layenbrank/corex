@@ -22,9 +22,7 @@ pub fn run(args: &CopyArgs) -> Result<()> {
         .collect();
 
     // 执行复制操作
-    let copy_resp = copy_task(from, to, empty, &patterns);
-
-    copy_resp
+    copy_task(from, to, empty, &patterns)
 }
 
 fn copy_task(from: &Path, to: &Path, empty: bool, patterns: &[Pattern]) -> Result<()> {

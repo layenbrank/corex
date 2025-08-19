@@ -4,7 +4,9 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
 #[derive(Debug, Parser)]
-pub struct Task {}
+pub enum TaskArgs {
+    Env,
+}
 
 // #[derive(Debug)]
 // pub struct CorexConfig {
@@ -34,7 +36,16 @@ pub struct Task {}
 //     pub separator: Option<String>,
 //     pub uppercase: Option<Vec<String>>,
 //     pub transform: Option<String>,
-// }
+//
+
+pub fn run(task: TaskArgs) {
+    match task {
+        TaskArgs::Env => {
+            // 这里可以添加环境变量的处理逻辑
+            println!("Running Env task...");
+        }
+    }
+}
 
 #[derive(Debug, Clone, Parser, Serialize, Deserialize)]
 pub struct BaseTask {
