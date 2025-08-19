@@ -73,7 +73,20 @@ fn progress_bar(total: u64) -> Arc<ProgressBar> {
             ))
             .unwrap()
             .progress_chars("█▉▊▋▌▍▎▏  ")
-            .tick_strings(&["🔄", "🔃", "⚡", "✨", "💫", "⭐"]),
+            .tick_strings(&["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]),
+        // .tick_strings(&["●   ", " ●  ", "  ● ", "   ●", "  ● ", " ●  "]),
+        // .tick_strings(&["■□□□", "□■□□", "□□■□", "□□□■", "□□■□", "□■□□"]),
+        // .tick_strings(&[
+        //     "▰▱▱▱▱",
+        //     "▰▰▱▱▱",
+        //     "▰▰▰▱▱",
+        //     "▰▰▰▰▱",
+        //     "▰▰▰▰▰",
+        //     "▱▰▰▰▰",
+        //     "▱▱▰▰▰",
+        //     "▱▱▱▰▰",
+        //     "▱▱▱▱▰",
+        // ]),
     );
     progress.enable_steady_tick(std::time::Duration::from_millis(120));
     Arc::new(progress)
@@ -86,10 +99,10 @@ fn update_progress(source: &Path, stats: &CopyStats, progress: &ProgressBar, sta
         let speed = calc_speed(stats.bytes, start.elapsed());
 
         progress.set_message(format!(
-            "📄 {} | ⏱️ {} | 🚀 {}",
-            name,
+            "⏱️ {} | 🚀 {} | 📄 {}",
             format_duration(start.elapsed()),
-            format!("{}/s", format_size(speed)) // 格式化传输速度
+            format!("{}/s", format_size(speed)), // 格式化传输速度
+            name,
         ));
     }
 }
