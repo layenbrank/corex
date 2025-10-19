@@ -6,6 +6,7 @@
   "properties": {
     "copy": {
       "description": "Array of copy task objects.",
+      "uniqueItems": true,
       "items": {
         "additionalProperties": false,
         "properties": {

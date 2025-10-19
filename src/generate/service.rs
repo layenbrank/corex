@@ -1,8 +1,6 @@
 use crate::generate::controller::{Args, PathArgs};
-use crate::utils::verifier::Verifier;
+use crate::utils::{ignore::Ignore, notify::Notification, verifier::Verifier};
 use anyhow::{Context, Result};
-use glob::Pattern;
-use notify_rust::Notification;
 use std::{
     fs::{File, OpenOptions},
     io::{BufWriter, Write},
@@ -14,20 +12,10 @@ pub fn run(args: &Args) {
     match args {
         Args::Path(path_args) => match path_task(&path_args) {
             Ok(_) => {
-                Notification::new()
-                    .summary("路径生成成功")
-                    .body("路径生成操作已成功完成")
-                    .icon("dialog-information")
-                    .show()
-                    .expect("显示成功通知失败");
+                let _ = Notification::success("路径生成成功", "路径生成操作已成功完成");
             }
             Err(e) => {
-                Notification::new()
-                    .summary("文件复制失败")
-                    .body(&format!("复制过程中发生错误: {}", e))
-                    .icon("dialog-error")
-                    .show()
-                    .expect("显示错误通知失败");
+                let _ = Notification::error("文件生成失败", &format!("生成过程中发生错误: {}", e));
             }
         },
     }
@@ -63,18 +51,15 @@ pub fn path_task(args: &PathArgs) -> Result<()> {
     // 创建缓冲写入器，类似 Node.js 的流
     let mut writer = BufWriter::new(file);
 
-    // 预编译 glob 模式以提高性能
-    let patterns: Vec<Pattern> = ignores
-        .iter()
-        .filter_map(|pattern| Pattern::new(pattern).ok())
-        .collect();
+    // 创建忽略处理器
+    let patterns = Ignore::new(&ignores);
 
     let mut entries: Vec<_> = WalkDir::new(from)
         .into_iter()
         .filter_map(|e| e.ok())
         .filter(|entry| {
             let raw_path = entry.path().strip_prefix(from).unwrap_or(entry.path());
-            !ignored(&raw_path, &patterns) && entry.path().is_file()
+            !patterns.ignored(&raw_path) && entry.path().is_file()
         })
         .collect();
 
@@ -131,29 +116,6 @@ pub fn path_task(args: &PathArgs) -> Result<()> {
     writer.flush().context("刷新缓冲区失败")?;
 
     anyhow::Ok(())
-}
-
-fn ignored(path: &Path, patterns: &[Pattern]) -> bool {
-    let path_str = path.to_string_lossy();
-
-    for pattern in patterns {
-        if pattern.matches(&path_str) {
-            return true;
-        }
-        if let Some(filename) = path.file_name() {
-            if pattern.matches(&filename.to_string_lossy()) {
-                return true;
-            }
-        }
-
-        for component in path.components() {
-            if pattern.matches(&component.as_os_str().to_string_lossy()) {
-                return true;
-            }
-        }
-    }
-
-    false
 }
 
 struct Replacement {

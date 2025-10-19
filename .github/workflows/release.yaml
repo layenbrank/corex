@@ -66,6 +66,21 @@ jobs:
           # 创建压缩包
           powershell Compress-Archive -Path release-package\* -DestinationPath "corex-${{ github.ref_name }}-windows-x64.zip"
 
+      - name: Get commit info
+        id: commit_info
+        run: |
+          $commit_hash = git rev-parse HEAD
+          $commit_short = git rev-parse --short HEAD
+          $commit_message = git log -1 --pretty=format:"%s"
+          $commit_author = git log -1 --pretty=format:"%an"
+          $commit_date = git log -1 --pretty=format:"%ci"
+
+          echo "hash=$commit_hash" >> $env:GITHUB_OUTPUT
+          echo "short=$commit_short" >> $env:GITHUB_OUTPUT
+          echo "message=$commit_message" >> $env:GITHUB_OUTPUT
+          echo "author=$commit_author" >> $env:GITHUB_OUTPUT
+          echo "date=$commit_date" >> $env:GITHUB_OUTPUT
+
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
@@ -76,9 +91,24 @@ jobs:
           body: |
             ## What's Changed in ${{ github.ref_name }}
 
+            ### 📦 Release Information
+            - **Tag**: ${{ github.ref_name }}
+            - **Commit**: `${{ steps.commit_info.outputs.short }}` 
+            - **Author**: ${{ steps.commit_info.outputs.author }}
+            - **Date**: ${{ steps.commit_info.outputs.date }}
+
+            ### 💬 Commit Message
+            ```
+            ${{ steps.commit_info.outputs.message }}
+            ```
+
+            ### 🔧 Build Information
             - Binary built for Windows x64
             - Built with Rust stable toolchain
             - Optimized release build with LTO enabled
+
+            ### 📋 Full Changelog
+            **Full Commit**: [`${{ steps.commit_info.outputs.short }}`](https://github.com/${{ github.repository }}/commit/${{ steps.commit_info.outputs.hash }})
           draft: false
           prerelease: ${{ contains(github.ref_name, 'alpha') || contains(github.ref_name, 'beta') || contains(github.ref_name, 'rc') }}
           generate_release_notes: true

@@ -10,7 +10,8 @@ pub struct Args {
     #[arg(short, long, value_parser = Verifier::path, help = "目标路径")]
     pub to: String,
 
-    #[arg(short, long, action = ArgAction::Append, default_value_t = true, help = "是否清空目标文件夹"
+    #[arg(short, long, action = ArgAction::Append, default_value_t = true, hide_default_value = false,
+        hide_possible_values = true, help = "是否清空目标文件夹"
 	)]
     pub empty: bool,
 

@@ -5,9 +5,17 @@
       "id": "ahbsfnjsdn",
       "description": "复制-任务1",
       "empty": false,
-      "from": "../input",
+      "from": "cache",
       "ignores": [".ts"],
-      "to": "../output"
+      "to": "docs"
+    },
+    {
+      "id": "skgdmlksng",
+      "description": "复制-任务2",
+      "empty": false,
+      "from": "cache",
+      "ignores": [".ts"],
+      "to": "docs"
     }
   ],
   "generate": {
