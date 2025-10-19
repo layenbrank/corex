@@ -1,0 +1,5 @@
+<include name="IDR_ITAB_JSON_1" file="corex.task.example.json" type="BINDATA" \>
+<include name="IDR_ITAB_JSON_2" file="corex.task.json" type="BINDATA" \>
+<include name="IDR_ITAB_JSON_3" file="corex.task.schema.json" type="BINDATA" \>
+<include name="IDR_ITAB_MD_4" file="corex.task.schema.README.md" type="BINDATA" \>
+<include name="IDR_ITAB_TXT_5" file="path.txt" type="BINDATA" \>

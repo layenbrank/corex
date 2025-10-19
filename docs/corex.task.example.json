@@ -1,0 +1,27 @@
+{
+  "copy": [
+    {
+      "id": "ahbsfnjsdn",
+      "description": "任务1",
+      "empty": false,
+      "from": "../input",
+      "ignores": [".ts"],
+      "to": "../output"
+    }
+  ],
+  "generate": {
+    "path": [
+      {
+        "id": "ahbsfnjsdn",
+        "description": "任务1",
+        "from": "../input",
+        "ignores": [".ts"],
+        "index": 0,
+        "separator": "\\",
+        "to": "../output.txt",
+        "transform": "<include name=\"IDR_ITAB_{{extension}}_{{index}}\" file=\"{{fullpath}}\" type=\"BINDATA\" />",
+        "uppercase": ["extension"]
+      }
+    ]
+  }
+}

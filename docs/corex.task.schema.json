@@ -1,0 +1,115 @@
+{
+  "$id": "https://corex.dev/schemas/corex.task.schema.json",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "additionalProperties": false,
+  "description": "Schema for corex task configuration supporting copy and generate.path tasks.",
+  "properties": {
+    "copy": {
+      "description": "Array of copy task objects.",
+      "items": {
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "description": "Unique identifier for the task",
+            "type": "string"
+          },
+          "description": {
+            "description": "Task description",
+            "type": "string"
+          },
+          "empty": {
+            "description": "Whether to empty the destination before copying",
+            "type": "boolean"
+          },
+          "from": {
+            "description": "Source path to copy from",
+            "type": "string"
+          },
+          "ignores": {
+            "description": "Array of file extensions or patterns to ignore",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "to": {
+            "description": "Destination path to copy to",
+            "type": "string"
+          }
+        },
+        "required": ["from", "to"],
+        "type": "object"
+      },
+      "type": "array"
+    },
+    "generate": {
+      "additionalProperties": false,
+      "description": "Generation related tasks.",
+      "properties": {
+        "path": {
+          "description": "Array of path generation task objects.",
+          "uniqueItems": true,
+          "items": {
+            "additionalProperties": false,
+            "uniqueItems": true,
+            "properties": {
+              "id": {
+                "description": "Unique identifier for the task",
+                "type": "string"
+              },
+              "description": {
+                "description": "Task description",
+                "type": "string"
+              },
+              "from": {
+                "description": "Source path to read files from",
+                "type": "string"
+              },
+              "ignores": {
+                "description": "Array of file extensions or patterns to ignore",
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "index": {
+                "description": "Starting index for generated entries",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "separator": {
+                "description": "Path separator used when joining path components (escaped if necessary)",
+                "type": "string"
+              },
+              "to": {
+                "description": "Output file path for generated content",
+                "type": "string"
+              },
+              "pad": {
+                "description": "Whether to pad the index with leading zeros",
+                "type": "boolean"
+              },
+              "transform": {
+                "description": "Template string for each generated entry. Supports handlebars-like placeholders such as {{fullpath}}, {{extension}}, {{index}}",
+                "type": "string"
+              },
+              "uppercase": {
+                "description": "List of placeholder names whose values should be uppercased in the transform",
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              }
+            },
+            "required": ["from", "to"],
+            "type": "object"
+          },
+          "type": "array"
+        }
+      },
+      "type": "object"
+    }
+  },
+  "title": "CoreX Task Schema",
+  "type": "object"
+}

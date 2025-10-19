@@ -1,30 +1,26 @@
 use clap::Parser;
-// use config::Config;
-use corex::{copy, generate, setup, task};
-use notify_rust::Notification;
-// use serde::Deserialize;
-// use std::{collections::HashMap};
+use corex::{copy, generate, remove, setup, task};
 
 #[derive(Debug, Parser)]
 pub enum Commands {
-    Copy(copy::controller::CopyArgs),
+    Copy(copy::controller::Args),
+    Remove(remove::controller::Args),
 
     #[command(subcommand)]
-    Generate(generate::controller::GenerateArgs),
+    Generate(generate::controller::Args),
 
     #[command(subcommand)]
-    Setup(setup::controller::SetupArgs),
+    Setup(setup::controller::Args),
 
-    #[command(subcommand)]
-    Task(task::controller::TaskArgs),
+    // #[command(subcommand)]
+    Task,
 }
 
 #[derive(Debug, Parser)]
 #[command(
-    author = "layen <15638470820@163.com>",
-    version = env!("CARGO_PKG_VERSION"),
-    about = "Corex 工具",
-    long_about = "Corex 工具\n\n作者: 李贺 <15638470820@163.com>"
+	author = "layen <15638470820@163.com>",
+	version = env!("CARGO_PKG_VERSION"),
+	about = "Corex Tools",
 )]
 pub struct Args {
     #[command(subcommand)]
@@ -32,54 +28,28 @@ pub struct Args {
 }
 
 fn main() {
-    // let settings = Config::builder()
-    //     .add_source(config::File::with_name("config.json"))
-    //     .add_source(config::Environment::with_prefix("config"))
-    //     .build()
-    //     .expect("配置文件获取失败");
-
-    // let deserialize = settings
-    //     .try_deserialize::<HashMap<String, CopyArgs>>()
-    //     .expect("转换失败");
-
-    // println!("deserialize {:?}", deserialize);
-
-    let args = Args::parse();
-
-    match args.command {
-        Commands::Copy(args) => {
-            let resp = copy::service::run(&args);
-
-            match &resp {
-                Ok(_) => {
-                    let _ = Notification::new()
-                        .summary("复制成功")
-                        .body("文件复制操作已成功完成")
-                        .icon("dialog-information")
-                        .show()
-                        .expect("显示成功通知失败");
-                }
-                Err(e) => {
-                    let _ = Notification::new()
-                        .summary("文件复制失败")
-                        .body(&format!("复制过程中发生错误: {}", e))
-                        .icon("dialog-error")
-                        .show()
-                        .expect("显示错误通知失败");
-                }
-            }
-        }
-        Commands::Generate(args) => {
-            generate::service::run(&args);
-        }
-        Commands::Setup(args) => {
-            setup::service::run(&args).expect("命令执行失败");
-        }
-        Commands::Task(args) => {
-            task::controller::run(args);
-        }
+    match Args::parse().command {
+        Commands::Task => task::service::run(),
+        Commands::Copy(args) => copy::service::run(&args),
+        Commands::Setup(args) => setup::service::run(&args),
+        Commands::Remove(args) => remove::service::run(&args),
+        Commands::Generate(args) => generate::service::run(&args),
     }
 }
+
+// use config::Config;
+// use serde::Deserialize;
+// use std::{collections::HashMap};
+// let settings = Config::builder()
+//     .add_source(config::File::with_name("config.json"))
+//     .add_source(config::Environment::with_prefix("config"))
+//     .build()
+//     .expect("配置文件获取失败");
+//
+// let deserialize = settings
+//     .try_deserialize::<HashMap<String, copy::controller::CopyArgs>>()
+//     .expect("转换失败");
+// println!("deserialize {:?}", deserialize);
 
 // 获取当前工作目录（调用命令的目录）
 //     let current_dir = env::current_dir()

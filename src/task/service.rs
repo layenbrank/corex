@@ -1,3 +1,121 @@
+use crate::task::controller::Args;
+use crate::{copy, generate};
+use config::{Config, File};
+use dialoguer;
+// use std::collections::HashMap;
+
+#[derive(Debug, Clone)]
+enum Class {
+    Copy(usize), // 复制任务的索引
+    GeneratePath(usize),
+    // 生成路径任务的索引
+    // 未来可以添加: GenerateFile(usize), GenerateTemplate(usize) 等
+}
+
+#[derive(Debug, Clone)]
+struct Task {
+    class: Class,
+    description: String,
+}
+
+pub fn run() {
+    let configure = Config::builder()
+        .add_source(File::with_name("corex-configure.json"))
+        // .add_source(config::Environment::with_prefix("COREX"))
+        .build()
+        .expect("Failed to build configuration")
+        // .try_deserialize::<HashMap<String, Args>>()
+        .try_deserialize::<Args>()
+        .expect("Failed to deserialize configuration");
+
+    let mut tasks: Vec<Task> = Vec::new();
+
+    // 添加 copy 任务
+    for (i, task) in configure.copy.iter().enumerate() {
+        let description = task
+            .description
+            .clone()
+            .unwrap_or_else(|| format!("复制任务 {}", i + 1));
+
+        tasks.push(Task {
+            class: Class::Copy(i),
+            description,
+        });
+    }
+
+    // 添加 generate.path 任务
+    for (i, task) in configure.generate.path.iter().enumerate() {
+        let description = task
+            .description
+            .clone()
+            .unwrap_or_else(|| format!("生成路径任务 {}", i + 1));
+
+        tasks.push(Task {
+            class: Class::GeneratePath(i),
+            description,
+        });
+    }
+
+    // 未来可以在这里添加其他 generate 类型的任务
+    // 例如: configure.generate.file, configure.generate.template 等
+
+    // 让用户选择任务
+    let choice = dialoguer::Select::new()
+        .with_prompt("请选择要执行的任务")
+        .items(
+            &tasks
+                .iter()
+                .map(|t| t.description.as_str())
+                .collect::<Vec<_>>(),
+        )
+        .interact()
+        .unwrap();
+
+    let task = &tasks[choice];
+
+    // 根据任务类型执行相应的任务
+    match &task.class {
+        Class::Copy(index) => {
+            let task = &configure.copy[*index];
+            println!("执行复制任务: {:#?}", task);
+            copy::service::run(task);
+        }
+        Class::GeneratePath(index) => {
+            let task = &configure.generate.path[*index];
+            println!("执行生成路径任务: {:#?}", task);
+            generate::service::run(&generate::controller::Args::Path(task.clone()));
+        } // 未来可以在这里添加其他 generate 类型的匹配分支
+          // Class::GenerateFile(index) => { ... }
+          // Class::GenerateTemplate(index) => { ... }
+    }
+}
+
+// let args = Args {
+//     copy: vec![copy::controller::CopyTask {
+//         id: "copy_task_1".to_string(),
+//         description: "复制任务示例".to_string(),
+//         from: String::from("src"),
+//         to: String::from("dest"),
+//         empty: true,
+//         ignores: vec![String::from("*.tmp"), String::from("node_modules/")],
+//     }],
+//     generate: generate::controller::GenerateTask {
+//         path: vec![generate::controller::PathTask {
+//             id: "generate_task_1".to_string(),
+//             description: "生成任务示例".to_string(),
+//             from: String::from("template/{index}/file.txt"),
+//             to: String::from("output/file-{index}.txt"),
+//             transform: String::from("{index}"),
+//             index: 1,
+//             separator: String::from("-"),
+//             pad: true,
+//             ignores: vec![String::from("*.log")],
+//             uppercase: vec![String::from("{index}")],
+//         }],
+//     },
+// };
+// println!("args {:#?}", args);
+
 // ========== example 1 ========== //
 //  配置文件加载和保存
 

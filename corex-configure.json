@@ -1,0 +1,41 @@
+{
+  "$schema": "docs/corex.task.schema.json",
+  "copy": [
+    {
+      "id": "ahbsfnjsdn",
+      "description": "复制-任务1",
+      "empty": false,
+      "from": "../input",
+      "ignores": [".ts"],
+      "to": "../output"
+    }
+  ],
+  "generate": {
+    "path": [
+      {
+        "id": "ahbsfnjsdn",
+        "description": "生成路径-任务1",
+        "from": "docs",
+        "ignores": ["example.js", "*.git", "node_modules"],
+        "index": 1,
+        "separator": "\\",
+        "pad": true,
+        "to": "docs/path.txt",
+        "transform": "<include name=\"IDR_ITAB_{{extension}}_{{index}}\" file=\"{{fullpath}}\" type=\"BINDATA\" />",
+        "uppercase": ["extension"]
+      },
+      {
+        "id": "skgdkslfnglk",
+        "description": "生成路径-任务2",
+        "from": "docs",
+        "ignores": ["example.js", "*.git", "node_modules"],
+        "index": 1,
+        "separator": "\\",
+        "pad": true,
+        "to": "docs/path.txt",
+        "transform": "<include name=\"IDR_ITAB_{{extension}}_{{index}}\" file=\"{{fullpath}}\" type=\"BINDATA\" />",
+        "uppercase": ["extension"]
+      }
+    ]
+  }
+}

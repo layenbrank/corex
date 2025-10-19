@@ -13,6 +13,11 @@ pub mod copy {
     pub mod service;
 }
 
+pub mod remove {
+    pub mod controller;
+    pub mod service;
+}
+
 pub mod generate {
     pub mod controller;
     pub mod service;

@@ -1,7 +1,8 @@
-use crate::copy::controller::CopyArgs;
+use crate::copy::controller::Args;
 use anyhow::{Context, Result};
 use glob::Pattern;
 use indicatif::{ProgressBar, ProgressStyle};
+use notify_rust::Notification;
 use std::{fs, path::Path, sync::Arc, time::Instant};
 use walkdir::WalkDir;
 
@@ -10,21 +11,39 @@ use walkdir::WalkDir;
 // 你可以使用数组（如 IGNORES_VEC），在需要 Vec 时再转换：
 
 // pub fn run(source: &Path, target: &Path, empty: bool, ignores: Vec<String>) -> Result<()> {
-pub fn run(args: &CopyArgs) -> Result<()> {
+pub fn run(args: &Args) {
     let (from, to) = (Path::new(&args.from), Path::new(&args.to));
-    let patterns = compile_patterns(&args.ignore);
+    let patterns = compile_patterns(&args.ignores);
 
-    let (count, size) = scan(&from, &patterns)?;
+    let (count, size) = scan(&from, &patterns).expect("扫描失败");
 
     if count == 0 {
-        println!("📂 没有文件需要复制");
-        return Ok(());
+        return println!("📂 没有文件需要复制");
     }
 
     println!("📊 找到 {} 个文件，总大小: {}", count, format_size(size));
 
     let progress = progress_bar(count);
-    copy(&from, &to, args.empty, &patterns, progress)
+    let status = copy(&from, &to, args.empty, &patterns, progress);
+
+    match &status {
+        Ok(_) => {
+            Notification::new()
+                .summary("复制成功")
+                .body("文件复制操作已成功完成")
+                .icon("dialog-information")
+                .show()
+                .expect("显示成功通知失败");
+        }
+        Err(e) => {
+            Notification::new()
+                .summary("文件复制失败")
+                .body(&format!("复制过程中发生错误: {}", e))
+                .icon("dialog-error")
+                .show()
+                .expect("显示错误通知失败");
+        }
+    }
 }
 
 /// 编译 glob 模式

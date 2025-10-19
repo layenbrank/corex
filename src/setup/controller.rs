@@ -1,8 +1,8 @@
 use clap::Parser;
 
 #[derive(Debug, Parser)]
-pub enum SetupArgs {
-    Env,
-    Check,
-    Force,
+pub enum Args {
+	Env,
+	Check,
+	Force,
 }

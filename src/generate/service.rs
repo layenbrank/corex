@@ -1,4 +1,4 @@
-use crate::generate::controller::{GenerateArgs, PathArgs};
+use crate::generate::controller::{Args, PathArgs};
 use crate::utils::verifier::Verifier;
 use anyhow::{Context, Result};
 use glob::Pattern;
@@ -10,29 +10,26 @@ use std::{
 };
 use walkdir::{DirEntry, WalkDir};
 
-pub fn run(args: &GenerateArgs) {
+pub fn run(args: &Args) {
     match args {
-        GenerateArgs::Path(path_args) => {
-            let resp = path_task(&path_args);
-            match &resp {
-                Ok(_) => {
-                    let _ = Notification::new()
-                        .summary("路径生成成功")
-                        .body("路径生成操作已成功完成")
-                        .icon("dialog-information")
-                        .show()
-                        .expect("显示成功通知失败");
-                }
-                Err(e) => {
-                    let _ = Notification::new()
-                        .summary("文件复制失败")
-                        .body(&format!("复制过程中发生错误: {}", e))
-                        .icon("dialog-error")
-                        .show()
-                        .expect("显示错误通知失败");
-                }
+        Args::Path(path_args) => match path_task(&path_args) {
+            Ok(_) => {
+                Notification::new()
+                    .summary("路径生成成功")
+                    .body("路径生成操作已成功完成")
+                    .icon("dialog-information")
+                    .show()
+                    .expect("显示成功通知失败");
             }
-        }
+            Err(e) => {
+                Notification::new()
+                    .summary("文件复制失败")
+                    .body(&format!("复制过程中发生错误: {}", e))
+                    .icon("dialog-error")
+                    .show()
+                    .expect("显示错误通知失败");
+            }
+        },
     }
 }
 
@@ -41,7 +38,7 @@ pub fn path_task(args: &PathArgs) -> Result<()> {
     let from = Path::new(&args.from);
     let to = Path::new(&args.to);
     let transform = args.transform.clone();
-    let ignore = args.ignore.clone();
+    let ignores = args.ignores.clone();
     let separator = args.separator.clone();
     let index = args.index.clone();
     let uppercase = args.uppercase.clone();
@@ -67,7 +64,7 @@ pub fn path_task(args: &PathArgs) -> Result<()> {
     let mut writer = BufWriter::new(file);
 
     // 预编译 glob 模式以提高性能
-    let patterns: Vec<Pattern> = ignore
+    let patterns: Vec<Pattern> = ignores
         .iter()
         .filter_map(|pattern| Pattern::new(pattern).ok())
         .collect();

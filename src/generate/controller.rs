@@ -1,12 +1,18 @@
 use crate::utils::verifier::Verifier;
 use clap::{ArgAction, Parser};
+use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Parser)]
-pub enum GenerateArgs {
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GenerateTask {
+    pub path: Vec<PathArgs>,
+}
+
+#[derive(Debug, Parser, Clone, Serialize, Deserialize)]
+pub enum Args {
     Path(PathArgs),
 }
 
-#[derive(Debug, Parser)]
+#[derive(Debug, Parser, Clone, Serialize, Deserialize)]
 pub struct PathArgs {
     #[arg(short, long, value_parser = Verifier::path)]
     pub from: String,
@@ -28,9 +34,17 @@ pub struct PathArgs {
     #[arg(long, action = ArgAction::SetTrue, help = "填充索引")]
     pub pad: bool,
 
-    #[arg(long, action = ArgAction::Append, value_delimiter = ',', help = "忽略模式，可多次使用或用逗号分隔")]
-    pub ignore: Vec<String>,
+    #[arg(long, action = ArgAction::Append, value_delimiter = ',', help = "忽略模式，可多次使用或用逗号分隔"
+	)]
+    pub ignores: Vec<String>,
 
-    #[arg(long, action = ArgAction::Append, value_delimiter = ',', help = "将某个规则转换为大写，可多次使用或用逗号分隔")]
+    #[arg(long, action = ArgAction::Append, value_delimiter = ',', help = "将某个规则转换为大写，可多次使用或用逗号分隔"
+	)]
     pub uppercase: Vec<String>,
+
+    #[arg(help = "任务ID")]
+    pub id: Option<String>,
+
+    #[arg(help = "任务描述")]
+    pub description: Option<String>,
 }

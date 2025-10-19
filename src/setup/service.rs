@@ -1,14 +1,17 @@
-use anyhow::{Context, Result};
+use anyhow::Context;
 
-use crate::setup::controller::SetupArgs;
+use crate::setup::controller::Args;
 use std::{env, path::Path, process::Command};
 
-pub fn run(args: &SetupArgs) -> Result<()> {
-    let file_path = env::current_exe().context("无法获取当前可执行文件路径")?;
+pub fn run(args: &Args) {
+    let file_path = env::current_exe()
+        .context("无法获取当前可执行文件路径")
+        .expect("当前可执行文件路径不存在");
 
     let file_dir = file_path
         .parent()
-        .context("无法获取可执行文件目录")?
+        .context("无法获取可执行文件目录")
+        .expect("可执行文件目录不存在")
         .to_string_lossy()
         .to_string();
 
@@ -19,7 +22,7 @@ pub fn run(args: &SetupArgs) -> Result<()> {
     });
 
     match args {
-        SetupArgs::Env => {
+        Args::Env => {
             // 处理环境变量设置
             // 使用 PowerShell 添加到用户环境变量（不需要管理员权限）
             let ps_command = format!(
@@ -43,11 +46,13 @@ pub fn run(args: &SetupArgs) -> Result<()> {
             let output = Command::new("powershell")
                 .args(["-Command", &ps_command])
                 .output()
-                .context("执行 PowerShell 命令失败")?;
+                .context("执行 PowerShell 命令失败")
+                .expect("执行 PowerShell 命令失败");
 
             if !output.status.success() {
                 let stderr = String::from_utf8_lossy(&output.stderr);
-                return Err(anyhow::anyhow!("PowerShell 执行失败: {}", stderr));
+                return eprintln!("❌ PowerShell 执行失败: {}", stderr);
+                // return Err(anyhow::anyhow!("PowerShell 执行失败: {}", stderr));
             }
 
             let stdout = String::from_utf8_lossy(&output.stdout);
@@ -59,7 +64,7 @@ pub fn run(args: &SetupArgs) -> Result<()> {
             println!("2. 在任意目录下输入工具名称即可使用");
             println!("3. 使用 'corex setup check' 验证配置");
         }
-        SetupArgs::Check => {
+        Args::Check => {
             // 处理检查环境
             if contains_dir {
                 println!("✅ 工具已经在系统环境变量中");
@@ -70,7 +75,7 @@ pub fn run(args: &SetupArgs) -> Result<()> {
                 println!("💡 运行 'corex setup env' 来添加到环境变量");
             }
         }
-        SetupArgs::Force => {
+        Args::Force => {
             // 处理强制设置
         }
     }
@@ -79,6 +84,4 @@ pub fn run(args: &SetupArgs) -> Result<()> {
     //     println!("可执行文件路径: {:?}", file_path);
     //     println!("可执行文件目录: {}", file_dir);
     // }
-
-    Ok(())
 }
