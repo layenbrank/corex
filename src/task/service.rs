@@ -2,6 +2,8 @@ use crate::task::controller::Args;
 use crate::{copy, generate};
 use config::{Config, File};
 use dialoguer;
+use dirs;
+use std::path::Path;
 // use std::collections::HashMap;
 
 #[derive(Debug, Clone)]
@@ -19,14 +21,33 @@ struct Task {
 }
 
 pub fn run() {
+    let home_dir = dirs::home_dir().expect("无法获取用户目录");
+
+    let path = home_dir
+        .to_path_buf()
+        .join(".corex")
+        .join("corex-configure.json");
+
+    if !path.exists() {
+        eprintln!(
+            "配置文件 corex-configure.json 未找到，请确保文件存在于当前目录。\n{}",
+            path.display()
+        );
+        return;
+    }
     let configure = Config::builder()
-        .add_source(File::with_name("corex-configure.json"))
+        .add_source(File::with_name(path.to_str().unwrap()))
         // .add_source(config::Environment::with_prefix("COREX"))
         .build()
         .expect("Failed to build configuration")
         // .try_deserialize::<HashMap<String, Args>>()
         .try_deserialize::<Args>()
         .expect("Failed to deserialize configuration");
+
+    if configure.copy.is_empty() && configure.generate.path.is_empty() {
+        eprintln!("配置文件中没有找到有效的任务");
+        return;
+    }
 
     let mut tasks: Vec<Task> = Vec::new();
 
