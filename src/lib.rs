@@ -13,7 +13,7 @@ pub mod copy {
     pub mod service;
 }
 
-pub mod remove {
+pub mod cleanup {
     pub mod controller;
     pub mod service;
 }

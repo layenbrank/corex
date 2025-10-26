@@ -2,6 +2,8 @@
 name = "corex"
 version = "0.2.3"
 edition = "2024"
+description = "A Tauri App"
+authors = ["layen"]
 
 [profile.release]
 # opt-level = 3       # 最高优化级别
@@ -16,12 +18,21 @@ strip = "symbols"   # 移除调试符号（Rust 1.59+）
 # strip = true        # Rust 1.59+ 原生支持
 # strip = "debuginfo" # 只移除调试信息，保留符号表
 
+[lib]
+name = "core"
+path = "src/lib.rs"
+crate-type = ["rlib", "cdylib", "staticlib"]
+
+[[bin]]
+name = "corex"
+path = "src/main.rs"
+
 [dependencies]
 anyhow = "1.0.98"
 clap = { version = "4.5.41", features = ["derive"] }
 config = "0.15.13"
 crossterm = "0.29.0"
-dialoguer = "0.11.0"
+dialoguer = "0.12.0"
 dirs = "6.0.0"
 glob = "0.3.2"
 indicatif = "0.18.0"
@@ -32,7 +43,7 @@ serde_json = "1.0.140"
 walkdir = "2.5.0"
 
 [dependencies.windows]
-version = "0.61.3"
+version = "0.62.2"
 features = [
     "Data_Xml_Dom", 
     "Win32_UI_WindowsAndMessaging",

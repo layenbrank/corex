@@ -3,7 +3,7 @@ use crate::{copy, generate};
 use config::{Config, File};
 use dialoguer;
 use dirs;
-use std::path::Path;
+// use std::path::Path;
 // use std::collections::HashMap;
 
 #[derive(Debug, Clone)]

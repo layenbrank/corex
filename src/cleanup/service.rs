@@ -1,4 +1,4 @@
-use crate::remove::controller::Args;
+use crate::cleanup::controller::Args;
 use std::{env, fs, path::Path};
 use walkdir::WalkDir;
 

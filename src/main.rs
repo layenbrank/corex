@@ -1,10 +1,10 @@
 use clap::Parser;
-use corex::{copy, generate, remove, setup, task};
+use core::{cleanup, copy, generate, setup, task};
 
 #[derive(Debug, Parser)]
 pub enum Commands {
     Copy(copy::controller::Args),
-    Remove(remove::controller::Args),
+    Cleanup(cleanup::controller::Args),
 
     #[command(subcommand)]
     Generate(generate::controller::Args),
@@ -32,7 +32,7 @@ fn main() {
         Commands::Task => task::service::run(),
         Commands::Copy(args) => copy::service::run(&args),
         Commands::Setup(args) => setup::service::run(&args),
-        Commands::Remove(args) => remove::service::run(&args),
+        Commands::Cleanup(args) => cleanup::service::run(&args),
         Commands::Generate(args) => generate::service::run(&args),
     }
 }
