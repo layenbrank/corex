@@ -2,7 +2,7 @@
 name = "corex"
 version = "0.2.3"
 edition = "2024"
-description = "A Tauri App"
+description = "corex-cli"
 authors = ["layen"]
 
 [profile.release]
