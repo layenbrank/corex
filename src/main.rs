@@ -1,19 +1,19 @@
 use clap::Parser;
-use core::{cleanup, copy, generate, setup, task};
+use core::{bootstrap, copy, generate, schedule, scrub};
 
 #[derive(Debug, Parser)]
 pub enum Commands {
     Copy(copy::controller::Args),
-    Cleanup(cleanup::controller::Args),
+    Scrub(scrub::controller::Args),
 
     #[command(subcommand)]
     Generate(generate::controller::Args),
 
     #[command(subcommand)]
-    Setup(setup::controller::Args),
+    Bootstrap(bootstrap::controller::Args),
 
     // #[command(subcommand)]
-    Task,
+    Schedule,
 }
 
 #[derive(Debug, Parser)]
@@ -29,11 +29,11 @@ pub struct Args {
 
 fn main() {
     match Args::parse().command {
-        Commands::Task => task::service::run(),
+        Commands::Schedule => schedule::service::run(),
         Commands::Copy(args) => copy::service::run(&args),
-        Commands::Setup(args) => setup::service::run(&args),
-        Commands::Cleanup(args) => cleanup::service::run(&args),
+        Commands::Scrub(args) => scrub::service::run(&args),
         Commands::Generate(args) => generate::service::run(&args),
+        Commands::Bootstrap(args) => bootstrap::service::run(&args),
     }
 }
 

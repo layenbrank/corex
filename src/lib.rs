@@ -1,9 +1,9 @@
-pub mod setup {
+pub mod bootstrap {
     pub mod controller;
     pub mod service;
 }
 
-pub mod task {
+pub mod schedule {
     pub mod controller;
     pub mod service;
 }
@@ -13,7 +13,7 @@ pub mod copy {
     pub mod service;
 }
 
-pub mod cleanup {
+pub mod scrub {
     pub mod controller;
     pub mod service;
 }

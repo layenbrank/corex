@@ -1,13 +1,13 @@
-use crate::task::controller::Args;
+use crate::schedule::controller::Args;
 use crate::{copy, generate};
-use config::{Config, File};
+use config::{Config as Configure, File};
 use dialoguer;
 use dirs;
 // use std::path::Path;
 // use std::collections::HashMap;
 
 #[derive(Debug, Clone)]
-enum Class {
+enum Segment {
     Copy(usize), // 复制任务的索引
     GeneratePath(usize),
     // 生成路径任务的索引
@@ -15,8 +15,8 @@ enum Class {
 }
 
 #[derive(Debug, Clone)]
-struct Task {
-    class: Class,
+struct Schedule {
+    segment: Segment,
     description: String,
 }
 
@@ -35,7 +35,7 @@ pub fn run() {
         );
         return;
     }
-    let configure = Config::builder()
+    let configure = Configure::builder()
         .add_source(File::with_name(path.to_str().unwrap()))
         // .add_source(config::Environment::with_prefix("COREX"))
         .build()
@@ -49,30 +49,30 @@ pub fn run() {
         return;
     }
 
-    let mut tasks: Vec<Task> = Vec::new();
+    let mut schedules: Vec<Schedule> = Vec::new();
 
     // 添加 copy 任务
-    for (i, task) in configure.copy.iter().enumerate() {
-        let description = task
+    for (i, schedule) in configure.copy.iter().enumerate() {
+        let description = schedule
             .description
             .clone()
             .unwrap_or_else(|| format!("复制任务 {}", i + 1));
 
-        tasks.push(Task {
-            class: Class::Copy(i),
+        schedules.push(Schedule {
+            segment: Segment::Copy(i),
             description,
         });
     }
 
     // 添加 generate.path 任务
-    for (i, task) in configure.generate.path.iter().enumerate() {
-        let description = task
+    for (i, schedule) in configure.generate.path.iter().enumerate() {
+        let description = schedule
             .description
             .clone()
             .unwrap_or_else(|| format!("生成路径任务 {}", i + 1));
 
-        tasks.push(Task {
-            class: Class::GeneratePath(i),
+        schedules.push(Schedule {
+            segment: Segment::GeneratePath(i),
             description,
         });
     }
@@ -84,7 +84,7 @@ pub fn run() {
     let choice = dialoguer::Select::new()
         .with_prompt("请选择要执行的任务")
         .items(
-            &tasks
+            &schedules
                 .iter()
                 .map(|t| t.description.as_str())
                 .collect::<Vec<_>>(),
@@ -92,19 +92,19 @@ pub fn run() {
         .interact()
         .unwrap();
 
-    let task = &tasks[choice];
+    let schedule = &schedules[choice];
 
     // 根据任务类型执行相应的任务
-    match &task.class {
-        Class::Copy(index) => {
-            let task = &configure.copy[*index];
-            println!("执行复制任务: {:#?}", task);
-            copy::service::run(task);
+    match &schedule.segment {
+        Segment::Copy(index) => {
+            let schedule = &configure.copy[*index];
+            println!("执行复制任务: {:#?}", schedule);
+            copy::service::run(schedule);
         }
-        Class::GeneratePath(index) => {
-            let task = &configure.generate.path[*index];
-            println!("执行生成路径任务: {:#?}", task);
-            generate::service::run(&generate::controller::Args::Path(task.clone()));
+        Segment::GeneratePath(index) => {
+            let schedule = &configure.generate.path[*index];
+            println!("执行生成路径任务: {:#?}", schedule);
+            generate::service::run(&generate::controller::Args::Path(schedule.clone()));
         } // 未来可以在这里添加其他 generate 类型的匹配分支
           // Class::GenerateFile(index) => { ... }
           // Class::GenerateTemplate(index) => { ... }

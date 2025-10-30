@@ -7,7 +7,7 @@ pub struct Args {
     pub copy: Vec<copy::controller::Args>,
 
     // #[serde(flatten)]
-    pub generate: generate::controller::GenerateTask,
+    pub generate: generate::controller::GenerateSchedule,
 }
 
 // #[derive(Debug, Parser)]

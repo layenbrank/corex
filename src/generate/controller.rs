@@ -3,7 +3,7 @@ use clap::{ArgAction, Parser};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct GenerateTask {
+pub struct GenerateSchedule {
     pub path: Vec<PathArgs>,
 }
 
