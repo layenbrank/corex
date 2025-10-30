@@ -29,5 +29,6 @@ pub mod utils {
     pub mod ignore;
     pub mod notify;
     pub mod progress;
+    pub mod scan;
     pub mod verifier;
 }

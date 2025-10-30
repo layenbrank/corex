@@ -1,4 +1,4 @@
-use crate::cleanup::controller::Args;
+use crate::{cleanup::controller::Args, utils};
 use std::{env, fs, path::Path};
 use walkdir::WalkDir;
 
@@ -10,6 +10,18 @@ pub fn run(args: &Args) {
 
     if !target_path.exists() {
         eprintln!("目标路径不存在: {:?}", target_path);
+        return;
+    }
+
+    let dev = true;
+
+    if dev {
+        let directory = utils::scan::Scan::directory(&target_path);
+        println!("Scan directory function called on path: {:?}", directory);
+
+        let file = utils::scan::Scan::file(&target_path);
+        println!("Scan file function called on path: {:?}", file);
+
         return;
     }
 
