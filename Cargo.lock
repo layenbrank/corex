@@ -427,6 +427,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sysinfo",
+ "thiserror",
  "walkdir",
  "windows 0.62.2",
 ]
