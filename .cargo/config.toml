@@ -1,0 +1,78 @@
+[build]
+rustc-wrapper = "sccache" # 替换为 sccache 实际路径
+incremental = true
+# 默认目标平台（可通过--target覆盖）
+target = "x86_64-pc-windows-msvc"
+
+# -------------------------- Windows 平台配置 --------------------------
+[target.x86_64-pc-windows-msvc]
+# 使用MSVC链接器（需安装Visual Studio构建工具）
+linker = "link.exe"
+rustflags = [
+	"-C",
+	"opt-level=3", #
+	"-C",
+	"target-cpu=native", # CPU指令集优化
+	"-C",
+	"target-feature=+crt-static", # 静态链接MSVC运行时
+	"-C",
+	"link-arg=/SUBSYSTEM:CONSOLE", # 显示控制台窗口，需要 main 入口点（控制台应用（Rust 默认行为））
+	#	"link-arg=/SUBSYSTEM:WINDOWS", # 隐藏控制台窗口，需要 WinMain 入口点(GUI 应用（如 Windows 窗口程序）)
+	"-C",
+	"link-arg=/OPT:REF", # Windows (MSVC) — 需根据平台条件设置
+]
+
+# -------------------------- Linux 平台配置 --------------------------
+[target.x86_64-unknown-linux-gnu]
+# 使用lld链接器加速链接过程（需提前安装lld）
+linker = "lld"
+# 编译优化：最高级别优化+静态链接+二进制瘦身
+rustflags = [
+	"-C",
+	"target-feature=+crt-static", # 静态链接C运行时
+	"-C",
+	"opt-level=3", # 代码优化等级（0-3，3最优）
+	"-C",
+	"target-cpu=native", # 针对当前CPU架构优化指令集
+	"-C",
+	"link-arg=-s", # 移除符号表，减小二进制体积
+	"-C",
+	"strip=debuginfo", # 剥离调试信息
+	"-C",
+	"link-arg=-fuse-ld=lld",
+]
+
+[target.aarch64-unknown-linux-gnu]
+# ARM64 Linux交叉编译配置（需安装aarch64-linux-gnu-gcc工具链）
+linker = "aarch64-linux-gnu-gcc" # 交叉编译器
+rustflags = [
+	"-C",
+	"opt-level=3",
+	"-C",
+	"target-feature=+crt-static", # 静态链接C运行时
+]
+
+# -------------------------- macOS 平台配置 --------------------------
+[target.x86_64-apple-darwin]
+linker = "clang"
+rustflags = [
+	"-C",
+	"opt-level=3",
+	"-C",
+	"link-arg=-dead_strip", # 移除未使用代码
+	"-C",
+	"link-arg=-mmacosx-version-min=10.15", # 最低支持macOS 10.15
+]
+
+[target.aarch64-apple-darwin]
+# M系列芯片macOS配置
+linker = "clang"
+rustflags = [
+	"-C",
+	"opt-level=3",
+	"-C",
+	"target-cpu=apple-m1", # 针对M1/M2芯片优化
+]
+
+# [source]
+# registry = "…"

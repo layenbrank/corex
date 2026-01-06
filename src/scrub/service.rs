@@ -13,7 +13,7 @@ pub fn run(args: &Args) {
         return;
     }
 
-    let dev = false;
+    let dev = true;
 
     if dev {
         let directory = utils::scan::Scan::directory(&target_path);

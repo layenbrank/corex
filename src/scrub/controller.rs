@@ -11,3 +11,5 @@ pub struct Args {
     #[arg(short, long, action = ArgAction::Append, default_value_t = false, help = "是否递归删除(默认false)")]
     pub recursive: bool,
 }
+// directory
+// file
