@@ -6,15 +6,22 @@
         "corex",
         "--",
         "scrub",
+        "--source",
+        "C:\\Users\\MACHENIKE\\Documents\\Vue3\\i-thinking",
         "--target",
-        "C:\\Users\\iwell\\Desktop\\scrub-test",
+        ".turbo",
         "--recursive",
-        "true"
+        "true",
       ],
       "command": "run",
       "label": "Scrub",
       "presentation": {
-        "reveal": "always"
+        "clear": false,
+        "echo": true,
+        "focus": false,
+        "panel": "shared",
+        "reveal": "always",
+        "showReuseMessage": true
       },
       "problemMatcher": [
         "$rustc"
@@ -31,7 +38,12 @@
       "command": "run",
       "label": "Schedule",
       "presentation": {
-        "reveal": "always"
+        "clear": false,
+        "echo": true,
+        "focus": false,
+        "panel": "shared",
+        "reveal": "always",
+        "showReuseMessage": true
       },
       "problemMatcher": [
         "$rustc"
@@ -48,7 +60,12 @@
       "command": "run",
       "label": "Generate",
       "presentation": {
-        "reveal": "always"
+        "clear": false,
+        "echo": true,
+        "focus": false,
+        "panel": "shared",
+        "reveal": "always",
+        "showReuseMessage": true
       },
       "problemMatcher": [
         "$rustc"
@@ -65,7 +82,12 @@
       "command": "run",
       "label": "Copy",
       "presentation": {
-        "reveal": "always"
+        "clear": false,
+        "echo": true,
+        "focus": false,
+        "panel": "shared",
+        "reveal": "always",
+        "showReuseMessage": true
       },
       "problemMatcher": [
         "$rustc"
@@ -82,13 +104,37 @@
       "command": "run",
       "label": "Bootstrap",
       "presentation": {
-        "reveal": "always"
+        "clear": false,
+        "echo": true,
+        "focus": false,
+        "panel": "shared",
+        "reveal": "always",
+        "showReuseMessage": true
       },
       "problemMatcher": [
         "$rustc"
       ],
       "type": "cargo"
     },
+    {
+      "args": [
+        "--release"
+      ],
+      "command": "build",
+      "label": "Release",
+      "presentation": {
+        "clear": false,
+        "echo": true,
+        "focus": false,
+        "panel": "shared",
+        "reveal": "always",
+        "showReuseMessage": true
+      },
+      "problemMatcher": [
+        "$rustc"
+      ],
+      "type": "cargo"
+    }
   ],
   "version": "2.0.0"
 }

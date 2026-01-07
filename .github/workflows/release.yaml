@@ -1,4 +1,4 @@
-name: Release
+name: corex@latest
 
 on:
   push:
@@ -13,6 +13,8 @@ permissions:
 
 env:
   CARGO_TERM_COLOR: always
+  TARGET_DIR: target/x86_64-pc-windows-msvc/release
+  BINARY_NAME: corex.exe
 
 jobs:
   create_release:
@@ -44,71 +46,92 @@ jobs:
       - name: Build release binary
         run: cargo build --release --verbose
 
-      - name: Strip binary (optional)
+      - name: Verify binary
         run: |
-          if (Test-Path "target\release\corex.exe") {
-            Write-Host "Binary built successfully"
+          $binaryPath = "$env:TARGET_DIR/$env:BINARY_NAME"
+          if (Test-Path $binaryPath) {
+            Write-Host "Binary built successfully at $binaryPath"
+            $size = (Get-Item $binaryPath).Length / 1MB
+            Write-Host "Binary size: $([math]::Round($size, 2)) MB"
           } else {
-            Write-Error "Binary not found"
+            Write-Error "Binary not found at $binaryPath"
             exit 1
           }
 
       - name: Create release package
         run: |
+          $binaryPath = "$env:TARGET_DIR/$env:BINARY_NAME"
           mkdir release-package
-          copy target\release\corex.exe release-package\
+          copy $binaryPath release-package
 
           # 添加其他文件（如果存在）
-          if (Test-Path "README.md") { copy README.md release-package\ }
-          if (Test-Path "LICENSE") { copy LICENSE release-package\ }
-          if (Test-Path "CHANGELOG.md") { copy CHANGELOG.md release-package\ }
+          if (Test-Path "README.md") { copy README.md release-package }
+          if (Test-Path "LICENSE") { copy LICENSE release-package }
+          if (Test-Path "CHANGELOG.md") { copy CHANGELOG.md release-package }
 
           # 创建压缩包
-          powershell Compress-Archive -Path release-package\* -DestinationPath "corex-${{ github.ref_name }}-windows-x64.zip"
+          $zipName = "corex-${{ github.ref_name }}-windows-x64.zip"
+          Compress-Archive -Path release-package\* -DestinationPath $zipName
 
-      - name: Get commit info
-        id: commit_info
+          # 生成SHA256校验和
+          $hash = (Get-FileHash $zipName -Algorithm SHA256).Hash
+          "$hash  $zipName" | Out-File -Encoding ASCII "$zipName.sha256"
+          Write-Host "SHA256: $hash"
+
+      - name: Get build info
+        id: build_info
         run: |
           $commit_hash = git rev-parse HEAD
           $commit_short = git rev-parse --short HEAD
           $commit_message = git log -1 --pretty=format:"%s"
           $commit_author = git log -1 --pretty=format:"%an"
           $commit_date = git log -1 --pretty=format:"%ci"
+          $rust_version = rustc --version
+          $cargo_version = cargo --version
 
           echo "hash=$commit_hash" >> $env:GITHUB_OUTPUT
           echo "short=$commit_short" >> $env:GITHUB_OUTPUT
           echo "message=$commit_message" >> $env:GITHUB_OUTPUT
           echo "author=$commit_author" >> $env:GITHUB_OUTPUT
           echo "date=$commit_date" >> $env:GITHUB_OUTPUT
+          echo "rust_version=$rust_version" >> $env:GITHUB_OUTPUT
+          echo "cargo_version=$cargo_version" >> $env:GITHUB_OUTPUT
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           files: |
             corex-${{ github.ref_name }}-windows-x64.zip
-            target/release/corex.exe
+            corex-${{ github.ref_name }}-windows-x64.zip.sha256
+            ${{ env.TARGET_DIR }}/${{ env.BINARY_NAME }}
           name: Release ${{ github.ref_name }}
           body: |
             ## What's Changed in ${{ github.ref_name }}
 
             ### 📦 Release Information
             - **Tag**: ${{ github.ref_name }}
-            - **Commit**: `${{ steps.commit_info.outputs.short }}` 
-            - **Author**: ${{ steps.commit_info.outputs.author }}
-            - **Date**: ${{ steps.commit_info.outputs.date }}
+            - **Commit**: `${{ steps.build_info.outputs.short }}`
+            - **Author**: ${{ steps.build_info.outputs.author }}
+            - **Date**: ${{ steps.build_info.outputs.date }}
 
             ### 💬 Commit Message
             ```
-            ${{ steps.commit_info.outputs.message }}
+            ${{ steps.build_info.outputs.message }}
             ```
 
             ### 🔧 Build Information
-            - Binary built for Windows x64
-            - Built with Rust stable toolchain
+            - **Platform**: Windows x64 (x86_64-pc-windows-msvc)
+            - **Rust**: ${{ steps.build_info.outputs.rust_version }}
+            - **Cargo**: ${{ steps.build_info.outputs.cargo_version }}
             - Optimized release build with LTO enabled
 
+            ### 📋 Files
+            - `corex-${{ github.ref_name }}-windows-x64.zip` - Complete package with binary and docs
+            - `corex-${{ github.ref_name }}-windows-x64.zip.sha256` - SHA256 checksum
+            - `corex.exe` - Standalone binary
+
             ### 📋 Full Changelog
-            **Full Commit**: [`${{ steps.commit_info.outputs.short }}`](https://github.com/${{ github.repository }}/commit/${{ steps.commit_info.outputs.hash }})
+            **Full Commit**: [`${{ steps.build_info.outputs.short }}`](https://github.com/${{ github.repository }}/commit/${{ steps.build_info.outputs.hash }})
           draft: false
           prerelease: ${{ contains(github.ref_name, 'alpha') || contains(github.ref_name, 'beta') || contains(github.ref_name, 'rc') }}
           generate_release_notes: true

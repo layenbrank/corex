@@ -27,7 +27,8 @@ pub struct Args {
     pub command: Commands,
 }
 
-fn main() {
+#[tokio::main]
+async fn main() {
     match Args::parse().command {
         Commands::Schedule => schedule::service::run(),
         Commands::Copy(args) => copy::service::run(&args),

@@ -22,6 +22,7 @@ strip       = "symbols" # 移除调试符号（Rust 1.59+）
 name       = "core"
 path       = "src/lib.rs"
 crate-type = ["rlib", "cdylib", "staticlib"]
+doctest = false
 
 [[bin]]
 name = "corex"
@@ -39,10 +40,14 @@ indicatif   = "0.18.3"
 notify-rust = "4.11.7"
 regex       = "1.11.1"
 serde       = { version = "1.0.219", features = ["derive"] }
-serde_json  = "1.0.148"
+serde_json  = "1.0.149"
 sysinfo     = "0.37.2"
-thiserror = "2.0.17"
+thiserror   = "2.0.17"
+tokio       = { version = "1.49.0", features = ["full"] }
 walkdir     = "2.5.0"
+
+[dev-dependencies]
+tempfile = "3.24.0"
 
 [dependencies.windows]
 version = "0.62.2"
