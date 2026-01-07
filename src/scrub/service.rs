@@ -13,7 +13,7 @@ pub enum ScrubError {
 pub fn run(args: &Args) {
     // let source = env::current_dir().expect("无法获取当前工作目录");
     let target: &Path = Path::new(&args.target);
-    let file_name = target.file_name().expect("获取路径失败");
+    let filename = target.file_name().expect("获取路径失败");
     let exists = target.exists();
 
     // 1. 验证目标路径存在性
@@ -28,7 +28,7 @@ pub fn run(args: &Args) {
     if dev {
         println!(
             "target file_name: {}",
-            file_name.to_str().expect("路径提取失败")
+            filename.to_str().expect("路径提取失败")
         );
         let directory = Scan::directory(&target);
         println!("Scan directory path: {:?}", directory);
@@ -46,24 +46,26 @@ pub fn run(args: &Args) {
     }
 
     match args.recursive {
-        true => depth(target, file_name),
+        true => depth(target, filename),
         false => shallow(target),
     }
 }
 
-fn depth(target: &Path, file_name: &OsStr) {
+fn depth(target: &Path, filename: &OsStr) {
     let entries = WalkDir::new(&target)
         .into_iter()
         .filter_map(|entry| entry.ok());
     // .filter(|entry| !is_ignored(entry.path()))
 
     for entry in entries {
-        let filename = entry.path().file_name();
+        let path = entry.path();
 
-        match filename {
-            Some(filename) => {
-                println!("filename: {:?}", filename);
-                if filename == file_name {
+        match path.file_name() {
+            Some(name) => {
+                println!("name: {:?}", name);
+                if name == filename {
+                    println!("删除路径名称: {:?}", filename);
+                    remove_path(path, path.is_dir())
                     // remove_path(entry.path(), entry.path().is_dir());
                 }
             }
