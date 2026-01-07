@@ -7,7 +7,9 @@
         "--",
         "scrub",
         "--target",
-        "C:\\Users\\iwell\\Desktop\\scrub-test"
+        "C:\\Users\\iwell\\Desktop\\scrub-test",
+        "--recursive",
+        "true"
       ],
       "command": "run",
       "label": "Scrub",

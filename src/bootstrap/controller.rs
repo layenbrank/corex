@@ -1,4 +1,4 @@
-use clap::{ArgAction, Parser};
+use clap::Parser;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Parser, Serialize, Deserialize)]
