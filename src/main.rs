@@ -1,5 +1,5 @@
 use clap::Parser;
-use core::{bootstrap, copy, generate, schedule, scrub};
+use corex::{bootstrap, compression, copy, generate, schedule, scrub};
 
 #[derive(Debug, Parser)]
 pub enum Commands {
@@ -14,6 +14,8 @@ pub enum Commands {
 
     // #[command(subcommand)]
     Schedule,
+
+    Compression(compression::controller::Args),
 }
 
 #[derive(Debug, Parser)]
@@ -35,6 +37,7 @@ async fn main() {
         Commands::Scrub(args) => scrub::service::run(&args),
         Commands::Generate(args) => generate::service::run(&args),
         Commands::Bootstrap(args) => bootstrap::service::run(&args),
+        Commands::Compression(args) => compression::service::run(&args),
     }
 }
 

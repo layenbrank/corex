@@ -1,6 +1,6 @@
 [package]
 name        = "corex"
-version     = "0.2.3"
+version     = "0.2.4"
 edition     = "2024"
 description = "corex-cli"
 authors     = ["layen"]
@@ -19,35 +19,36 @@ strip       = "symbols" # 移除调试符号（Rust 1.59+）
 # strip = "debuginfo" # 只移除调试信息，保留符号表
 
 [lib]
-name       = "core"
+name       = "corex"
 path       = "src/lib.rs"
 crate-type = ["rlib", "cdylib", "staticlib"]
-doctest = false
+doctest    = false
 
 [[bin]]
 name = "corex"
 path = "src/main.rs"
 
 [dependencies]
-anyhow      = "1.0.98"
-clap        = { version = "4.5.54", features = ["derive"] }
-config      = "0.15.19"
+anyhow      = "1.0.102"
+clap        = { version = "4.6.1", features = ["derive"] }
+config      = "0.15.22"
 crossterm   = "0.29.0"
 dialoguer   = "0.12.0"
 dirs        = "6.0.0"
 glob        = "0.3.2"
-indicatif   = "0.18.3"
-notify-rust = "4.11.7"
-regex       = "1.11.1"
+indicatif   = "0.18.4"
+notify-rust = "4.17.0"
+regex       = "1.12.3"
 serde       = { version = "1.0.219", features = ["derive"] }
 serde_json  = "1.0.149"
-sysinfo     = "0.37.2"
+sysinfo     = "0.39.0"
 thiserror   = "2.0.17"
 tokio       = { version = "1.49.0", features = ["full"] }
 walkdir     = "2.5.0"
+zip         = "8.6.0"
 
 [dev-dependencies]
-tempfile = "3.24.0"
+tempfile = "3.27.0"
 
 [dependencies.windows]
 version = "0.62.2"
