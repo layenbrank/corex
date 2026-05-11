@@ -1,5 +1,7 @@
+use chrono::{Local, Utc};
 use std::{
-    fs::{File, create_dir_all},
+    fs::{File, OpenOptions, create_dir_all},
+    io::Write,
     path::Path,
 };
 use walkdir::WalkDir;
@@ -82,6 +84,25 @@ pub fn bootstrap(args: &Args) -> Result<(), Exception> {
         total_bytes += bytes_written;
         file_count += 1;
     }
+
+    // Local::now().timestamp() 返回 i64 类型的 Unix 时间戳（秒）。如果需要毫秒用 .timestamp_millis()，格式化字符串用 Local::now().format("%Y-%m-%d %H:%M:%S").to_string()。
+    let timestamp = Local::now().format("%Y%m%d").to_string();
+
+    let json = serde_json::json!({ "version": timestamp });
+
+    let version_path = to.parent().unwrap_or(to).join("version.json");
+
+    let mut version_file = OpenOptions::new()
+        .write(true)
+        .create(true)
+        .truncate(true)
+        .open(&version_path)?;
+
+    write!(
+        version_file,
+        "{}",
+        serde_json::to_string_pretty(&json).unwrap()
+    )?;
 
     // 6. 完成 ZIP 文件
     let _writer = zip.finish()?;
