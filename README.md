@@ -20,6 +20,37 @@ corex setup env
 corex setup check
 ```
 
+## 压缩打包 (compression)
+
+将 H5+ 构建产物目录打包为 `.wgt` 文件，并在同目录下生成 `version.json` 记录打包时间。
+
+### 参数说明
+
+| 参数   | 描述                                |
+| ------ | ----------------------------------- |
+| `from` | 源目录路径（必须包含 `index.html`） |
+| `to`   | 输出的 `.wgt` 文件路径              |
+
+### 使用示例
+
+```powershell
+corex compression --from C:\Users\iwell\Documents\Rust\dy\dist --to C:\Users\iwell\Documents\Rust\dy\H.wgt
+
+# 使用简写参数
+corex compression -f C:\Users\iwell\Documents\Rust\dy\dist -t C:\Users\iwell\Documents\Rust\dy\H.wgt
+```
+
+### 输出文件
+
+- `H.wgt`：压缩后的 H5+ 应用包
+- `version.json`：与 `.wgt` 同目录，内容示例：
+
+```json
+{
+	"version": "2026-05-11 08:30:00"
+}
+```
+
 ## 文件复制 (copy)
 
 复制文件或目录，支持忽略特定文件和清空目标目录。
@@ -90,39 +121,35 @@ pnpm install npm-run-all2
 在 `scripts` 文件夹下创建 `post-build.js`：
 
 ```javascript
-import { spawn } from "node:child_process";
-import { homedir } from "node:os";
-import { resolve } from "node:path";
+import { spawn } from 'node:child_process'
+import { homedir } from 'node:os'
+import { resolve } from 'node:path'
 
-const from = "../dist";
-const toPath = resolve(homedir(), "Documents", "Vue");
-const ignore = "index.html";
+const from = '../dist'
+const toPath = resolve(homedir(), 'Documents', 'Vue')
+const ignore = 'index.html'
 
-spawn(
-  "corex",
-  ["copy", "--from", from, "--to", toPath, "--ignore", ignore, "--empty"],
-  {
-    stdio: "inherit",
-  }
-);
+spawn('corex', ['copy', '--from', from, '--to', toPath, '--ignore', ignore, '--empty'], {
+	stdio: 'inherit'
+})
 ```
 
 ### 配置 package.json
 
 ```json
 {
-  "name": "example",
-  "private": true,
-  "version": "0.0.1",
-  "type": "module",
-  "scripts": {
-    "dev": "vite",
-    "build": "run-s build:core build:post",
-    "build-only": "vite build",
-    "build:pre": "node ./scripts/pre-build.js",
-    "build:post": "node ./scripts/post-build.js",
-    "build:core": "run-p type-check \"build-only {@}\" --",
-    "type-check": "vue-tsc --build"
-  }
+	"name": "example",
+	"private": true,
+	"version": "0.0.1",
+	"type": "module",
+	"scripts": {
+		"dev": "vite",
+		"build": "run-s build:core build:post",
+		"build-only": "vite build",
+		"build:pre": "node ./scripts/pre-build.js",
+		"build:post": "node ./scripts/post-build.js",
+		"build:core": "run-p type-check \"build-only {@}\" --",
+		"type-check": "vue-tsc --build"
+	}
 }
 ```
