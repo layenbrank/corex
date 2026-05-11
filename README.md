@@ -31,7 +31,7 @@ corex bootstrap force
 ### 使用示例
 
 ```powershell
-corex compression -f C:\Users\iwell\Documents\Rust\dy\dist -t C:\Users\iwell\Documents\Rust\dy\H.wgt
+corex compression -f C:\Users\iwell\Documents\Rust\dy\dist -t C:\Users\iwell\Documents\Rust\dy\H58991839.wgt
 ```
 
 ### 输出文件
@@ -41,7 +41,7 @@ corex compression -f C:\Users\iwell\Documents\Rust\dy\dist -t C:\Users\iwell\Doc
 
 ```json
 {
-	"version": "2026-05-11 08:30:00"
+	"version": "20260511"
 }
 ```
 
