@@ -1,4 +1,4 @@
-use chrono::{Local, Utc};
+use chrono::Local;
 use std::{
     fs::{File, OpenOptions, create_dir_all},
     io::Write,
@@ -10,6 +10,10 @@ use zip::{CompressionMethod, ZipWriter, write::FileOptions};
 use crate::utils::notify::Notification;
 
 use crate::compression::controller::{Args, Exception};
+
+fn build_version_js(version: &str) -> String {
+    format!("export function version() {{\n  return {};\n}}", version)
+}
 
 pub fn run(args: &Args) {
     match bootstrap(&args) {
@@ -46,8 +50,8 @@ pub fn bootstrap(args: &Args) -> Result<(), Exception> {
         .compression_method(CompressionMethod::Deflated)
         .compression_level(Some(6));
 
-    let mut file_count = 0u64;
-    let mut total_bytes = 0u64;
+    let mut _file_count = 0u64;
+    let mut _total_bytes = 0u64;
 
     // 5. 遍历目录，保持相对路径
     for entry in WalkDir::new(from)
@@ -81,8 +85,8 @@ pub fn bootstrap(args: &Args) -> Result<(), Exception> {
         let mut file = File::open(path)?;
         let bytes_written = std::io::copy(&mut file, &mut zip)?;
 
-        total_bytes += bytes_written;
-        file_count += 1;
+        _total_bytes += bytes_written;
+        _file_count += 1;
     }
 
     // Local::now().timestamp() 返回 i64 类型的 Unix 时间戳（秒）。如果需要毫秒用 .timestamp_millis()，格式化字符串用 Local::now().format("%Y-%m-%d %H:%M:%S").to_string()。
@@ -90,19 +94,44 @@ pub fn bootstrap(args: &Args) -> Result<(), Exception> {
 
     let json = serde_json::json!({ "version": timestamp });
 
-    let version_path = to.parent().unwrap_or(to).join("version.json");
+    let out_dir = to.parent().unwrap_or(to);
+    let assets_js_path = out_dir.join("src/assets/js/version.js");
+    let root_json_path = out_dir.join("version.json");
+    let public_json_path = out_dir.join("public/version.json");
 
-    let mut version_file = OpenOptions::new()
+    if let Some(assets_dir) = assets_js_path.parent() {
+        create_dir_all(assets_dir)?;
+    }
+
+    let mut root_json = OpenOptions::new()
         .write(true)
         .create(true)
         .truncate(true)
-        .open(&version_path)?;
+        .open(&root_json_path)?;
 
-    write!(
-        version_file,
-        "{}",
-        serde_json::to_string_pretty(&json).unwrap()
-    )?;
+    let mut public_json = OpenOptions::new()
+        .write(true)
+        .create(true)
+        .truncate(true)
+        .open(&public_json_path)?;
+
+    let mut assets_js = OpenOptions::new()
+        .write(true)
+        .create(true)
+        .truncate(true)
+        .open(&assets_js_path)?;
+
+    serde_json::to_writer_pretty(&mut root_json, &json)
+        .map_err(|e| Exception::InvalidInput(format!("版本信息序列化失败: {}", e)))?;
+
+    writeln!(&mut root_json)?;
+
+    serde_json::to_writer_pretty(&mut public_json, &json)
+        .map_err(|e| Exception::InvalidInput(format!("版本信息序列化失败: {}", e)))?;
+
+    writeln!(&mut public_json)?;
+
+    assets_js.write_all(build_version_js(&timestamp).as_bytes())?;
 
     // 6. 完成 ZIP 文件
     let _writer = zip.finish()?;

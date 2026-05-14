@@ -19,7 +19,7 @@ corex bootstrap force
 
 ## 压缩打包 (compression)
 
-将 H5+ 构建产物目录打包为 `.wgt` 文件，并在同目录下生成 `version.json` 记录打包时间。
+将 H5+ 构建产物目录打包为 `.wgt` 文件，并在输出目录下同步写入版本信息文件。
 
 ### 参数说明
 
@@ -31,17 +31,33 @@ corex bootstrap force
 ### 使用示例
 
 ```powershell
-corex compression -f C:\Users\iwell\Documents\Rust\dy\dist -t C:\Users\iwell\Documents\Rust\dy\H58991839.wgt
+corex compression -f C:\Users\iwell\Documents\Vue2\front\master\app -t C:\Users\iwell\Documents\Vue2\front\master\H58991839.wgt
 ```
 
 ### 输出文件
 
-- `H.wgt`：压缩后的 H5+ 应用包
-- `version.json`：与 `.wgt` 同目录，内容示例：
+以 `--to` 所在目录（`output`）为基准，完成后额外生成以下文件：
+
+| 文件                                | 说明                     |
+| ----------------------------------- | ------------------------ |
+| `<output>/H58991839.wgt`            | 压缩后的 H5+ 应用包      |
+| `<output>/version.json`             | 根目录版本文件           |
+| `<output>/public/version.json`      | public 目录版本文件      |
+| `<output>/src/assets/js/version.js` | 前端可直接导入的版本模块 |
+
+`version.json` 内容示例：
 
 ```json
 {
-	"version": "20260511"
+	"version": "20260514"
+}
+```
+
+`src/assets/js/version.js` 内容示例：
+
+```js
+export function version() {
+	return 20260514
 }
 ```
 
