@@ -1,5 +1,5 @@
 use crate::schedule::controller::Args;
-use crate::{copy, generate};
+use crate::{compression, copy, generate};
 use config::{Config as Configure, File};
 use dialoguer;
 use dirs;
@@ -10,7 +10,9 @@ use dirs;
 enum Segment {
     Copy(usize), // 复制任务的索引
     GeneratePath(usize),
+    Compression(usize),
     // 生成路径任务的索引
+    // 压缩任务的索引
     // 未来可以添加: GenerateFile(usize), GenerateTemplate(usize) 等
 }
 
@@ -77,6 +79,19 @@ pub fn run() {
         });
     }
 
+    // 添加 compression 任务
+    for (i, schedule) in configure.compression.iter().enumerate() {
+        let description = schedule
+            .description
+            .clone()
+            .unwrap_or_else(|| format!("压缩任务 {}", i + 1));
+
+        schedules.push(Schedule {
+            segment: Segment::Compression(i),
+            description,
+        });
+    }
+
     // 未来可以在这里添加其他 generate 类型的任务
     // 例如: configure.generate.file, configure.generate.template 等
 
@@ -106,8 +121,13 @@ pub fn run() {
             println!("执行生成路径任务: {:#?}", schedule);
             generate::service::run(&generate::controller::Args::Path(schedule.clone()));
         } // 未来可以在这里添加其他 generate 类型的匹配分支
-          // Class::GenerateFile(index) => { ... }
-          // Class::GenerateTemplate(index) => { ... }
+        // Class::GenerateFile(index) => { ... }
+        // Class::GenerateTemplate(index) => { ... }
+        Segment::Compression(index) => {
+            let schedule = &configure.compression[*index];
+            println!("执行压缩任务: {:#?}", schedule);
+            compression::service::run(schedule);
+        }
     }
 }
 

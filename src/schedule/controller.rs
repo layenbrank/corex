@@ -1,4 +1,4 @@
-use crate::{copy, generate};
+use crate::{compression, copy, generate};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -8,6 +8,8 @@ pub struct Args {
 
     // #[serde(flatten)]
     pub generate: generate::controller::GenerateSchedule,
+
+    pub compression: Vec<compression::controller::Args>,
 }
 
 // #[derive(Debug, Parser)]

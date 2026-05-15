@@ -11,6 +11,9 @@ pub struct Args {
 
     #[arg(short, long)]
     pub to: String,
+
+    #[arg(help = "任务描述")]
+    pub description: Option<String>,
 }
 
 #[derive(Error, Debug)]

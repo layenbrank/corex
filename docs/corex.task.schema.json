@@ -4,16 +4,39 @@
   "additionalProperties": false,
   "description": "Schema for corex task configuration supporting copy and generate.path tasks.",
   "properties": {
-    "copy": {
-      "description": "Array of copy task objects.",
-      "uniqueItems": true,
+    "compression": {
+      "description": "Array of compression task objects.",
       "items": {
         "additionalProperties": false,
         "properties": {
+          "description": {
+            "description": "Task description",
+            "type": "string"
+          },
+          "from": {
+            "description": "Source path to read files from",
+            "type": "string"
+          },
           "id": {
             "description": "Unique identifier for the task",
             "type": "string"
           },
+          "to": {
+            "description": "Output file path for generated content",
+            "type": "string"
+          }
+        },
+        "required": ["from", "to"],
+        "type": "object"
+      },
+      "type": "array",
+      "uniqueItems": true
+    },
+    "copy": {
+      "description": "Array of copy task objects.",
+      "items": {
+        "additionalProperties": false,
+        "properties": {
           "description": {
             "description": "Task description",
             "type": "string"
@@ -24,6 +47,10 @@
           },
           "from": {
             "description": "Source path to copy from",
+            "type": "string"
+          },
+          "id": {
+            "description": "Unique identifier for the task",
             "type": "string"
           },
           "ignores": {
@@ -41,7 +68,8 @@
         "required": ["from", "to"],
         "type": "object"
       },
-      "type": "array"
+      "type": "array",
+      "uniqueItems": true
     },
     "generate": {
       "additionalProperties": false,
@@ -49,21 +77,19 @@
       "properties": {
         "path": {
           "description": "Array of path generation task objects.",
-          "uniqueItems": true,
           "items": {
             "additionalProperties": false,
-            "uniqueItems": true,
             "properties": {
-              "id": {
-                "description": "Unique identifier for the task",
-                "type": "string"
-              },
               "description": {
                 "description": "Task description",
                 "type": "string"
               },
               "from": {
                 "description": "Source path to read files from",
+                "type": "string"
+              },
+              "id": {
+                "description": "Unique identifier for the task",
                 "type": "string"
               },
               "ignores": {
@@ -78,6 +104,10 @@
                 "minimum": 0,
                 "type": "integer"
               },
+              "pad": {
+                "description": "Whether to pad the index with leading zeros",
+                "type": "boolean"
+              },
               "separator": {
                 "description": "Path separator used when joining path components (escaped if necessary)",
                 "type": "string"
@@ -85,10 +115,6 @@
               "to": {
                 "description": "Output file path for generated content",
                 "type": "string"
-              },
-              "pad": {
-                "description": "Whether to pad the index with leading zeros",
-                "type": "boolean"
               },
               "transform": {
                 "description": "Template string for each generated entry. Supports handlebars-like placeholders such as {{fullpath}}, {{extension}}, {{index}}",
@@ -103,9 +129,11 @@
               }
             },
             "required": ["from", "to"],
-            "type": "object"
+            "type": "object",
+            "uniqueItems": true
           },
-          "type": "array"
+          "type": "array",
+          "uniqueItems": true
         }
       },
       "type": "object"
