@@ -5,11 +5,29 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GenerateSchedule {
     pub path: Vec<PathArgs>,
+    #[serde(default)]
+    pub uuid: Vec<UuidArgs>,
 }
 
 #[derive(Debug, Parser, Clone, Serialize, Deserialize)]
 pub enum Args {
     Path(PathArgs),
+    Uuid(UuidArgs),
+}
+
+#[derive(Debug, Parser, Clone, Serialize, Deserialize)]
+pub struct UuidArgs {
+    #[arg(short, long, default_value = "1", help = "生成 UUID 的数量")]
+    pub count: usize,
+
+    #[arg(long, action = ArgAction::SetTrue, help = "以大写形式输出")]
+    pub uppercase: bool,
+
+    #[arg(help = "任务ID")]
+    pub id: Option<String>,
+
+    #[arg(help = "任务描述")]
+    pub description: Option<String>,
 }
 
 #[derive(Debug, Parser, Clone, Serialize, Deserialize)]

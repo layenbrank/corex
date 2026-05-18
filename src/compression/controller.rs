@@ -14,6 +14,9 @@ pub struct Args {
 
     #[arg(help = "任务描述")]
     pub description: Option<String>,
+
+    #[arg(help = "任务ID")]
+    pub id: Option<String>,
 }
 
 #[derive(Error, Debug)]

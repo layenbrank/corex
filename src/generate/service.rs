@@ -1,4 +1,4 @@
-use crate::generate::controller::{Args, PathArgs};
+use crate::generate::controller::{Args, PathArgs, UuidArgs};
 use crate::utils::{ignore::Ignore, notify::Notification, verifier::Verifier};
 use anyhow::{Context, Result};
 use std::{
@@ -6,11 +6,12 @@ use std::{
     io::{BufWriter, Write},
     path::Path,
 };
+use uuid::Uuid;
 use walkdir::{DirEntry, WalkDir};
 
 pub fn run(args: &Args) {
     match args {
-        Args::Path(path_args) => match path_task(&path_args) {
+        Args::Path(path_args) => match path_task(path_args) {
             Ok(_) => {
                 let _ = Notification::success("路径生成成功", "路径生成操作已成功完成");
             }
@@ -18,6 +19,18 @@ pub fn run(args: &Args) {
                 let _ = Notification::error("文件生成失败", &format!("生成过程中发生错误: {}", e));
             }
         },
+        Args::Uuid(uuid_args) => uuid_task(uuid_args),
+    }
+}
+
+pub fn uuid_task(args: &UuidArgs) {
+    for _ in 0..args.count {
+        let id = Uuid::new_v4();
+        if args.uppercase {
+            println!("{}", id.to_string().to_uppercase());
+        } else {
+            println!("{}", id);
+        }
     }
 }
 
@@ -28,7 +41,7 @@ pub fn path_task(args: &PathArgs) -> Result<()> {
     let transform = args.transform.clone();
     let ignores = args.ignores.clone();
     let separator = args.separator.clone();
-    let index = args.index.clone();
+    let index = args.index;
     let uppercase = args.uppercase.clone();
 
     if to.is_dir() {
@@ -105,7 +118,7 @@ pub fn path_task(args: &PathArgs) -> Result<()> {
         println!("转换结果: {}", transformed);
 
         // 流式写入到缓冲区，除了最后一行不添加换行符
-        if index == entries.len() - 1 {
+        if key == entries.len() - 1 {
             write!(writer, "{}", transformed).context("写入文件失败")?;
         } else {
             writeln!(writer, "{}", transformed).context("写入文件失败")?;

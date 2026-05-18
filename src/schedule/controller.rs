@@ -1,14 +1,25 @@
 use crate::{compression, copy, generate};
+use clap::Parser;
 use serde::{Deserialize, Serialize};
 
+/// schedule 子命令
+#[derive(Debug, Parser)]
+pub enum Args {
+    /// 交互式选择并执行配置任务
+    Run,
+    /// 在 ~/.corex/ 生成配置文件模板
+    Generate,
+}
+
+/// ~/.corex/corex-configure.json 反序列化结构
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Args {
-    // #[serde(flatten)]
+pub struct ScheduleConfig {
+    #[serde(default)]
     pub copy: Vec<copy::controller::Args>,
 
-    // #[serde(flatten)]
     pub generate: generate::controller::GenerateSchedule,
 
+    #[serde(default)]
     pub compression: Vec<compression::controller::Args>,
 }
 

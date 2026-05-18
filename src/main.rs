@@ -1,5 +1,5 @@
 use clap::Parser;
-use corex::{bootstrap, compression, copy, generate, schedule, scrub};
+use corex_lib::{bootstrap, compression, copy, generate, schedule, scrub};
 
 #[derive(Debug, Parser)]
 pub enum Commands {
@@ -12,8 +12,8 @@ pub enum Commands {
     #[command(subcommand)]
     Bootstrap(bootstrap::controller::Args),
 
-    // #[command(subcommand)]
-    Schedule,
+    #[command(subcommand)]
+    Schedule(schedule::controller::Args),
 
     Compression(compression::controller::Args),
 }
@@ -32,7 +32,7 @@ pub struct Args {
 #[tokio::main]
 async fn main() {
     match Args::parse().command {
-        Commands::Schedule => schedule::service::run(),
+        Commands::Schedule(args) => schedule::service::run(&args),
         Commands::Copy(args) => copy::service::run(&args),
         Commands::Scrub(args) => scrub::service::run(&args),
         Commands::Generate(args) => generate::service::run(&args),
