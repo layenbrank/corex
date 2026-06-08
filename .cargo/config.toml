@@ -12,6 +12,8 @@ rustflags = [
   "-C",
   "opt-level=3",                 #
   "-C",
+  "codegen-units=16",            # 单一代码生成单元以提升优化效果
+  "-C",
   "target-cpu=native",           # CPU指令集优化
   "-C",
   "target-feature=+crt-static",  # 静态链接MSVC运行时
