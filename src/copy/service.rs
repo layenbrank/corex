@@ -6,6 +6,7 @@ use indicatif::ProgressBar;
 use walkdir::WalkDir;
 
 use crate::copy::controller::Args;
+use crate::schedule::pipeline::Context as PipelineContext;
 use crate::utils::{file, ignore, notify::Notification, progress::Progress};
 
 // 不能在常量中直接使用 Vec，因为 Vec 的分配是在堆上完成的，
@@ -36,6 +37,25 @@ pub fn run(args: &Args) {
             let _ = Notification::error("文件复制失败", &format!("复制过程中发生错误: {}", e));
         }
     }
+}
+
+/// Pipeline 调用入口：执行后将 `to` 路径写入 ctx.last_output
+pub fn execute(args: &Args, ctx: &mut PipelineContext) -> Result<()> {
+    let from = Path::new(&args.from);
+    let to = Path::new(&args.to);
+    let patterns = ignore::build(&args.ignores);
+
+    let (count, _size) = scan(from, &patterns)?;
+    if count == 0 {
+        println!("没有文件需要复制");
+    } else {
+        let progress = Progress::progress(count);
+        copy(from, to, args.empty, &patterns, progress)?;
+    }
+
+    // 将目标路径传递给下一步
+    ctx.set_output(to.to_path_buf());
+    Ok(())
 }
 
 fn scan(from: &Path, patterns: &Vec<Pattern>) -> Result<(u64, u64)> {

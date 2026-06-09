@@ -22,11 +22,11 @@ pub struct Args {
 #[derive(Error, Debug)]
 pub enum Exception {
     #[error("IO 错误: {0}")]
-    Io(#[from] std::io::Error), // from → ? 自动转换
-
-    #[error("无效的构建产物: {0}")]
-    InvalidInput(String),
+    Io(#[from] std::io::Error),
 
     #[error("压缩错误: {0}")]
     Zip(#[from] zip::result::ZipError),
+
+    #[error("路径计算错误: {0}")]
+    PathError(String),
 }

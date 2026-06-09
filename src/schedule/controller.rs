@@ -12,107 +12,36 @@ pub enum Args {
     Generate,
 }
 
-/// ~/.corex/corex-configure.json 反序列化结构
+/// ~/.corex/corex-configure.json 反序列化结构（支持 pipeline 编排）
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ScheduleConfig {
+    /// 管道列表：每个 pipeline 包含一系列顺序执行的步骤
     #[serde(default)]
-    pub copy: Vec<copy::controller::Args>,
-
-    pub generate: generate::controller::GenerateSchedule,
-
-    #[serde(default)]
-    pub compression: Vec<compression::controller::Args>,
+    pub pipelines: Vec<Pipeline>,
 }
 
-// #[derive(Debug, Parser)]
-// pub enum Args {
-// 	Env,
-// }
+/// 一条管道（流水线）
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Pipeline {
+    pub id: String,
+    pub description: Option<String>,
+    /// 按顺序执行的步骤列表
+    pub steps: Vec<Step>,
+}
 
-// #[derive(Debug)]
-// pub struct CorexConfig {
-//     pub copy: Option<Vec<HashMap<String, CopyTask>>>,
-//     pub generate: Option<GenerateConfig>,
-// }
+/// 单个步骤，通过 `type` 字段区分任务类型
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "type")]
+pub enum Step {
+    #[serde(rename = "copy")]
+    Copy(copy::controller::Args),
 
-// #[derive(Debug)]
-// pub struct CopyTask {
-//     pub from: String,
-//     pub to: String,
-//     pub ignores: Option<Vec<String>>,
-//     pub empty: Option<bool>,
-// }
+    #[serde(rename = "generate-path")]
+    GeneratePath(generate::controller::PathArgs),
 
-// #[derive(Debug)]
-// pub struct GenerateConfig {
-//     pub path: Option<Vec<HashMap<String, PathTask>>>,
-// }
+    #[serde(rename = "generate-uuid")]
+    GenerateUuid(generate::controller::UuidArgs),
 
-// #[derive(Debug)]
-// pub struct PathTask {
-//     pub from: String,
-//     pub to: String,
-//     pub ignores: Option<Vec<String>>,
-//     pub index: Option<u32>,
-//     pub separator: Option<String>,
-//     pub uppercase: Option<Vec<String>>,
-//     pub transform: Option<String>,
-//
-
-// pub fn run(task: Args) {
-// 	match task {
-// 		Args::Env => {
-// 			// 这里可以添加环境变量的处理逻辑
-// 			println!("Running Env task...");
-// 		}
-// 	}
-// }
-//
-// #[derive(Debug, Clone, Parser, Serialize, Deserialize)]
-// pub struct BaseTask {
-// 	pub from: String,
-// 	pub to: String,
-// 	pub ignores: Option<Vec<String>>,
-// }
-//
-// #[derive(Serialize, Deserialize, Debug)]
-// pub struct CopyTask {
-// 	#[serde(flatten)] // 关键：将基础字段平铺到当前结构
-// 	pub base: BaseTask,
-// 	pub empty: Option<bool>,
-// }
-//
-// impl CopyTask {
-// 	pub fn new(
-// 		from: String,
-// 		to: String,
-// 		ignores: Option<Vec<String>>,
-// 		empty: Option<bool>,
-// 	) -> Self {
-// 		Self {
-// 			base: BaseTask { from, to, ignores },
-// 			empty,
-// 		}
-// 	}
-// }
-//
-// #[derive(Serialize, Deserialize, Debug)]
-// pub struct PathTask {
-// 	#[serde(flatten)] // 关键：将基础字段平铺到当前结构
-// 	pub base: BaseTask,
-// 	pub index: Option<u32>,
-// 	pub separator: Option<String>,
-// 	pub uppercase: Option<Vec<String>>,
-// 	pub transform: Option<String>,
-// }
-//
-// #[derive(Debug)]
-// pub struct GenerateConfig {
-// 	pub path: Option<Vec<HashMap<String, PathTask>>>,
-// }
-//
-// #[derive(Debug)]
-// pub struct CorexConfig {
-// 	pub copy: Option<Vec<HashMap<String, CopyTask>>>,
-// 	pub generate: Option<GenerateConfig>,
-// }
+    #[serde(rename = "compression")]
+    Compression(compression::controller::Args),
+}

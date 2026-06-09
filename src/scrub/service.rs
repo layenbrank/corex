@@ -1,9 +1,9 @@
 use std::{
-    collections::BTreeMap,
     env, io,
     path::PathBuf,
     process::Command,
     sync::{Arc, mpsc},
+    time::Instant,
 };
 
 use thiserror::Error;
@@ -11,6 +11,7 @@ use tokio::sync::Semaphore;
 use walkdir::WalkDir;
 
 use crate::scrub::controller::Args;
+use crate::utils::{file, progress::Progress};
 
 #[derive(Debug, Error)]
 pub enum ScrubError {
@@ -128,6 +129,36 @@ fn win_takeown_and_remove(p: &PathBuf, is_dir: bool) -> Result<(), io::Error> {
     }
 }
 
+/// 收集目录下所有子项（文件+子目录），并计算文件总大小
+/// 返回: (待删除项列表, 文件总字节数)
+fn collect_descendants(paths: Vec<(PathBuf, bool)>) -> (Vec<(PathBuf, bool)>, u64) {
+    let mut result = Vec::new();
+    let mut total_size: u64 = 0;
+    for (path, is_dir) in &paths {
+        if *is_dir {
+            for entry in WalkDir::new(path)
+                .min_depth(1)
+                .follow_links(false)
+                .into_iter()
+                .filter_map(|e| e.ok())
+            {
+                let p = entry.path().to_path_buf();
+                let d = p.is_dir();
+                if !d {
+                    total_size += p.metadata().map(|m| m.len()).unwrap_or(0);
+                }
+                result.push((p, d));
+            }
+            // 匹配目录本身也加入删除列表（内容清空后删除空目录）
+            result.push((path.clone(), true));
+        } else {
+            total_size += path.metadata().map(|m| m.len()).unwrap_or(0);
+            result.push((path.clone(), false));
+        }
+    }
+    (result, total_size)
+}
+
 /// 内部异步实现（私有）：执行遍历与并发删除逻辑。
 /// - `source`：起始目录路径字符串
 /// - `recursive`：是否递归查找子目录
@@ -146,8 +177,9 @@ async fn launcher(source: &str, recursive: bool, target: &str) -> Result<(), Scr
 
     if recursive {
         // 在 blocking 池中遍历文件树并收集匹配的路径和类型（避免在 async 上做大量 sync IO）
+        let spinner = Progress::spinner("正在扫描匹配项...");
         let fname = target.to_string();
-        let mut matches: Vec<(PathBuf, bool)> = tokio::task::spawn_blocking({
+        let matches: Vec<(PathBuf, bool)> = tokio::task::spawn_blocking({
             let root = root.clone();
             let fname = fname.clone();
             move || {
@@ -170,144 +202,183 @@ async fn launcher(source: &str, recursive: bool, target: &str) -> Result<(), Scr
         .await
         .map_err(|e| ScrubError::Traverse(format!("traverse join error: {}", e)))?;
 
+        spinner.finish_and_clear();
+
         if matches.is_empty() {
             println!("未找到匹配项: {}", target);
             return Ok(());
         }
 
-        // 从内向外删除：按路径深度分组并分层处理，确保子目录先完成
-        matches.sort_by(|a, b| b.0.components().count().cmp(&a.0.components().count()));
+        println!("找到 {} 个匹配项: {}", matches.len(), target);
 
-        let mut by_depth: BTreeMap<usize, Vec<(PathBuf, bool)>> = BTreeMap::new();
-        for (p, is_dir) in matches {
-            let depth = p.components().count();
-            by_depth.entry(depth).or_default().push((p, is_dir));
+        // 展开匹配目录的所有子项，用于精确的删除进度统计
+        let scan_spinner = Progress::spinner("正在统计待删除项...");
+        let (mut all_items, total_size) = tokio::task::spawn_blocking(move || collect_descendants(matches))
+            .await
+            .map_err(|e| ScrubError::Traverse(format!("collect descendants error: {}", e)))?;
+        scan_spinner.finish_and_clear();
+
+        if all_items.is_empty() {
+            println!("没有需要删除的项");
+            return Ok(());
         }
 
+        let file_count = all_items.iter().filter(|(_, d)| !d).count();
+        let dir_count = all_items.iter().filter(|(_, d)| *d).count();
+        println!(
+            "共 {} 项待删除 ({} 个文件, {} 个目录, 总大小 {})",
+            all_items.len(),
+            file_count,
+            dir_count,
+            file::size(total_size)
+        );
+
+        // 按深度降序排列：先删最深的内容，最后删空目录
+        all_items.sort_by(|a, b| b.0.components().count().cmp(&a.0.components().count()));
+
+        let total_items: u64 = all_items.len() as u64;
+        let pb = Progress::progress(total_items);
+        pb.set_message(format!("正在删除 {} 项...", total_items));
+        pb.tick(); // 强制初始渲染，避免操作过快时进度条从未显示
+        let start = Instant::now();
         let semaphore = Arc::new(Semaphore::new(64)); // 并发上限，可调
         let mut first_err: Option<ScrubError> = None;
 
-        // 从深到浅逐层并发删除，每层等待完成后再处理更浅一层
-        for (_depth, group) in by_depth.into_iter().rev() {
-            let mut tasks = Vec::with_capacity(group.len());
-            for (path, is_dir) in group {
-                let semaphore = semaphore.clone();
-                let p = path.clone();
-                let task = tokio::spawn(async move {
-                    let _permit = semaphore.acquire().await;
-                    if is_dir {
-                        if let Err(_e_async) = tokio::fs::remove_dir_all(&p).await {
-                            // 异步失败后尝试 blocking 删除
-                            let p_clone = p.clone();
-                            match tokio::task::spawn_blocking(move || {
-                                std::fs::remove_dir_all(&p_clone)
-                            })
-                            .await
-                            {
-                                Ok(Ok(())) => Ok(()),
-                                Ok(Err(e_block)) => match e_block.raw_os_error() {
-                                    Some(2) | Some(3) => Ok(()), // 不存在 => 可忽略
-                                    Some(5) => {
-                                        // 权限问题：尝试修复权限并重试删除（blocking）
-                                        let p_retry = p.clone();
-                                        match tokio::task::spawn_blocking(move || {
-                                            win_takeown_and_remove(&p_retry, true)
-                                        })
-                                        .await
-                                        {
-                                            Ok(Ok(())) => Ok(()),
-                                            Ok(Err(e3)) => Err(ScrubError::Io(
-                                                p.to_string_lossy().to_string(),
-                                                e3,
-                                            )),
-                                            Err(join_err) => Err(ScrubError::Task(format!(
-                                                "join error: {}",
-                                                join_err
-                                            ))),
-                                        }
+        // 从深到浅逐层并发删除
+        let mut tasks = Vec::with_capacity(all_items.len());
+        for (path, is_dir) in all_items {
+            let semaphore = semaphore.clone();
+            let p = path.clone();
+            let task = tokio::spawn(async move {
+                let _permit = semaphore.acquire().await;
+                if is_dir {
+                    if let Err(_e_async) = tokio::fs::remove_dir_all(&p).await {
+                        // 异步失败后尝试 blocking 删除
+                        let p_clone = p.clone();
+                        match tokio::task::spawn_blocking(move || {
+                            std::fs::remove_dir_all(&p_clone)
+                        })
+                        .await
+                        {
+                            Ok(Ok(())) => Ok(()),
+                            Ok(Err(e_block)) => match e_block.raw_os_error() {
+                                Some(2) | Some(3) => Ok(()), // 不存在 => 可忽略
+                                Some(5) => {
+                                    // 权限问题：尝试修复权限并重试删除（blocking）
+                                    let p_retry = p.clone();
+                                    match tokio::task::spawn_blocking(move || {
+                                        win_takeown_and_remove(&p_retry, true)
+                                    })
+                                    .await
+                                    {
+                                        Ok(Ok(())) => Ok(()),
+                                        Ok(Err(e3)) => Err(ScrubError::Io(
+                                            p.to_string_lossy().to_string(),
+                                            e3,
+                                        )),
+                                        Err(join_err) => Err(ScrubError::Task(format!(
+                                            "join error: {}",
+                                            join_err
+                                        ))),
                                     }
-                                    _ => Err(ScrubError::Io(
-                                        p.to_string_lossy().to_string(),
-                                        e_block,
-                                    )),
-                                },
-                                Err(join_err) => {
-                                    Err(ScrubError::Task(format!("join error: {}", join_err)))
                                 }
+                                _ => Err(ScrubError::Io(
+                                    p.to_string_lossy().to_string(),
+                                    e_block,
+                                )),
+                            },
+                            Err(join_err) => {
+                                Err(ScrubError::Task(format!("join error: {}", join_err)))
                             }
-                        } else {
-                            Ok(())
                         }
                     } else {
-                        if let Err(_e_async) = tokio::fs::remove_file(&p).await {
-                            let p_clone = p.clone();
-                            match tokio::task::spawn_blocking(move || {
-                                std::fs::remove_file(&p_clone)
-                            })
-                            .await
-                            {
-                                Ok(Ok(())) => Ok(()),
-                                Ok(Err(e_block)) => match e_block.raw_os_error() {
-                                    Some(2) | Some(3) => Ok(()),
-                                    Some(5) => {
-                                        let p_retry = p.clone();
-                                        match tokio::task::spawn_blocking(move || {
-                                            win_takeown_and_remove(&p_retry, false)
-                                        })
-                                        .await
-                                        {
-                                            Ok(Ok(())) => Ok(()),
-                                            Ok(Err(e3)) => Err(ScrubError::Io(
-                                                p.to_string_lossy().to_string(),
-                                                e3,
-                                            )),
-                                            Err(join_err) => Err(ScrubError::Task(format!(
-                                                "join error: {}",
-                                                join_err
-                                            ))),
-                                        }
+                        Ok(())
+                    }
+                } else {
+                    if let Err(_e_async) = tokio::fs::remove_file(&p).await {
+                        let p_clone = p.clone();
+                        match tokio::task::spawn_blocking(move || {
+                            std::fs::remove_file(&p_clone)
+                        })
+                        .await
+                        {
+                            Ok(Ok(())) => Ok(()),
+                            Ok(Err(e_block)) => match e_block.raw_os_error() {
+                                Some(2) | Some(3) => Ok(()),
+                                Some(5) => {
+                                    let p_retry = p.clone();
+                                    match tokio::task::spawn_blocking(move || {
+                                        win_takeown_and_remove(&p_retry, false)
+                                    })
+                                    .await
+                                    {
+                                        Ok(Ok(())) => Ok(()),
+                                        Ok(Err(e3)) => Err(ScrubError::Io(
+                                            p.to_string_lossy().to_string(),
+                                            e3,
+                                        )),
+                                        Err(join_err) => Err(ScrubError::Task(format!(
+                                            "join error: {}",
+                                            join_err
+                                        ))),
                                     }
-                                    _ => Err(ScrubError::Io(
-                                        p.to_string_lossy().to_string(),
-                                        e_block,
-                                    )),
-                                },
-                                Err(join_err) => {
-                                    Err(ScrubError::Task(format!("join error: {}", join_err)))
                                 }
+                                _ => Err(ScrubError::Io(
+                                    p.to_string_lossy().to_string(),
+                                    e_block,
+                                )),
+                            },
+                            Err(join_err) => {
+                                Err(ScrubError::Task(format!("join error: {}", join_err)))
                             }
-                        } else {
-                            Ok(())
                         }
+                    } else {
+                        Ok(())
                     }
-                });
-                tasks.push(task);
-            }
+                }
+            });
+            tasks.push(task);
+        }
 
-            for t in tasks {
-                match t.await {
-                    Ok(Ok(())) => {}
-                    Ok(Err(e)) => {
-                        eprintln!("删除失败: {}", e);
-                        if first_err.is_none() {
-                            first_err = Some(e);
-                        }
+        for t in tasks {
+            match t.await {
+                Ok(Ok(())) => {
+                    pb.inc(1);
+                }
+                Ok(Err(e)) => {
+                    eprintln!("删除失败: {}", e);
+                    pb.inc(1);
+                    if first_err.is_none() {
+                        first_err = Some(e);
                     }
-                    Err(join_err) => {
-                        eprintln!("删除任务被取消或失败: {}", join_err);
-                        if first_err.is_none() {
-                            first_err = Some(ScrubError::Task(format!("join error: {}", join_err)));
-                        }
+                }
+                Err(join_err) => {
+                    eprintln!("删除任务被取消或失败: {}", join_err);
+                    pb.inc(1);
+                    if first_err.is_none() {
+                        first_err = Some(ScrubError::Task(format!("join error: {}", join_err)));
                     }
                 }
             }
         }
+
+        let elapsed = start.elapsed();
+        let avg_speed = file::speed(total_size, elapsed);
+        pb.finish_with_message(format!("删除完成，共处理 {} 项", total_items));
+        println!(
+            "删除完成，共处理 {} 项: {} | 用时 {} | 平均 {}",
+            total_items,
+            target,
+            file::duration(elapsed),
+            format!("{}/s", file::size(avg_speed))
+        );
 
         if let Some(e) = first_err {
             return Err(e);
         }
     } else {
         // shallow 模式：只删除 `source` 下直接子项名为 `target` 的条目
+        let spinner = Progress::spinner("正在扫描匹配项...");
         let fname = target.to_string();
         let children: Vec<PathBuf> = tokio::task::spawn_blocking({
             let tgt = root.clone();
@@ -329,7 +400,21 @@ async fn launcher(source: &str, recursive: bool, target: &str) -> Result<(), Scr
         .await
         .map_err(|e| ScrubError::Traverse(format!("read_dir join error: {}", e)))?;
 
+        spinner.finish_and_clear();
+
+        if children.is_empty() {
+            println!("未找到匹配项: {}", target);
+            return Ok(());
+        }
+
+        println!("找到 {} 个匹配项: {}", children.len(), target);
+
         // shallow 模式并发删除匹配的直接子项
+        let child_count = children.len() as u64;
+        let pb = Progress::progress(child_count);
+        pb.set_message(format!("正在删除 {} 个匹配项...", child_count));
+        pb.tick(); // 强制初始渲染
+        let start = Instant::now();
         let semaphore = Arc::new(Semaphore::new(32));
         let mut tasks = Vec::with_capacity(children.len());
         for child in children {
@@ -374,15 +459,19 @@ async fn launcher(source: &str, recursive: bool, target: &str) -> Result<(), Scr
         let mut first_err: Option<ScrubError> = None;
         for t in tasks {
             match t.await {
-                Ok(Ok(())) => {}
+                Ok(Ok(())) => {
+                    pb.inc(1);
+                }
                 Ok(Err(e)) => {
                     eprintln!("删除失败: {}", e);
+                    pb.inc(1);
                     if first_err.is_none() {
                         first_err = Some(e);
                     }
                 }
                 Err(join_err) => {
                     eprintln!("删除任务被取消或失败: {}", join_err);
+                    pb.inc(1);
                     if first_err.is_none() {
                         first_err = Some(ScrubError::Task(format!("join error: {}", join_err)));
                     }
@@ -390,21 +479,23 @@ async fn launcher(source: &str, recursive: bool, target: &str) -> Result<(), Scr
             }
         }
 
+        let elapsed = start.elapsed();
+        let items_per_sec = file::speed(child_count, elapsed);
+        pb.finish_with_message(format!("删除完成，共处理 {} 项", child_count));
+        println!(
+            "删除完成，共处理 {} 项: {} | 用时 {} | 平均 {} 项/s",
+            child_count,
+            target,
+            file::duration(elapsed),
+            items_per_sec
+        );
+
         if let Some(e) = first_err {
             return Err(e);
         }
     }
 
     Ok(())
-}
-
-// 保留（但目前未使用）的忽略规则函数
-#[allow(dead_code)]
-fn _is_ignored(path: &std::path::Path) -> bool {
-    path.file_name()
-        .and_then(|name| name.to_str())
-        .map(|s| s.starts_with('.') || ["node_modules", ".git"].contains(&s))
-        .unwrap_or(false)
 }
 
 #[cfg(test)]

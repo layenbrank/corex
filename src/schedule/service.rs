@@ -6,26 +6,12 @@ use std::{
 use config::{Config as Configure, File};
 use crossterm::style::Stylize;
 use dialoguer::theme::ColorfulTheme;
-use dirs;
 
 use uuid::Uuid;
 
-use crate::schedule::controller::{Args, ScheduleConfig};
+use crate::schedule::controller::{Args, Pipeline, ScheduleConfig, Step};
+use crate::schedule::pipeline::Context;
 use crate::{compression, copy, generate};
-
-#[derive(Debug, Clone)]
-enum Segment {
-    Copy(usize),
-    GeneratePath(usize),
-    GenerateUuid(usize),
-    Compression(usize),
-}
-
-#[derive(Debug, Clone)]
-struct Schedule {
-    segment: Segment,
-    description: String,
-}
 
 pub fn run(args: &Args) {
     match args {
@@ -40,6 +26,185 @@ fn config_path() -> PathBuf {
         .join(".corex")
         .join("corex-configure.json")
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Pipeline 执行引擎
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// 执行整条 pipeline：按顺序运行每个 step，共享 Context
+fn run_pipeline(pipeline: &Pipeline) {
+    println!(
+        "\n  {} 执行流水线：{}\n",
+        "▶".green().bold(),
+        pipeline
+            .description
+            .as_deref()
+            .unwrap_or(&pipeline.id)
+            .bold()
+    );
+
+    let mut ctx = Context::new();
+
+    for (i, step) in pipeline.steps.iter().enumerate() {
+        let step_label = step_label(step, i);
+        println!("  {} [{}] {}", "▸".cyan(), (i + 1).to_string().bold(), step_label);
+
+        if let Err(e) = execute_step(step, &mut ctx) {
+            eprintln!(
+                "  {} 步骤 {} 失败: {}",
+                "×".red(),
+                (i + 1).to_string().bold(),
+                e
+            );
+            return;
+        }
+    }
+
+    println!(
+        "\n  {} 流水线执行完成（共 {} 步）",
+        "✓".green().bold(),
+        pipeline.steps.len()
+    );
+}
+
+/// 执行单个步骤并更新 Context
+fn execute_step(step: &Step, ctx: &mut Context) -> Result<(), Box<dyn std::error::Error>> {
+    match step {
+        Step::Copy(args) => {
+            copy::service::execute(args, ctx)?;
+        }
+        Step::GeneratePath(args) => {
+            generate::service::execute_path(args, ctx)?;
+        }
+        Step::GenerateUuid(args) => {
+            generate::service::execute_uuid(args, ctx);
+        }
+        Step::Compression(args) => {
+            compression::service::execute(args, ctx)
+                .map_err(|e| -> Box<dyn std::error::Error> { Box::new(e) })?;
+        }
+    }
+    Ok(())
+}
+
+fn step_label(step: &Step, _index: usize) -> String {
+    match step {
+        Step::Copy(args) => {
+            let desc = args.description.as_deref().unwrap_or("复制");
+            format!("{} {}", "[复制]".cyan().bold(), desc)
+        }
+        Step::GeneratePath(args) => {
+            let desc = args.description.as_deref().unwrap_or("路径生成");
+            format!("{} {}", "[路径]".green().bold(), desc)
+        }
+        Step::GenerateUuid(args) => {
+            let desc = args.description.as_deref().unwrap_or("UUID 生成");
+            format!("{} {}", "[UUID]".magenta().bold(), desc)
+        }
+        Step::Compression(args) => {
+            let desc = args.description.as_deref().unwrap_or("压缩");
+            format!("{} {}", "[压缩]".yellow().bold(), desc)
+        }
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// run_schedule：加载配置 → 交互选择 → 执行
+// ─────────────────────────────────────────────────────────────────────────────
+
+fn run_schedule() {
+    let path = config_path();
+
+    if !path.exists() {
+        eprintln!(
+            "  {} 配置文件未找到：{}\n  请先运行 {} 生成配置",
+            "×".red(),
+            path.display().to_string().dim(),
+            "corex schedule generate".bold()
+        );
+        return;
+    }
+
+    let configure = Configure::builder()
+        .add_source(File::with_name(path.to_str().unwrap()))
+        .build()
+        .expect("Failed to build configuration")
+        .try_deserialize::<ScheduleConfig>()
+        .expect("Failed to deserialize configuration");
+
+    if configure.pipelines.is_empty() {
+        eprintln!("  {} 配置文件中没有找到有效的流水线", "×".red());
+        return;
+    }
+
+    print_banner("Corex · 任务调度器");
+
+    // 构建选项列表：每条流水线 + 各流水线内的单独步骤
+    let mut choices: Vec<ScheduleChoice> = Vec::new();
+    let mut labels: Vec<String> = Vec::new();
+
+    for pipeline in &configure.pipelines {
+        let desc = pipeline
+            .description
+            .as_deref()
+            .unwrap_or(&pipeline.id);
+        choices.push(ScheduleChoice::Pipeline(pipeline.clone()));
+        labels.push(format!(
+            "{} {} ({} 步)",
+            "▶".green().bold(),
+            desc.bold(),
+            pipeline.steps.len()
+        ));
+
+        // 展开各步骤为可选项
+        for (i, step) in pipeline.steps.iter().enumerate() {
+            choices.push(ScheduleChoice::Step {
+                pipeline: pipeline.clone(),
+                step_index: i,
+            });
+            labels.push(format!("    {}", step_label(step, i)));
+        }
+    }
+
+    let selected = dialoguer::Select::with_theme(&theme())
+        .with_prompt("选择要执行的任务")
+        .items(&labels)
+        .default(0)
+        .interact()
+        .unwrap();
+
+    match &choices[selected] {
+        ScheduleChoice::Pipeline(pipeline) => run_pipeline(pipeline),
+        ScheduleChoice::Step {
+            pipeline,
+            step_index,
+        } => {
+            let step = &pipeline.steps[*step_index];
+            println!(
+                "\n  {} 执行：{}\n",
+                "▶".green().bold(),
+                step_label(step, *step_index).bold()
+            );
+            let mut ctx = Context::new();
+            if let Err(e) = execute_step(step, &mut ctx) {
+                eprintln!("  {} 步骤执行失败: {}", "×".red(), e);
+            }
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+enum ScheduleChoice {
+    Pipeline(Pipeline),
+    Step {
+        pipeline: Pipeline,
+        step_index: usize,
+    },
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// generate_config：交互式向导创建 pipeline 配置
+// ─────────────────────────────────────────────────────────────────────────────
 
 fn generate_config() {
     print_banner("Corex · 配置向导");
@@ -62,6 +227,19 @@ fn generate_config() {
         }
     }
 
+    // 询问流水线名称
+    let pipeline_id: String = dialoguer::Input::with_theme(&theme())
+        .with_prompt("流水线 ID（英文，无空格）")
+        .default("default".to_string())
+        .interact_text()
+        .unwrap();
+
+    let pipeline_desc: String = dialoguer::Input::with_theme(&theme())
+        .with_prompt("流水线描述")
+        .allow_empty(true)
+        .interact_text()
+        .unwrap();
+
     let task_types = [
         "  复制目录      copy",
         "  路径生成      generate path",
@@ -70,213 +248,187 @@ fn generate_config() {
     ];
     println!();
     let selections = dialoguer::MultiSelect::with_theme(&theme())
-        .with_prompt("选择任务类型")
+        .with_prompt("选择要添加的步骤类型（按顺序）")
         .items(&task_types)
         .interact()
         .unwrap();
 
     if selections.is_empty() {
-        println!("  {} 未选择任何类型，已取消。", "×".red());
+        println!("  {} 未选择任何步骤，已取消。", "×".red());
         return;
     }
 
-    let mut copy_tasks: Vec<serde_json::Value> = Vec::new();
-    let mut path_tasks: Vec<serde_json::Value> = Vec::new();
-    let mut uuid_tasks: Vec<serde_json::Value> = Vec::new();
-    let mut compression_tasks: Vec<serde_json::Value> = Vec::new();
+    let mut steps: Vec<serde_json::Value> = Vec::new();
 
     for &sel in &selections {
         match sel {
             0 => {
-                let n: usize = dialoguer::Input::with_theme(&theme())
-                    .with_prompt("复制任务数量")
-                    .default(1)
+                print_section("复制步骤");
+                let description: String = dialoguer::Input::with_theme(&theme())
+                    .with_prompt("描述")
+                    .default("复制任务".to_string())
                     .interact_text()
                     .unwrap();
-                for i in 0..n {
-                    print_section(&format!("复制任务 {}/{}", i + 1, n));
-                    let description: String = dialoguer::Input::with_theme(&theme())
-                        .with_prompt("描述")
-                        .default(format!("复制任务 {}", i + 1))
-                        .interact_text()
-                        .unwrap();
-                    let from: String = {
-                        let v = normalize_path(
-                            &dialoguer::Input::<String>::with_theme(&theme())
-                                .with_prompt("源路径")
-                                .interact_text()
-                                .unwrap(),
-                        );
-                        warn_if_missing(&v);
-                        v
-                    };
-                    let to: String = normalize_path(
+                let from: String = {
+                    let v = normalize_path(
                         &dialoguer::Input::<String>::with_theme(&theme())
-                            .with_prompt("目标路径")
+                            .with_prompt("源路径（可用 $last_output 引用上一步输出）")
                             .interact_text()
                             .unwrap(),
                     );
-                    let empty: bool = dialoguer::Confirm::with_theme(&theme())
-                        .with_prompt("清空目标目录")
-                        .default(false)
-                        .interact()
-                        .unwrap_or(false);
-                    let ignores = prompt_list("忽略模式  逗号分隔，可留空");
-                    copy_tasks.push(serde_json::json!({
-                        "id": Uuid::new_v4().to_string(),
-                        "description": description,
-                        "from": from,
-                        "to": to,
-                        "empty": empty,
-                        "ignores": ignores
-                    }));
-                }
+                    if v != "$last_output" { warn_if_missing(&v); }
+                    v
+                };
+                let to: String = normalize_path(
+                    &dialoguer::Input::<String>::with_theme(&theme())
+                        .with_prompt("目标路径")
+                        .interact_text()
+                        .unwrap(),
+                );
+                let empty: bool = dialoguer::Confirm::with_theme(&theme())
+                    .with_prompt("清空目标目录")
+                    .default(false)
+                    .interact()
+                    .unwrap_or(false);
+                let ignores = prompt_list("忽略模式  逗号分隔，可留空");
+                steps.push(serde_json::json!({
+                    "type": "copy",
+                    "id": Uuid::new_v4().to_string(),
+                    "description": description,
+                    "from": from,
+                    "to": to,
+                    "empty": empty,
+                    "ignores": ignores
+                }));
             }
             1 => {
-                let n: usize = dialoguer::Input::with_theme(&theme())
-                    .with_prompt("路径生成任务数量")
-                    .default(1)
+                print_section("路径生成步骤");
+                let description: String = dialoguer::Input::with_theme(&theme())
+                    .with_prompt("描述")
+                    .default("路径生成任务".to_string())
                     .interact_text()
                     .unwrap();
-                for i in 0..n {
-                    print_section(&format!("路径生成任务 {}/{}", i + 1, n));
-                    let description: String = dialoguer::Input::with_theme(&theme())
-                        .with_prompt("描述")
-                        .default(format!("路径生成任务 {}", i + 1))
-                        .interact_text()
-                        .unwrap();
-                    let from: String = {
-                        let v = normalize_path(
-                            &dialoguer::Input::<String>::with_theme(&theme())
-                                .with_prompt("源目录")
-                                .interact_text()
-                                .unwrap(),
-                        );
-                        warn_if_missing(&v);
-                        v
-                    };
-                    let to: String = normalize_path(
+                let from: String = {
+                    let v = normalize_path(
                         &dialoguer::Input::<String>::with_theme(&theme())
-                            .with_prompt("输出文件路径")
+                            .with_prompt("源目录（可用 $last_output 引用上一步输出）")
                             .interact_text()
                             .unwrap(),
                     );
-                    let transform: String = dialoguer::Input::with_theme(&theme())
-                        .with_prompt(
-                            "转换规则  {{index}} {{filename}} {{extension}} {{path}} {{fullpath}}",
-                        )
+                    if v != "$last_output" { warn_if_missing(&v); }
+                    v
+                };
+                let to: String = normalize_path(
+                    &dialoguer::Input::<String>::with_theme(&theme())
+                        .with_prompt("输出文件路径")
                         .interact_text()
-                        .unwrap();
-                    let index: usize = dialoguer::Input::with_theme(&theme())
-                        .with_prompt("起始索引")
-                        .default(0usize)
-                        .interact_text()
-                        .unwrap();
-                    let separator: String = dialoguer::Input::with_theme(&theme())
-                        .with_prompt("路径分隔符")
-                        .default("/".to_string())
-                        .interact_text()
-                        .unwrap();
-                    let pad: bool = dialoguer::Confirm::with_theme(&theme())
-                        .with_prompt("填充索引 (pad)")
-                        .default(false)
-                        .interact()
-                        .unwrap_or(false);
-                    let ignores = prompt_list("忽略模式  逗号分隔，可留空");
-                    let uppercase = prompt_list("大写字段  如 extension,filename，可留空");
-                    path_tasks.push(serde_json::json!({
-                        "id": Uuid::new_v4().to_string(),
-                        "description": description,
-                        "from": from,
-                        "to": to,
-                        "transform": transform,
-                        "index": index,
-                        "separator": separator,
-                        "pad": pad,
-                        "ignores": ignores,
-                        "uppercase": uppercase
-                    }));
-                }
+                        .unwrap(),
+                );
+                let transform: String = dialoguer::Input::with_theme(&theme())
+                    .with_prompt(
+                        "转换规则  {{index}} {{filename}} {{extension}} {{path}} {{fullpath}}",
+                    )
+                    .interact_text()
+                    .unwrap();
+                let index: usize = dialoguer::Input::with_theme(&theme())
+                    .with_prompt("起始索引")
+                    .default(0usize)
+                    .interact_text()
+                    .unwrap();
+                let separator: String = dialoguer::Input::with_theme(&theme())
+                    .with_prompt("路径分隔符")
+                    .default("/".to_string())
+                    .interact_text()
+                    .unwrap();
+                let pad: bool = dialoguer::Confirm::with_theme(&theme())
+                    .with_prompt("填充索引 (pad)")
+                    .default(false)
+                    .interact()
+                    .unwrap_or(false);
+                let ignores = prompt_list("忽略模式  逗号分隔，可留空");
+                let uppercase = prompt_list("大写字段  如 extension,filename，可留空");
+                steps.push(serde_json::json!({
+                    "type": "generate-path",
+                    "id": Uuid::new_v4().to_string(),
+                    "description": description,
+                    "from": from,
+                    "to": to,
+                    "transform": transform,
+                    "index": index,
+                    "separator": separator,
+                    "pad": pad,
+                    "ignores": ignores,
+                    "uppercase": uppercase
+                }));
             }
             2 => {
-                let n: usize = dialoguer::Input::with_theme(&theme())
-                    .with_prompt("UUID 生成任务数量")
-                    .default(1)
+                print_section("UUID 生成步骤");
+                let description: String = dialoguer::Input::with_theme(&theme())
+                    .with_prompt("描述")
+                    .default("UUID 生成任务".to_string())
                     .interact_text()
                     .unwrap();
-                for i in 0..n {
-                    print_section(&format!("UUID 生成任务 {}/{}", i + 1, n));
-                    let description: String = dialoguer::Input::with_theme(&theme())
-                        .with_prompt("描述")
-                        .default(format!("UUID 生成任务 {}", i + 1))
-                        .interact_text()
-                        .unwrap();
-                    let count: usize = dialoguer::Input::with_theme(&theme())
-                        .with_prompt("生成数量")
-                        .default(1usize)
-                        .interact_text()
-                        .unwrap();
-                    let uppercase: bool = dialoguer::Confirm::with_theme(&theme())
-                        .with_prompt("大写输出")
-                        .default(false)
-                        .interact()
-                        .unwrap_or(false);
-                    uuid_tasks.push(serde_json::json!({
-                        "id": Uuid::new_v4().to_string(),
-                        "description": description,
-                        "count": count,
-                        "uppercase": uppercase
-                    }));
-                }
+                let count: usize = dialoguer::Input::with_theme(&theme())
+                    .with_prompt("生成数量")
+                    .default(1usize)
+                    .interact_text()
+                    .unwrap();
+                let uppercase: bool = dialoguer::Confirm::with_theme(&theme())
+                    .with_prompt("大写输出")
+                    .default(false)
+                    .interact()
+                    .unwrap_or(false);
+                steps.push(serde_json::json!({
+                    "type": "generate-uuid",
+                    "id": Uuid::new_v4().to_string(),
+                    "description": description,
+                    "count": count,
+                    "uppercase": uppercase
+                }));
             }
             3 => {
-                let n: usize = dialoguer::Input::with_theme(&theme())
-                    .with_prompt("压缩任务数量")
-                    .default(1)
+                print_section("压缩步骤");
+                let description: String = dialoguer::Input::with_theme(&theme())
+                    .with_prompt("描述")
+                    .default("压缩任务".to_string())
                     .interact_text()
                     .unwrap();
-                for i in 0..n {
-                    print_section(&format!("压缩任务 {}/{}", i + 1, n));
-                    let description: String = dialoguer::Input::with_theme(&theme())
-                        .with_prompt("描述")
-                        .default(format!("压缩任务 {}", i + 1))
-                        .interact_text()
-                        .unwrap();
-                    let from: String = {
-                        let v = normalize_path(
-                            &dialoguer::Input::<String>::with_theme(&theme())
-                                .with_prompt("源路径")
-                                .interact_text()
-                                .unwrap(),
-                        );
-                        warn_if_missing(&v);
-                        v
-                    };
-                    let to: String = normalize_path(
+                let from: String = {
+                    let v = normalize_path(
                         &dialoguer::Input::<String>::with_theme(&theme())
-                            .with_prompt("输出压缩包路径")
+                            .with_prompt("源路径（可用 $last_output 引用上一步输出）")
                             .interact_text()
                             .unwrap(),
                     );
-                    compression_tasks.push(serde_json::json!({
-                        "id": Uuid::new_v4().to_string(),
-                        "description": description,
-                        "from": from,
-                        "to": to
-                    }));
-                }
+                    if v != "$last_output" { warn_if_missing(&v); }
+                    v
+                };
+                let to: String = normalize_path(
+                    &dialoguer::Input::<String>::with_theme(&theme())
+                        .with_prompt("输出压缩包路径")
+                        .interact_text()
+                        .unwrap(),
+                );
+                steps.push(serde_json::json!({
+                    "type": "compression",
+                    "id": Uuid::new_v4().to_string(),
+                    "description": description,
+                    "from": from,
+                    "to": to
+                }));
             }
             _ => {}
         }
     }
 
     let config = serde_json::json!({
-        "copy": copy_tasks,
-        "generate": {
-            "path": path_tasks,
-            "uuid": uuid_tasks
-        },
-        "compression": compression_tasks
+        "pipelines": [
+            {
+                "id": pipeline_id,
+                "description": if pipeline_desc.is_empty() { serde_json::Value::Null } else { serde_json::Value::String(pipeline_desc) },
+                "steps": steps
+            }
+        ]
     });
     let content = serde_json::to_string_pretty(&config).expect("序列化失败");
 
@@ -314,6 +466,11 @@ fn generate_config() {
         path.display().to_string().bold()
     );
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// UI helpers
+// ─────────────────────────────────────────────────────────────────────────────
+
 fn theme() -> ColorfulTheme {
     ColorfulTheme::default()
 }
@@ -352,7 +509,7 @@ fn warn_if_missing(path_str: &str) {
     }
 }
 
-/// 提示输入逗号分隔的列表，返回 Vec<String>，空输入返回空 Vec
+/// 提示输入逗号分隔的列表，返回 Vec<String>
 fn prompt_list(prompt: &str) -> Vec<String> {
     let input: String = dialoguer::Input::with_theme(&theme())
         .with_prompt(prompt)
@@ -368,6 +525,10 @@ fn prompt_list(prompt: &str) -> Vec<String> {
 
 /// 规范化路径：将连续的反斜杠折叠为单个，UNC 路径（\\开头）保留前两个
 fn normalize_path(input: &str) -> String {
+    // 保留特殊变量标记
+    if input == "$last_output" {
+        return input.to_string();
+    }
     let (prefix, rest) = if input.starts_with(r"\\") {
         (r"\\", &input[2..])
     } else {
@@ -388,262 +549,3 @@ fn normalize_path(input: &str) -> String {
     }
     format!("{}{}", prefix, result)
 }
-
-fn run_schedule() {
-    let path = config_path();
-
-    if !path.exists() {
-        eprintln!(
-            "  {} 配置文件未找到：{}\n  请先运行 {} 生成配置",
-            "×".red(),
-            path.display().to_string().dim(),
-            "corex schedule generate".bold()
-        );
-        return;
-    }
-
-    let configure = Configure::builder()
-        .add_source(File::with_name(path.to_str().unwrap()))
-        .build()
-        .expect("Failed to build configuration")
-        .try_deserialize::<ScheduleConfig>()
-        .expect("Failed to deserialize configuration");
-
-    if configure.copy.is_empty()
-        && configure.generate.path.is_empty()
-        && configure.generate.uuid.is_empty()
-        && configure.compression.is_empty()
-    {
-        eprintln!("  {} 配置文件中没有找到有效的任务", "×".red());
-        return;
-    }
-
-    let mut schedules: Vec<Schedule> = Vec::new();
-    let mut labels: Vec<String> = Vec::new();
-
-    for (i, s) in configure.copy.iter().enumerate() {
-        let desc = s
-            .description
-            .clone()
-            .unwrap_or_else(|| format!("复制任务 {}", i + 1));
-        schedules.push(Schedule {
-            segment: Segment::Copy(i),
-            description: desc.clone(),
-        });
-        labels.push(format!("{} {}", "[复制]".cyan().bold(), desc));
-    }
-    for (i, s) in configure.generate.path.iter().enumerate() {
-        let desc = s
-            .description
-            .clone()
-            .unwrap_or_else(|| format!("路径生成 {}", i + 1));
-        schedules.push(Schedule {
-            segment: Segment::GeneratePath(i),
-            description: desc.clone(),
-        });
-        labels.push(format!("{} {}", "[路径]".green().bold(), desc));
-    }
-    for (i, s) in configure.generate.uuid.iter().enumerate() {
-        let desc = s
-            .description
-            .clone()
-            .unwrap_or_else(|| format!("UUID 生成 {}", i + 1));
-        schedules.push(Schedule {
-            segment: Segment::GenerateUuid(i),
-            description: desc.clone(),
-        });
-        labels.push(format!("{} {}", "[UUID]".magenta().bold(), desc));
-    }
-    for (i, s) in configure.compression.iter().enumerate() {
-        let desc = s
-            .description
-            .clone()
-            .unwrap_or_else(|| format!("压缩任务 {}", i + 1));
-        schedules.push(Schedule {
-            segment: Segment::Compression(i),
-            description: desc.clone(),
-        });
-        labels.push(format!("{} {}", "[压缩]".yellow().bold(), desc));
-    }
-
-    print_banner("Corex · 任务调度器");
-
-    let choice = dialoguer::Select::with_theme(&theme())
-        .with_prompt("选择要执行的任务")
-        .items(&labels)
-        .default(0)
-        .interact()
-        .unwrap();
-
-    let schedule = &schedules[choice];
-    println!(
-        "\n  {} 执行：{}\n",
-        "▶".green().bold(),
-        schedule.description.as_str().bold()
-    );
-
-    match &schedule.segment {
-        Segment::Copy(index) => copy::service::run(&configure.copy[*index]),
-        Segment::GeneratePath(index) => generate::service::run(&generate::controller::Args::Path(
-            configure.generate.path[*index].clone(),
-        )),
-        Segment::GenerateUuid(index) => {
-            generate::service::uuid_task(&configure.generate.uuid[*index])
-        }
-        Segment::Compression(index) => compression::service::run(&configure.compression[*index]),
-    }
-}
-
-// let args = Args {
-//     copy: vec![copy::controller::CopyTask {
-//         id: "copy_task_1".to_string(),
-//         description: "复制任务示例".to_string(),
-//         from: String::from("src"),
-//         to: String::from("dest"),
-//         empty: true,
-//         ignores: vec![String::from("*.tmp"), String::from("node_modules/")],
-//     }],
-//     generate: generate::controller::GenerateTask {
-//         path: vec![generate::controller::PathTask {
-//             id: "generate_task_1".to_string(),
-//             description: "生成任务示例".to_string(),
-//             from: String::from("template/{index}/file.txt"),
-//             to: String::from("output/file-{index}.txt"),
-//             transform: String::from("{index}"),
-//             index: 1,
-//             separator: String::from("-"),
-//             pad: true,
-//             ignores: vec![String::from("*.log")],
-//             uppercase: vec![String::from("{index}")],
-//         }],
-//     },
-// };
-// println!("args {:#?}", args);
-
-// ========== example 1 ========== //
-//  配置文件加载和保存
-
-// use std::fs;
-// use std::path::Path;
-
-// impl CorexConfig {
-//     /// 从文件加载配置
-//     pub fn load_from_file<P: AsRef<Path>>(path: P) -> Result<Self, Box<dyn std::error::Error>> {
-//         let content = fs::read_to_string(path)?;
-//         let config: CorexConfig = serde_json::from_str(&content)?;
-//         Ok(config)
-//     }
-
-//     /// 保存配置到文件
-//     pub fn save_to_file<P: AsRef<Path>>(&self, path: P) -> Result<(), Box<dyn std::error::Error>> {
-//         let content = serde_json::to_string_pretty(self)?;
-//         fs::write(path, content)?;
-//         Ok(())
-//     }
-
-//     /// 创建默认配置
-//     pub fn default() -> Self {
-//         CorexConfig {
-//             copy: None,
-//             generate: None,
-//         }
-//     }
-// }
-
-// ========== example 2 ========== //
-// 在主程序中使用
-// mod config;
-
-// use config::CorexConfig;
-// use std::env;
-
-// fn main() -> Result<(), Box<dyn std::error::Error>> {
-//     // 获取配置文件路径
-//     let config_path = env::args().nth(1)
-//         .unwrap_or_else(|| "Corex.task.json".to_string());
-
-//     // 加载配置
-//     let config = CorexConfig::load_from_file(&config_path)?;
-
-//     println!("加载配置成功: {:#?}", config);
-
-//     // 执行任务
-//     execute_tasks(&config)?;
-
-//     Ok(())
-// }
-
-// fn execute_tasks(config: &CorexConfig) -> Result<(), Box<dyn std::error::Error>> {
-//     // 执行复制任务
-//     if let Some(copy_tasks) = &config.copy {
-//         for task_map in copy_tasks {
-//             for (task_name, task) in task_map {
-//                 println!("执行复制任务: {}", task_name);
-//                 execute_copy_task(task)?;
-//             }
-//         }
-//     }
-
-//     // 执行生成任务
-//     if let Some(generate_config) = &config.generate {
-//         if let Some(path_tasks) = &generate_config.path {
-//             for task_map in path_tasks {
-//                 for (task_name, task) in task_map {
-//                     println!("执行路径生成任务: {}", task_name);
-//                     execute_path_task(task)?;
-//                 }
-//             }
-//         }
-//     }
-
-//     Ok(())
-// }
-
-// fn execute_copy_task(task: &config::CopyTask) -> Result<(), Box<dyn std::error::Error>> {
-//     println!("从 {} 复制到 {}", task.from, task.to);
-//     // 在这里实现具体的复制逻辑
-//     Ok(())
-// }
-
-// fn execute_path_task(task: &config::PathTask) -> Result<(), Box<dyn std::error::Error>> {
-//     println!("生成路径任务: {} -> {}", task.from, task.to);
-//     // 在这里实现具体的路径生成逻辑
-//     Ok(())
-// }
-
-// ========== example 3 ========== //
-// 更好的错误处理（可选）
-// use std::fmt;
-
-// #[derive(Debug)]
-// pub enum CorexError {
-//     ConfigNotFound(String),
-//     InvalidConfig(String),
-//     IoError(std::io::Error),
-//     JsonError(serde_json::Error),
-// }
-
-// impl fmt::Display for CorexError {
-//     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-//         match self {
-//             CorexError::ConfigNotFound(path) => write!(f, "配置文件未找到: {}", path),
-//             CorexError::InvalidConfig(msg) => write!(f, "配置文件无效: {}", msg),
-//             CorexError::IoError(err) => write!(f, "IO错误: {}", err),
-//             CorexError::JsonError(err) => write!(f, "JSON解析错误: {}", err),
-//         }
-//     }
-// }
-
-// impl std::error::Error for CorexError {}
-
-// impl From<std::io::Error> for CorexError {
-//     fn from(err: std::io::Error) -> Self {
-//         CorexError::IoError(err)
-//     }
-// }
-
-// impl From<serde_json::Error> for CorexError {
-//     fn from(err: serde_json::Error) -> Self {
-//         CorexError::JsonError(err)
-//     }
-// }

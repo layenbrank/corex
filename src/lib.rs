@@ -5,6 +5,7 @@ pub mod bootstrap {
 
 pub mod schedule {
     pub mod controller;
+    pub mod pipeline;
     pub mod service;
 }
 
@@ -29,7 +30,6 @@ pub mod generate {
 }
 
 pub mod utils {
-    pub mod error;
     pub mod exception;
     pub mod file;
     pub mod ignore;

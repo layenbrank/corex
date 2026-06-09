@@ -9,6 +9,7 @@ use uuid::Uuid;
 use walkdir::{DirEntry, WalkDir};
 
 use crate::generate::controller::{Args, PathArgs, UuidArgs};
+use crate::schedule::pipeline::Context as PipelineContext;
 use crate::utils::{ignore, notify::Notification, verifier};
 
 pub fn run(args: &Args) {
@@ -34,6 +35,42 @@ pub fn uuid_task(args: &UuidArgs) {
             println!("{}", id);
         }
     }
+}
+
+/// Pipeline 调用入口（路径生成）：
+/// - 若 `args.from` 为 `$last_output`，则从 ctx 读取上一步输出路径
+/// - 执行后将 `to` 路径写入 ctx.last_output
+pub fn execute_path(args: &PathArgs, ctx: &mut PipelineContext) -> Result<()> {
+    let resolved_from = if args.from == "$last_output" {
+        ctx.last_output
+            .as_ref()
+            .map(|p| p.to_string_lossy().to_string())
+            .unwrap_or_else(|| args.from.clone())
+    } else {
+        args.from.clone()
+    };
+
+    let resolved_args = PathArgs {
+        from: resolved_from,
+        to: args.to.clone(),
+        transform: args.transform.clone(),
+        index: args.index,
+        separator: args.separator.clone(),
+        pad: args.pad,
+        ignores: args.ignores.clone(),
+        uppercase: args.uppercase.clone(),
+        id: args.id.clone(),
+        description: args.description.clone(),
+    };
+
+    path_task(&resolved_args)?;
+    ctx.set_output(std::path::PathBuf::from(&resolved_args.to));
+    Ok(())
+}
+
+/// Pipeline 调用入口（UUID 生成）
+pub fn execute_uuid(args: &UuidArgs, _ctx: &mut PipelineContext) {
+    uuid_task(args);
 }
 
 pub fn path_task(args: &PathArgs) -> Result<()> {

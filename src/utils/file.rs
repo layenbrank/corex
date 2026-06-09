@@ -32,8 +32,12 @@ pub fn duration(duration: Duration) -> String {
 
 /// 计算传输速度
 pub fn speed(bytes: u64, elapsed: Duration) -> u64 {
-    let seconds = elapsed.as_secs();
-    if seconds > 0 { bytes / seconds } else { 0 }
+    let seconds = elapsed.as_secs_f64();
+    if seconds > 0.0 {
+        (bytes as f64 / seconds) as u64
+    } else {
+        0
+    }
 }
 
 /// 安全地截断文件名，避免 Unicode 字符边界问题
