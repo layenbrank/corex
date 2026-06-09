@@ -1,19 +1,27 @@
 {
   "$schema": "docs/corex.task.schema.json",
+  "compression": [
+    {
+      "description": "压缩打包-任务1",
+      "from": "C:\\Users\\iwell\\Documents\\Vue2\\front\\master\\app",
+      "id": "3440324BFF0C4C3B925C969389B082A4",
+      "to": "C:\\Users\\iwell\\Documents\\Vue2\\front\\master\\H58991839.wgt"
+    }
+  ],
   "copy": [
     {
-      "id": "ahbsfnjsdn",
       "description": "复制-任务1",
       "empty": false,
       "from": "cache",
+      "id": "6E5D82347A9F4A34B39E218DEE44D76F",
       "ignores": [".ts"],
       "to": "docs"
     },
     {
-      "id": "skgdmlksng",
       "description": "复制-任务2",
       "empty": false,
       "from": "cache",
+      "id": "B9EE6D4D6B8948D8B390EA9CE9613190",
       "ignores": [".ts"],
       "to": "docs"
     }
@@ -21,25 +29,25 @@
   "generate": {
     "path": [
       {
-        "id": "ahbsfnjsdn",
         "description": "生成路径-任务1",
         "from": "docs",
+        "id": "D645898A9A84438C987E277E5EE73161",
         "ignores": ["example.js", "*.git", "node_modules"],
         "index": 1,
-        "separator": "\\",
         "pad": true,
+        "separator": "\\",
         "to": "docs/path.txt",
         "transform": "<include name=\"IDR_ITAB_{{extension}}_{{index}}\" file=\"{{fullpath}}\" type=\"BINDATA\" />",
         "uppercase": ["extension"]
       },
       {
-        "id": "skgdkslfnglk",
         "description": "生成路径-任务2",
         "from": "docs",
+        "id": "F3124E3893234E5782AFE703F65A0AA1",
         "ignores": ["example.js", "*.git", "node_modules"],
         "index": 1,
-        "separator": "\\",
         "pad": true,
+        "separator": "\\",
         "to": "docs/path.txt",
         "transform": "<include name=\"IDR_ITAB_{{extension}}_{{index}}\" file=\"{{fullpath}}\" type=\"BINDATA\" />",
         "uppercase": ["extension"]

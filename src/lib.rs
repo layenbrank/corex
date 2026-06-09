@@ -13,6 +13,11 @@ pub mod copy {
     pub mod service;
 }
 
+pub mod compression {
+    pub mod controller;
+    pub mod service;
+}
+
 pub mod scrub {
     pub mod controller;
     pub mod service;

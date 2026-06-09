@@ -2,7 +2,6 @@ use crate::scrub::controller::Args;
 use std::collections::BTreeMap;
 use std::env;
 use std::io;
-use std::path::Path;
 use std::path::PathBuf;
 use std::process::Command;
 use std::sync::{Arc, mpsc};
@@ -194,7 +193,7 @@ async fn launcher(source: &str, recursive: bool, target: &str) -> Result<(), Scr
                 let task = tokio::spawn(async move {
                     let _permit = semaphore.acquire().await;
                     if is_dir {
-                        if let Err(e_async) = tokio::fs::remove_dir_all(&p).await {
+                        if let Err(_e_async) = tokio::fs::remove_dir_all(&p).await {
                             // 异步失败后尝试 blocking 删除
                             let p_clone = p.clone();
                             match tokio::task::spawn_blocking(move || {
@@ -237,7 +236,7 @@ async fn launcher(source: &str, recursive: bool, target: &str) -> Result<(), Scr
                             Ok(())
                         }
                     } else {
-                        if let Err(e_async) = tokio::fs::remove_file(&p).await {
+                        if let Err(_e_async) = tokio::fs::remove_file(&p).await {
                             let p_clone = p.clone();
                             match tokio::task::spawn_blocking(move || {
                                 std::fs::remove_file(&p_clone)

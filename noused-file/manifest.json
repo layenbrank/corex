@@ -1,0 +1,184 @@
+{
+    "@platforms" : [ "android", "iPhone", "iPad" ],
+    "id" : "H58991839",
+    "name" : "护理管理",
+    "version" : {
+        "name" : "1.1.1",
+        "code" : 111
+    },
+    "description" : "",
+    "launch_path" : "index.html",
+    "developer" : {
+        "name" : "",
+        "email" : "",
+        "url" : "http://www.yzhlgl.com"
+    },
+    "permissions" : {
+        "Webview" : {
+            "description" : "窗口管理"
+        },
+        "Cache" : {
+            "description" : "管理应用缓存"
+        },
+        "Console" : {
+            "description" : "跟踪调试输出日志"
+        },
+        "Events" : {
+            "description" : "应用扩展事件"
+        },
+        "Barcode" : {
+            "description" : "二维码"
+        },
+        "UI" : {},
+        "OAuth" : {},
+        "Maps" : {},
+        "Speech" : {},
+        "Payment" : {},
+        "Statistic" : {},
+        "SQLite" : {},
+        "VideoPlayer" : {},
+        "NativeUI" : {},
+        "Navigator" : {},
+        "Share" : {},
+        "Push" : {
+            "description" : "管理推送消息插件"
+        },
+        "Camera" : {}
+    },
+    "plus" : {
+        "allowsInlineMediaPlayback" : true,
+        "splashscreen" : {
+            "autoclose" : true,
+            "waiting" : false
+        },
+        "runmode" : "liberate",
+        "signature" : "Sk9JTiBVUyBtYWlsdG86aHIyMDEzQGRjbG91ZC5pbw==",
+        "screenOrientation" : [ "portrait-primary", "portrait-secondary" ],
+        "distribute" : {
+            "plugins" : {
+                "speech" : {
+
+                },
+                "push" : {
+                    "igexin" : {
+                        "appid" : "iT35ZumaFn9ypdKac26B06",
+                        "appkey" : "kJJoAoLKJYAYOycYZcVOY8",
+                        "appsecret" : "HWtB8cZzy18kaX75jxzq7"
+                    }
+                },
+                "share" : {},
+                "payment" : {},
+                "ad" : {}
+            },
+            "apple" : {
+                "plistcmds" : [
+                    "Set :NSCameraUsageDescription 拍照/摄像/扫描二维码",
+                    "Set :NSMicrophoneUsageDescription 录制音频文件/语音识别",
+                    "Set :NSPhotoLibraryUsageDescription 选择/保存图片",
+                    "Set :NSLocationWhenInUseUsageDescription 获取位置信息，确定签到位置是否符合要求"
+                ],
+                "privacyDescription" : {
+					"NSPhotoLibraryUsageDescription": "访问您的相册，进行照片或视频上传",
+					"NSCameraUsageDescription": "使用您的相机，进行照片或视频上传或扫描二维码",
+					"NSLocationAlwaysUsageDescription": "使用您的地理位置，确认扫码位置是否符合管理要求",
+					"NSLocationWhenInUseUsageDescription": "使用您的地理位置，确认扫码位置是否符合管理要求",
+					"Speech Recognition Usage Description": "请求语音转文字权限，方便输入",
+					"NSMicrophoneUsageDescription": "使用您的麦克风，进行录音记录",
+					"NSContactsUsageDescription": "访问您的通讯录，以便与您联系"
+                },
+                "idfa" : false
+            },
+            "google" : {
+                "targetSdkVersion" : "30",
+                "permissions" : [
+                    "<uses-permission android:name=\"android.permission.ACCESS_NETWORK_STATE\"/>",
+                    "<uses-permission android:name=\"android.permission.ACCESS_WIFI_STATE\"/>",
+                    "<uses-permission android:name=\"android.permission.BLUETOOTH\"/>",
+                    "<uses-permission android:name=\"android.permission.BLUETOOTH_ADMIN\"/>",
+                    "<uses-permission android:name=\"android.permission.CHANGE_NETWORK_STATE\"/>",
+                    "<uses-permission android:name=\"android.permission.INTERNET\"/>",
+                    "<uses-permission android:name=\"android.permission.READ_LOGS\"/>",
+                    "<uses-permission android:name=\"android.permission.READ_PHONE_STATE\"/>",
+                    "<uses-permission android:name=\"android.permission.RECEIVE_BOOT_COMPLETED\"/>",
+                    "<uses-permission android:name=\"android.permission.RECORD_AUDIO\"/>",
+                    "<uses-permission android:name=\"android.permission.WRITE_EXTERNAL_STORAGE\"/>",
+                    "<uses-permission android:name=\"android.permission.RECEIVE_USER_PRESENT\"/>",
+					"<uses-permission android:name=\"android.permission.READ_EXTERNAL_STORAGE\"/>"
+                ],
+                "abiFilters" : [ "armeabi-v7a", "arm64-v8a" ]
+            },
+            "ios" : {
+                "dSYMs" : false
+            },
+            "icons" : {
+                "android" : {
+                    "hdpi" : "unpackage/res/icons/72x72.png",
+                    "xhdpi" : "unpackage/res/icons/96x96.png",
+                    "xxhdpi" : "unpackage/res/icons/144x144.png",
+                    "xxxhdpi" : "unpackage/res/icons/192x192.png"
+                },
+                "ios" : {
+                    "appstore" : "unpackage/res/icons/1024x1024.png",
+                    "ipad" : {
+                        "app" : "unpackage/res/icons/76x76.png",
+                        "app@2x" : "unpackage/res/icons/152x152.png",
+                        "notification" : "unpackage/res/icons/20x20.png",
+                        "notification@2x" : "unpackage/res/icons/40x40.png",
+                        "proapp@2x" : "unpackage/res/icons/167x167.png",
+                        "settings" : "unpackage/res/icons/29x29.png",
+                        "settings@2x" : "unpackage/res/icons/58x58.png",
+                        "spotlight" : "unpackage/res/icons/40x40.png",
+                        "spotlight@2x" : "unpackage/res/icons/80x80.png"
+                    },
+                    "iphone" : {
+                        "app@2x" : "unpackage/res/icons/120x120.png",
+                        "app@3x" : "unpackage/res/icons/180x180.png",
+                        "notification@2x" : "unpackage/res/icons/40x40.png",
+                        "notification@3x" : "unpackage/res/icons/60x60.png",
+                        "settings@2x" : "unpackage/res/icons/58x58.png",
+                        "settings@3x" : "unpackage/res/icons/87x87.png",
+                        "spotlight@2x" : "unpackage/res/icons/80x80.png",
+                        "spotlight@3x" : "unpackage/res/icons/120x120.png"
+                    }
+                }
+            },
+            "splashscreen" : {
+                "useOriginalMsgbox" : true
+            }
+        }
+    },
+    "screenOrientation" : [ "portrait-primary", "portrait-secondary" ],
+    "fullscreen" : false,
+    "icons" : {
+        "android" : {
+            "hdpi" : "unpackage/res/icons/72x72.png",
+            "xhdpi" : "unpackage/res/icons/96x96.png",
+            "xxhdpi" : "unpackage/res/icons/144x144.png",
+            "xxxhdpi" : "unpackage/res/icons/192x192.png"
+        },
+        "ios" : {
+            "appstore" : "unpackage/res/icons/1024x1024.png",
+            "ipad" : {
+                "app" : "unpackage/res/icons/76x76.png",
+                "app@2x" : "unpackage/res/icons/152x152.png",
+                "notification" : "unpackage/res/icons/20x20.png",
+                "notification@2x" : "unpackage/res/icons/40x40.png",
+                "proapp@2x" : "unpackage/res/icons/167x167.png",
+                "settings" : "unpackage/res/icons/29x29.png",
+                "settings@2x" : "unpackage/res/icons/58x58.png",
+                "spotlight" : "unpackage/res/icons/40x40.png",
+                "spotlight@2x" : "unpackage/res/icons/80x80.png"
+            },
+            "iphone" : {
+                "app@2x" : "unpackage/res/icons/120x120.png",
+                "app@3x" : "unpackage/res/icons/180x180.png",
+                "notification@2x" : "unpackage/res/icons/40x40.png",
+                "notification@3x" : "unpackage/res/icons/60x60.png",
+                "settings@2x" : "unpackage/res/icons/58x58.png",
+                "settings@3x" : "unpackage/res/icons/87x87.png",
+                "spotlight@2x" : "unpackage/res/icons/80x80.png",
+                "spotlight@3x" : "unpackage/res/icons/120x120.png"
+            }
+        }
+    }
+}
