@@ -1,9 +1,12 @@
-use crate::copy::controller::Args;
-use crate::utils::{file::File, ignore::Ignore, notify::Notification, progress::Progress};
-use anyhow::{Context, Result};
-use indicatif::ProgressBar;
 use std::{fs, path::Path, sync::Arc, time::Instant};
+
+use anyhow::{Context, Result};
+use glob::Pattern;
+use indicatif::ProgressBar;
 use walkdir::WalkDir;
+
+use crate::copy::controller::Args;
+use crate::utils::{file, ignore, notify::Notification, progress::Progress};
 
 // 不能在常量中直接使用 Vec，因为 Vec 的分配是在堆上完成的，
 // 而常量要求所有内容在编译期就确定且存储在只读内存中。
@@ -12,7 +15,7 @@ use walkdir::WalkDir;
 // pub fn run(source: &Path, target: &Path, empty: bool, ignores: Vec<String>) -> Result<()> {
 pub fn run(args: &Args) {
     let (from, to) = (Path::new(&args.from), Path::new(&args.to));
-    let patterns = Ignore::new(&args.ignores);
+    let patterns = ignore::build(&args.ignores);
 
     let (count, size) = scan(&from, &patterns).expect("扫描失败");
 
@@ -20,11 +23,7 @@ pub fn run(args: &Args) {
         return println!("📂 没有文件需要复制");
     }
 
-    println!(
-        "📊 找到 {} 个文件，总大小: {}",
-        count,
-        File::format_size(size)
-    );
+    println!("📊 找到 {} 个文件，总大小: {}", count, file::size(size));
 
     let progress = Progress::progress(count);
     let status = copy(&from, &to, args.empty, &patterns, progress);
@@ -39,7 +38,7 @@ pub fn run(args: &Args) {
     }
 }
 
-fn scan(from: &Path, patterns: &Ignore) -> Result<(u64, u64)> {
+fn scan(from: &Path, patterns: &Vec<Pattern>) -> Result<(u64, u64)> {
     let spinner = Progress::spinner("正在扫描文件...");
     let resp = calc_size(from, patterns);
     spinner.finish_and_clear();
@@ -49,13 +48,13 @@ fn scan(from: &Path, patterns: &Ignore) -> Result<(u64, u64)> {
 /// 更新进度显示
 fn update_progress(source: &Path, stats: &CopyStats, progress: &ProgressBar, start: Instant) {
     if let Some(filename) = source.file_name() {
-        let name = File::truncate(&filename.to_string_lossy(), 30);
-        let speed = File::calc_speed(stats.bytes, start.elapsed());
+        let name = file::truncate(&filename.to_string_lossy(), 30);
+        let speed = file::speed(stats.bytes, start.elapsed());
 
         progress.set_message(format!(
             "⏱️ {} | 🚀 {} | 📄 {}",
-            File::format_duration(start.elapsed()),
-            format!("{}/s", File::format_size(speed)), // 格式化传输速度
+            file::duration(start.elapsed()),
+            format!("{}/s", file::size(speed)), // 格式化传输速度
             name,
         ));
     }
@@ -64,14 +63,14 @@ fn update_progress(source: &Path, stats: &CopyStats, progress: &ProgressBar, sta
 /// 完成复制操作
 fn finish(progress: &ProgressBar, stats: &CopyStats, start_time: Instant) {
     let elapsed = start_time.elapsed();
-    let avg_speed = File::calc_speed(stats.bytes, elapsed);
+    let avg_speed = file::speed(stats.bytes, elapsed);
 
     progress.finish_with_message(format!(
         "✅ 完成 {} 各文件, {}, 用时 {}, 平均 {}",
         stats.files,
-        File::format_size(stats.bytes),
-        File::format_duration(elapsed),
-        format!("{}/s", File::format_size(avg_speed))
+        file::size(stats.bytes),
+        file::duration(elapsed),
+        format!("{}/s", file::size(avg_speed))
     ));
 }
 
@@ -79,7 +78,7 @@ fn copy(
     from: &Path,
     to: &Path,
     empty: bool,
-    patterns: &Ignore,
+    patterns: &Vec<Pattern>,
     progress: Arc<ProgressBar>,
 ) -> Result<()> {
     ensure_dir(to)?;
@@ -99,7 +98,7 @@ fn copy(
         let relative = source.strip_prefix(from).context("路径解析失败")?;
         let target = to.join(relative);
 
-        if patterns.ignored(relative) {
+        if ignore::ignored(patterns, relative) {
             continue;
         }
 
@@ -184,7 +183,7 @@ fn empty_dir(dir: &Path) -> Result<()> {
 }
 
 /// 计算需要复制的文件数量和总大小
-fn calc_size(from: &Path, patterns: &Ignore) -> Result<(u64, u64)> {
+fn calc_size(from: &Path, patterns: &Vec<Pattern>) -> Result<(u64, u64)> {
     let (mut count, mut size) = (0u64, 0u64);
 
     let entries = WalkDir::new(from).into_iter().filter_map(|e| e.ok());
@@ -193,7 +192,7 @@ fn calc_size(from: &Path, patterns: &Ignore) -> Result<(u64, u64)> {
         let path = entry.path();
 
         if let Ok(relative) = path.strip_prefix(from) {
-            if !patterns.ignored(relative) && path.is_file() {
+            if !ignore::ignored(patterns, relative) && path.is_file() {
                 count += 1;
                 size += fs::metadata(path).map(|m| m.len()).unwrap_or(0);
             }

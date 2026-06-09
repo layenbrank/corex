@@ -7,9 +7,8 @@ use std::{
 use walkdir::WalkDir;
 use zip::{CompressionMethod, ZipWriter, write::FileOptions};
 
-use crate::utils::notify::Notification;
-
 use crate::compression::controller::{Args, Exception};
+use crate::utils::notify::Notification;
 
 fn build_version_js(version: &str) -> String {
     format!("export function version() {{\n  return {};\n}}", version)

@@ -1,13 +1,14 @@
-use crate::utils::verifier::Verifier;
 use clap::{ArgAction, Parser};
 use serde::{Deserialize, Serialize};
 
+use crate::utils::verifier;
+
 #[derive(Debug, Clone, Parser, Serialize, Deserialize)]
 pub struct Args {
-    #[arg(short, long, value_parser = Verifier::path, help = "源路径")]
+    #[arg(short, long, value_parser = verifier::path, help = "源路径")]
     pub from: String,
 
-    #[arg(short, long, value_parser = Verifier::path, help = "目标路径")]
+    #[arg(short, long, value_parser = verifier::path, help = "目标路径")]
     pub to: String,
 
     #[arg(short, long, action = ArgAction::Append, default_value_t = true, hide_default_value = false,

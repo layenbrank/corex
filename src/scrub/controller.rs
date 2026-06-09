@@ -1,9 +1,10 @@
-use crate::utils::verifier::Verifier;
 use clap::{ArgAction, Parser};
+
+use crate::utils::verifier;
 
 #[derive(Debug, Clone, Parser)]
 pub struct Args {
-    #[arg(short, long, value_parser = Verifier::path,help = "目标路径")]
+    #[arg(short, long, value_parser = verifier::path,help = "目标路径")]
     // 源路径（根目录）
     pub source: String,
 

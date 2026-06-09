@@ -1,12 +1,17 @@
-use crate::schedule::controller::{Args, ScheduleConfig};
-use crate::{compression, copy, generate};
+use std::{
+    fs,
+    path::{Path, PathBuf},
+};
+
 use config::{Config as Configure, File};
 use crossterm::style::Stylize;
 use dialoguer::theme::ColorfulTheme;
 use dirs;
-use std::fs;
-use std::path::{Path, PathBuf};
+
 use uuid::Uuid;
+
+use crate::schedule::controller::{Args, ScheduleConfig};
+use crate::{compression, copy, generate};
 
 #[derive(Debug, Clone)]
 enum Segment {

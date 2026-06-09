@@ -1,6 +1,7 @@
-use crate::{compression, copy, generate};
 use clap::Parser;
 use serde::{Deserialize, Serialize};
+
+use crate::{compression, copy, generate};
 
 /// schedule 子命令
 #[derive(Debug, Parser)]

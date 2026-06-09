@@ -1,7 +1,8 @@
+use std::{env, path::Path, process::Command};
+
 use anyhow::Context;
 
 use crate::bootstrap::controller::Args;
-use std::{env, path::Path, process::Command};
 
 pub fn run(args: &Args) {
     let file_path = env::current_exe()

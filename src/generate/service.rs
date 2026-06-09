@@ -1,13 +1,15 @@
-use crate::generate::controller::{Args, PathArgs, UuidArgs};
-use crate::utils::{ignore::Ignore, notify::Notification, verifier::Verifier};
-use anyhow::{Context, Result};
 use std::{
     fs::{File, OpenOptions},
     io::{BufWriter, Write},
     path::Path,
 };
+
+use anyhow::{Context, Result};
 use uuid::Uuid;
 use walkdir::{DirEntry, WalkDir};
+
+use crate::generate::controller::{Args, PathArgs, UuidArgs};
+use crate::utils::{ignore, notify::Notification, verifier};
 
 pub fn run(args: &Args) {
     match args {
@@ -50,7 +52,7 @@ pub fn path_task(args: &PathArgs) -> Result<()> {
 
     // 创建或清空文件，然后创建缓冲写入器
     let file = if let Some(to_str) = to.to_str() {
-        if Verifier::file(to_str).is_err() {
+        if verifier::file(to_str).is_err() {
             // 文件不存在则创建文件
             File::create(to)?
         } else {
@@ -65,14 +67,14 @@ pub fn path_task(args: &PathArgs) -> Result<()> {
     let mut writer = BufWriter::new(file);
 
     // 创建忽略处理器
-    let patterns = Ignore::new(&ignores);
+    let patterns = ignore::build(&ignores);
 
     let mut entries: Vec<_> = WalkDir::new(from)
         .into_iter()
         .filter_map(|e| e.ok())
         .filter(|entry| {
             let raw_path = entry.path().strip_prefix(from).unwrap_or(entry.path());
-            !patterns.ignored(&raw_path) && entry.path().is_file()
+            !ignore::ignored(&patterns, &raw_path) && entry.path().is_file()
         })
         .collect();
 

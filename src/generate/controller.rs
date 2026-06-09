@@ -1,6 +1,7 @@
-use crate::utils::verifier::Verifier;
 use clap::{ArgAction, Parser};
 use serde::{Deserialize, Serialize};
+
+use crate::utils::verifier;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GenerateSchedule {
@@ -32,7 +33,7 @@ pub struct UuidArgs {
 
 #[derive(Debug, Parser, Clone, Serialize, Deserialize)]
 pub struct PathArgs {
-    #[arg(short, long, value_parser = Verifier::path)]
+    #[arg(short, long, value_parser = verifier::path)]
     pub from: String,
 
     #[arg(short, long)]

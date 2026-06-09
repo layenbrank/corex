@@ -1,13 +1,16 @@
-use crate::scrub::controller::Args;
-use std::collections::BTreeMap;
-use std::env;
-use std::io;
-use std::path::PathBuf;
-use std::process::Command;
-use std::sync::{Arc, mpsc};
+use std::{
+    collections::BTreeMap,
+    env, io,
+    path::PathBuf,
+    process::Command,
+    sync::{Arc, mpsc},
+};
+
 use thiserror::Error;
 use tokio::sync::Semaphore;
 use walkdir::WalkDir;
+
+use crate::scrub::controller::Args;
 
 #[derive(Debug, Error)]
 pub enum ScrubError {
