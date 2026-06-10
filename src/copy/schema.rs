@@ -18,11 +18,14 @@ pub struct Args {
 
     #[arg(short, long, action = ArgAction::Append, value_delimiter = ',', help = "忽略模式，用逗号分隔"
 	)]
+    #[serde(skip_serializing_if = "Vec::is_empty", default)]
     pub ignores: Vec<String>,
 
     #[arg(help = "任务ID")]
+    #[serde(skip_serializing_if = "Option::is_none", default)]
     pub id: Option<String>,
 
     #[arg(help = "任务描述")]
+    #[serde(skip_serializing_if = "Option::is_none", default)]
     pub description: Option<String>,
 }

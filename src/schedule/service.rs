@@ -3,36 +3,69 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use config::{Config as Configure, File};
 use crossterm::style::Stylize;
 use dialoguer::theme::ColorfulTheme;
 
-use uuid::Uuid;
-
-use crate::schedule::controller::{Args, Pipeline, ScheduleConfig, Step};
+use crate::schedule::schema::{Args, Pipeline, ScheduleConfig, Step};
 use crate::schedule::pipeline::Context;
-use crate::{compression, copy, generate};
+use crate::{compression, copy, generate, scrub};
 
-pub fn run(args: &Args) {
+pub fn run(args: &Args) -> anyhow::Result<()> {
     match args {
         Args::Run => run_schedule(),
         Args::Generate => generate_config(),
     }
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// 配置文件加载（支持 YAML / JSON）
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// 查找配置文件，按优先级：.yaml > .yml > .json
 fn config_path() -> PathBuf {
-    dirs::home_dir()
-        .expect("无法获取用户目录")
-        .join(".corex")
-        .join("corex-configure.json")
+    let base = dirs::home_dir().expect("无法获取用户目录").join(".corex");
+    let yaml = base.join("corex.config.yaml");
+    if yaml.exists() {
+        return yaml;
+    }
+    let yml = base.join("corex.config.yml");
+    if yml.exists() {
+        return yml;
+    }
+    base.join("corex.config.json")
+}
+
+fn load_config(path: &Path) -> anyhow::Result<ScheduleConfig> {
+    let content =
+        fs::read_to_string(path).map_err(|e| anyhow::anyhow!("读取配置文件失败: {}", e))?;
+    match path.extension().and_then(|e| e.to_str()) {
+        Some("yaml") | Some("yml") => {
+            serde_yml::from_str(&content).map_err(|e| anyhow::anyhow!("解析 YAML 配置失败: {}", e))
+        }
+        _ => {
+            serde_json::from_str(&content).map_err(|e| anyhow::anyhow!("解析 JSON 配置失败: {}", e))
+        }
+    }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Pipeline 执行引擎
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// 执行整条 pipeline：按顺序运行每个 step，共享 Context
-fn run_pipeline(pipeline: &Pipeline) {
+#[derive(Debug)]
+enum ExecutionMode {
+    All,
+    From(usize),
+    Selected(Vec<usize>),
+}
+
+/// 执行 pipeline，支持全部执行、从某步开始、选择性执行
+fn run_pipeline(pipeline: &Pipeline, mode: &ExecutionMode) -> anyhow::Result<()> {
+    let indices: Vec<usize> = collect_step_indices(pipeline, mode);
+    if indices.is_empty() {
+        anyhow::bail!("没有要执行的步骤");
+    }
+
     println!(
         "\n  {} 执行流水线：{}\n",
         "▶".green().bold(),
@@ -45,9 +78,15 @@ fn run_pipeline(pipeline: &Pipeline) {
 
     let mut ctx = Context::new();
 
-    for (i, step) in pipeline.steps.iter().enumerate() {
-        let step_label = step_label(step, i);
-        println!("  {} [{}] {}", "▸".cyan(), (i + 1).to_string().bold(), step_label);
+    for &i in &indices {
+        let step = &pipeline.steps[i];
+        let label = step_label(step, i);
+        println!(
+            "  {} [{}] {}",
+            "▸".cyan(),
+            (i + 1).to_string().bold(),
+            label
+        );
 
         if let Err(e) = execute_step(step, &mut ctx) {
             eprintln!(
@@ -56,19 +95,28 @@ fn run_pipeline(pipeline: &Pipeline) {
                 (i + 1).to_string().bold(),
                 e
             );
-            return;
+            return Err(e);
         }
     }
 
     println!(
         "\n  {} 流水线执行完成（共 {} 步）",
         "✓".green().bold(),
-        pipeline.steps.len()
+        indices.len()
     );
+    Ok(())
+}
+
+fn collect_step_indices(pipeline: &Pipeline, mode: &ExecutionMode) -> Vec<usize> {
+    match mode {
+        ExecutionMode::All => (0..pipeline.steps.len()).collect(),
+        ExecutionMode::From(start) => (*start..pipeline.steps.len()).collect(),
+        ExecutionMode::Selected(indices) => indices.clone(),
+    }
 }
 
 /// 执行单个步骤并更新 Context
-fn execute_step(step: &Step, ctx: &mut Context) -> Result<(), Box<dyn std::error::Error>> {
+fn execute_step(step: &Step, ctx: &mut Context) -> anyhow::Result<()> {
     match step {
         Step::Copy(args) => {
             copy::service::execute(args, ctx)?;
@@ -79,9 +127,11 @@ fn execute_step(step: &Step, ctx: &mut Context) -> Result<(), Box<dyn std::error
         Step::GenerateUuid(args) => {
             generate::service::execute_uuid(args, ctx);
         }
+        Step::Scrub(args) => {
+            scrub::service::execute(args, ctx)?;
+        }
         Step::Compression(args) => {
-            compression::service::execute(args, ctx)
-                .map_err(|e| -> Box<dyn std::error::Error> { Box::new(e) })?;
+            compression::service::execute(args, ctx)?;
         }
     }
     Ok(())
@@ -105,116 +155,136 @@ fn step_label(step: &Step, _index: usize) -> String {
             let desc = args.description.as_deref().unwrap_or("压缩");
             format!("{} {}", "[压缩]".yellow().bold(), desc)
         }
+        Step::Scrub(args) => {
+            let desc = args.description.as_deref().unwrap_or(" scrub ");
+            format!("{} {}", "[ scrub ]".red().bold(), desc)
+        }
     }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// run_schedule：加载配置 → 交互选择 → 执行
+// run_schedule：加载配置 → 二级菜单 → 执行
 // ─────────────────────────────────────────────────────────────────────────────
 
-fn run_schedule() {
+fn run_schedule() -> anyhow::Result<()> {
     let path = config_path();
 
     if !path.exists() {
-        eprintln!(
-            "  {} 配置文件未找到：{}\n  请先运行 {} 生成配置",
-            "×".red(),
-            path.display().to_string().dim(),
-            "corex schedule generate".bold()
+        anyhow::bail!(
+            "配置文件未找到：{}，请先运行 corex schedule generate 生成配置",
+            path.display()
         );
-        return;
     }
 
-    let configure = Configure::builder()
-        .add_source(File::with_name(path.to_str().unwrap()))
-        .build()
-        .expect("Failed to build configuration")
-        .try_deserialize::<ScheduleConfig>()
-        .expect("Failed to deserialize configuration");
+    let configure = load_config(&path)?;
 
     if configure.pipelines.is_empty() {
-        eprintln!("  {} 配置文件中没有找到有效的流水线", "×".red());
-        return;
+        anyhow::bail!("配置文件中没有找到有效的流水线");
     }
 
     print_banner("Corex · 任务调度器");
 
-    // 构建选项列表：每条流水线 + 各流水线内的单独步骤
-    let mut choices: Vec<ScheduleChoice> = Vec::new();
+    // ── 一级菜单：选择流水线 ────────────────────────────────────────────────────
     let mut labels: Vec<String> = Vec::new();
-
-    for pipeline in &configure.pipelines {
-        let desc = pipeline
-            .description
-            .as_deref()
-            .unwrap_or(&pipeline.id);
-        choices.push(ScheduleChoice::Pipeline(pipeline.clone()));
+    for pipeline in configure.pipelines.iter() {
+        let desc = pipeline.description.as_deref().unwrap_or(&pipeline.id);
         labels.push(format!(
             "{} {} ({} 步)",
             "▶".green().bold(),
             desc.bold(),
             pipeline.steps.len()
         ));
-
-        // 展开各步骤为可选项
-        for (i, step) in pipeline.steps.iter().enumerate() {
-            choices.push(ScheduleChoice::Step {
-                pipeline: pipeline.clone(),
-                step_index: i,
-            });
-            labels.push(format!("    {}", step_label(step, i)));
-        }
     }
+    labels.push(format!("{} {}", "↩".dim(), "返回".dim()));
 
-    let selected = dialoguer::Select::with_theme(&theme())
-        .with_prompt("选择要执行的任务")
+    let pipeline_idx = dialoguer::Select::with_theme(&theme())
+        .with_prompt("选择流水线")
         .items(&labels)
         .default(0)
         .interact()
-        .unwrap();
+        .map_err(|e| anyhow::anyhow!("交互选择失败: {}", e))?;
 
-    match &choices[selected] {
-        ScheduleChoice::Pipeline(pipeline) => run_pipeline(pipeline),
-        ScheduleChoice::Step {
-            pipeline,
-            step_index,
-        } => {
-            let step = &pipeline.steps[*step_index];
-            println!(
-                "\n  {} 执行：{}\n",
-                "▶".green().bold(),
-                step_label(step, *step_index).bold()
-            );
-            let mut ctx = Context::new();
-            if let Err(e) = execute_step(step, &mut ctx) {
-                eprintln!("  {} 步骤执行失败: {}", "×".red(), e);
-            }
-        }
+    if pipeline_idx >= configure.pipelines.len() {
+        return Ok(());
     }
-}
 
-#[derive(Debug, Clone)]
-enum ScheduleChoice {
-    Pipeline(Pipeline),
-    Step {
-        pipeline: Pipeline,
-        step_index: usize,
-    },
+    let pipeline = &configure.pipelines[pipeline_idx];
+
+    // ── 二级菜单：选择执行方式 ─────────────────────────────────────────────────
+    let mut mode_labels: Vec<String> = Vec::new();
+    mode_labels.push(format!(
+        "{} 全部执行（{} 步）",
+        "▶".green().bold(),
+        pipeline.steps.len()
+    ));
+    for (i, step) in pipeline.steps.iter().enumerate() {
+        mode_labels.push(format!(
+            "  {} 从第 {} 步开始：{}",
+            "▸".cyan(),
+            (i + 1).to_string().bold(),
+            step_label(step, i)
+        ));
+    }
+    mode_labels.push("  ✦ 选择要执行的步骤...".to_string());
+    mode_labels.push(format!("{} {}", "↩".dim(), "返回".dim()));
+
+    let mode_idx = dialoguer::Select::with_theme(&theme())
+        .with_prompt("选择执行方式")
+        .items(&mode_labels)
+        .default(0)
+        .interact()
+        .map_err(|e| anyhow::anyhow!("交互选择失败: {}", e))?;
+
+    let total = pipeline.steps.len();
+    let mode = if mode_idx == 0 {
+        ExecutionMode::All
+    } else if mode_idx <= total {
+        ExecutionMode::From(mode_idx - 1)
+    } else if mode_idx == total + 1 {
+        // 多选模式
+        let step_labels: Vec<String> = pipeline
+            .steps
+            .iter()
+            .enumerate()
+            .map(|(i, s)| format!("{}", step_label(s, i)))
+            .collect();
+        let selected = dialoguer::MultiSelect::with_theme(&theme())
+            .with_prompt("勾选要执行的步骤（空格选择，回车确认）")
+            .items(&step_labels)
+            .interact()
+            .map_err(|e| anyhow::anyhow!("交互选择失败: {}", e))?;
+        if selected.is_empty() {
+            println!("  {} 未选择任何步骤。", "×".red());
+            return Ok(());
+        }
+        ExecutionMode::Selected(selected)
+    } else {
+        return Ok(());
+    };
+
+    run_pipeline(pipeline, &mode)
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
 // generate_config：交互式向导创建 pipeline 配置
 // ─────────────────────────────────────────────────────────────────────────────
 
-fn generate_config() {
+fn generate_config() -> anyhow::Result<()> {
     print_banner("Corex · 配置向导");
     let path = config_path();
 
-    if path.exists() {
+    // 默认输出 .yaml
+    let yaml_path = if path.extension().and_then(|e| e.to_str()) == Some("json") {
+        path.with_extension("yaml")
+    } else {
+        path.clone()
+    };
+
+    if yaml_path.exists() {
         println!(
             "  {} 配置文件已存在：{}",
             "→".yellow(),
-            path.display().to_string().dim()
+            yaml_path.display().to_string().dim()
         );
         let confirmed = dialoguer::Confirm::with_theme(&theme())
             .with_prompt("是否覆盖")
@@ -223,7 +293,7 @@ fn generate_config() {
             .unwrap_or(false);
         if !confirmed {
             println!("  {} 已取消。", "×".red());
-            return;
+            return Ok(());
         }
     }
 
@@ -255,10 +325,10 @@ fn generate_config() {
 
     if selections.is_empty() {
         println!("  {} 未选择任何步骤，已取消。", "×".red());
-        return;
+        return Ok(());
     }
 
-    let mut steps: Vec<serde_json::Value> = Vec::new();
+    let mut steps: Vec<Step> = Vec::new();
 
     for &sel in &selections {
         match sel {
@@ -276,7 +346,9 @@ fn generate_config() {
                             .interact_text()
                             .unwrap(),
                     );
-                    if v != "$last_output" { warn_if_missing(&v); }
+                    if v != "$last_output" {
+                        warn_if_missing(&v);
+                    }
                     v
                 };
                 let to: String = normalize_path(
@@ -291,14 +363,13 @@ fn generate_config() {
                     .interact()
                     .unwrap_or(false);
                 let ignores = prompt_list("忽略模式  逗号分隔，可留空");
-                steps.push(serde_json::json!({
-                    "type": "copy",
-                    "id": Uuid::new_v4().to_string(),
-                    "description": description,
-                    "from": from,
-                    "to": to,
-                    "empty": empty,
-                    "ignores": ignores
+                steps.push(Step::Copy(copy::schema::Args {
+                    from,
+                    to,
+                    empty,
+                    ignores,
+                    id: None,
+                    description: Some(description),
                 }));
             }
             1 => {
@@ -315,7 +386,9 @@ fn generate_config() {
                             .interact_text()
                             .unwrap(),
                     );
-                    if v != "$last_output" { warn_if_missing(&v); }
+                    if v != "$last_output" {
+                        warn_if_missing(&v);
+                    }
                     v
                 };
                 let to: String = normalize_path(
@@ -347,18 +420,17 @@ fn generate_config() {
                     .unwrap_or(false);
                 let ignores = prompt_list("忽略模式  逗号分隔，可留空");
                 let uppercase = prompt_list("大写字段  如 extension,filename，可留空");
-                steps.push(serde_json::json!({
-                    "type": "generate-path",
-                    "id": Uuid::new_v4().to_string(),
-                    "description": description,
-                    "from": from,
-                    "to": to,
-                    "transform": transform,
-                    "index": index,
-                    "separator": separator,
-                    "pad": pad,
-                    "ignores": ignores,
-                    "uppercase": uppercase
+                steps.push(Step::GeneratePath(generate::schema::PathArgs {
+                    from,
+                    to,
+                    transform,
+                    index,
+                    separator,
+                    pad,
+                    ignores,
+                    uppercase,
+                    id: None,
+                    description: Some(description),
                 }));
             }
             2 => {
@@ -378,12 +450,11 @@ fn generate_config() {
                     .default(false)
                     .interact()
                     .unwrap_or(false);
-                steps.push(serde_json::json!({
-                    "type": "generate-uuid",
-                    "id": Uuid::new_v4().to_string(),
-                    "description": description,
-                    "count": count,
-                    "uppercase": uppercase
+                steps.push(Step::GenerateUuid(generate::schema::UuidArgs {
+                    count,
+                    uppercase,
+                    id: None,
+                    description: Some(description),
                 }));
             }
             3 => {
@@ -400,7 +471,9 @@ fn generate_config() {
                             .interact_text()
                             .unwrap(),
                     );
-                    if v != "$last_output" { warn_if_missing(&v); }
+                    if v != "$last_output" {
+                        warn_if_missing(&v);
+                    }
                     v
                 };
                 let to: String = normalize_path(
@@ -409,35 +482,39 @@ fn generate_config() {
                         .interact_text()
                         .unwrap(),
                 );
-                steps.push(serde_json::json!({
-                    "type": "compression",
-                    "id": Uuid::new_v4().to_string(),
-                    "description": description,
-                    "from": from,
-                    "to": to
+                steps.push(Step::Compression(compression::schema::Args {
+                    from,
+                    to,
+                    id: None,
+                    description: Some(description),
                 }));
             }
             _ => {}
         }
     }
 
-    let config = serde_json::json!({
-        "pipelines": [
-            {
-                "id": pipeline_id,
-                "description": if pipeline_desc.is_empty() { serde_json::Value::Null } else { serde_json::Value::String(pipeline_desc) },
-                "steps": steps
-            }
-        ]
-    });
-    let content = serde_json::to_string_pretty(&config).expect("序列化失败");
+    let config = ScheduleConfig {
+        pipelines: vec![Pipeline {
+            id: pipeline_id,
+            description: if pipeline_desc.is_empty() {
+                None
+            } else {
+                Some(pipeline_desc)
+            },
+            steps,
+        }],
+    };
+
+    let content =
+        serde_yml::to_string(&config).map_err(|e| anyhow::anyhow!("序列化 YAML 失败: {}", e))?;
+    let content = format!("# Corex 任务配置文件\n{}", content);
 
     let divider = "─".repeat(56);
     println!("\n{}", divider.clone().dim());
     println!(
         "  {} 写入路径：{}",
         "→".cyan(),
-        path.display().to_string().bold()
+        yaml_path.display().to_string().bold()
     );
     println!("{}", divider.clone().dim());
     for line in content.lines() {
@@ -453,18 +530,19 @@ fn generate_config() {
 
     if !confirmed {
         println!("  {} 已取消。", "×".red());
-        return;
+        return Ok(());
     }
 
-    if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent).expect("无法创建 .corex 目录");
+    if let Some(parent) = yaml_path.parent() {
+        fs::create_dir_all(parent).map_err(|e| anyhow::anyhow!("无法创建 .corex 目录: {}", e))?;
     }
-    fs::write(&path, &content).expect("写入配置文件失败");
+    fs::write(&yaml_path, &content).map_err(|e| anyhow::anyhow!("写入配置文件失败: {}", e))?;
     println!(
         "\n  {} 配置已生成：{}",
         "✓".green().bold(),
-        path.display().to_string().bold()
+        yaml_path.display().to_string().bold()
     );
+    Ok(())
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

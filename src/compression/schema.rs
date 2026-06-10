@@ -1,6 +1,5 @@
 use clap::Parser;
 use serde::{Deserialize, Serialize};
-use thiserror::Error;
 
 use crate::utils::verifier;
 
@@ -13,20 +12,10 @@ pub struct Args {
     pub to: String,
 
     #[arg(help = "任务描述")]
+    #[serde(skip_serializing_if = "Option::is_none", default)]
     pub description: Option<String>,
 
     #[arg(help = "任务ID")]
+    #[serde(skip_serializing_if = "Option::is_none", default)]
     pub id: Option<String>,
-}
-
-#[derive(Error, Debug)]
-pub enum Exception {
-    #[error("IO 错误: {0}")]
-    Io(#[from] std::io::Error),
-
-    #[error("压缩错误: {0}")]
-    Zip(#[from] zip::result::ZipError),
-
-    #[error("路径计算错误: {0}")]
-    PathError(String),
 }

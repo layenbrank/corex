@@ -26,8 +26,22 @@ impl Context {
 
     /// 设置 last_output 并同步写入 data["last_output"]
     pub fn set_output(&mut self, path: PathBuf) {
-        self.data
-            .insert("last_output".to_string(), path.to_string_lossy().to_string());
+        self.data.insert(
+            "last_output".to_string(),
+            path.to_string_lossy().to_string(),
+        );
         self.last_output = Some(path);
+    }
+
+    /// 若 value 为 "$last_output" 则返回上一步输出路径，否则返回原值
+    pub fn resolve(&self, value: &str) -> String {
+        if value == "$last_output" {
+            self.last_output
+                .as_ref()
+                .map(|p| p.to_string_lossy().to_string())
+                .unwrap_or_else(|| value.to_string())
+        } else {
+            value.to_string()
+        }
     }
 }

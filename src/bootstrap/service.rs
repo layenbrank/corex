@@ -2,9 +2,9 @@ use std::{env, path::Path, process::Command};
 
 use anyhow::Context;
 
-use crate::bootstrap::controller::Args;
+use crate::bootstrap::schema::Args;
 
-pub fn run(args: &Args) {
+pub fn run(args: &Args) -> anyhow::Result<()> {
     let file_path = env::current_exe()
         .context("无法获取当前可执行文件路径")
         .expect("当前可执行文件路径不存在");
@@ -45,8 +45,7 @@ pub fn run(args: &Args) {
 
             if !output.status.success() {
                 let stderr = String::from_utf8_lossy(&output.stderr);
-                return eprintln!("❌ PowerShell 执行失败: {}", stderr);
-                // return Err(anyhow::anyhow!("PowerShell 执行失败: {}", stderr));
+                return Err(anyhow::anyhow!("PowerShell 执行失败: {}", stderr));
             }
 
             let stdout = String::from_utf8_lossy(&output.stdout);
@@ -93,7 +92,7 @@ pub fn run(args: &Args) {
 
             if !output.status.success() {
                 let stderr = String::from_utf8_lossy(&output.stderr);
-                return eprintln!("❌ PowerShell 执行失败: {}", stderr);
+                return Err(anyhow::anyhow!("PowerShell 执行失败: {}", stderr));
             }
 
             let stdout = String::from_utf8_lossy(&output.stdout);
@@ -103,8 +102,5 @@ pub fn run(args: &Args) {
         }
     }
 
-    // if args.verbose {
-    //     println!("可执行文件路径: {:?}", file_path);
-    //     println!("可执行文件目录: {}", file_dir);
-    // }
+    Ok(())
 }

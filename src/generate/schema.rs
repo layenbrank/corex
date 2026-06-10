@@ -25,9 +25,11 @@ pub struct UuidArgs {
     pub uppercase: bool,
 
     #[arg(help = "任务ID")]
+    #[serde(skip_serializing_if = "Option::is_none", default)]
     pub id: Option<String>,
 
     #[arg(help = "任务描述")]
+    #[serde(skip_serializing_if = "Option::is_none", default)]
     pub description: Option<String>,
 }
 
@@ -45,6 +47,7 @@ pub struct PathArgs {
     pub transform: String,
 
     #[arg(long, help = "起始索引")]
+    #[serde(default)]
     pub index: usize,
 
     #[arg(long, help = "路径分隔符")]
@@ -53,17 +56,21 @@ pub struct PathArgs {
     #[arg(long, action = ArgAction::SetTrue, help = "填充索引")]
     pub pad: bool,
 
-    #[arg(long, action = ArgAction::Append, value_delimiter = ',', help = "忽略模式，可多次使用或用逗号分隔"
+    #[arg(long, action = ArgAction::Append, value_delimiter = ',', help = "忽略模式，可多次使用或逗号分隔"
 	)]
+    #[serde(skip_serializing_if = "Vec::is_empty", default)]
     pub ignores: Vec<String>,
 
-    #[arg(long, action = ArgAction::Append, value_delimiter = ',', help = "将某个规则转换为大写，可多次使用或用逗号分隔"
+    #[arg(long, action = ArgAction::Append, value_delimiter = ',', help = "将某个规则转换为大写，可多次使用或逗号分隔"
 	)]
+    #[serde(skip_serializing_if = "Vec::is_empty", default)]
     pub uppercase: Vec<String>,
 
     #[arg(help = "任务ID")]
+    #[serde(skip_serializing_if = "Option::is_none", default)]
     pub id: Option<String>,
 
     #[arg(help = "任务描述")]
+    #[serde(skip_serializing_if = "Option::is_none", default)]
     pub description: Option<String>,
 }

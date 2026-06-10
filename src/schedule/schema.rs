@@ -1,7 +1,7 @@
 use clap::Parser;
 use serde::{Deserialize, Serialize};
 
-use crate::{compression, copy, generate};
+use crate::{compression, copy, generate, scrub};
 
 /// schedule 子命令
 #[derive(Debug, Parser)]
@@ -12,7 +12,7 @@ pub enum Args {
     Generate,
 }
 
-/// ~/.corex/corex-configure.json 反序列化结构（支持 pipeline 编排）
+/// ~/.corex/corex.config.yaml 反序列化结构（支持 pipeline 编排）
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ScheduleConfig {
     /// 管道列表：每个 pipeline 包含一系列顺序执行的步骤
@@ -24,8 +24,10 @@ pub struct ScheduleConfig {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Pipeline {
     pub id: String,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
     pub description: Option<String>,
     /// 按顺序执行的步骤列表
+    #[serde(default)]
     pub steps: Vec<Step>,
 }
 
@@ -34,14 +36,17 @@ pub struct Pipeline {
 #[serde(tag = "type")]
 pub enum Step {
     #[serde(rename = "copy")]
-    Copy(copy::controller::Args),
+    Copy(copy::schema::Args),
 
     #[serde(rename = "generate-path")]
-    GeneratePath(generate::controller::PathArgs),
+    GeneratePath(generate::schema::PathArgs),
 
     #[serde(rename = "generate-uuid")]
-    GenerateUuid(generate::controller::UuidArgs),
+    GenerateUuid(generate::schema::UuidArgs),
 
     #[serde(rename = "compression")]
-    Compression(compression::controller::Args),
+    Compression(compression::schema::Args),
+
+    #[serde(rename = "scrub")]
+    Scrub(scrub::schema::Args),
 }

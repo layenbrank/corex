@@ -5,38 +5,40 @@ use glob::Pattern;
 use indicatif::ProgressBar;
 use walkdir::WalkDir;
 
-use crate::copy::controller::Args;
+use crate::copy::schema::Args;
 use crate::schedule::pipeline::Context as PipelineContext;
-use crate::utils::{file, ignore, notify::Notification, progress::Progress};
+use crate::utils::{file, ignore, notify, progress};
 
 // 不能在常量中直接使用 Vec，因为 Vec 的分配是在堆上完成的，
 // 而常量要求所有内容在编译期就确定且存储在只读内存中。
 // 你可以使用数组（如 IGNORES_VEC），在需要 Vec 时再转换：
 
 // pub fn run(source: &Path, target: &Path, empty: bool, ignores: Vec<String>) -> Result<()> {
-pub fn run(args: &Args) {
+pub fn run(args: &Args) -> Result<()> {
     let (from, to) = (Path::new(&args.from), Path::new(&args.to));
     let patterns = ignore::build(&args.ignores);
 
-    let (count, size) = scan(&from, &patterns).expect("扫描失败");
+    let (count, size) = scan(&from, &patterns).context("扫描失败")?;
 
     if count == 0 {
-        return println!("📂 没有文件需要复制");
+        println!("📂 没有文件需要复制");
+        return Ok(());
     }
 
     println!("📊 找到 {} 个文件，总大小: {}", count, file::size(size));
 
-    let progress = Progress::progress(count);
+    let progress = progress::progress(count);
     let status = copy(&from, &to, args.empty, &patterns, progress);
 
     match &status {
         Ok(_) => {
-            let _ = Notification::success("复制成功", "文件复制操作已成功完成");
+            let _ = notify::success("复制成功", "文件复制操作已成功完成");
         }
         Err(e) => {
-            let _ = Notification::error("文件复制失败", &format!("复制过程中发生错误: {}", e));
+            let _ = notify::error("文件复制失败", &format!("复制过程中发生错误: {}", e));
         }
     }
+    status
 }
 
 /// Pipeline 调用入口：执行后将 `to` 路径写入 ctx.last_output
@@ -49,7 +51,7 @@ pub fn execute(args: &Args, ctx: &mut PipelineContext) -> Result<()> {
     if count == 0 {
         println!("没有文件需要复制");
     } else {
-        let progress = Progress::progress(count);
+        let progress = progress::progress(count);
         copy(from, to, args.empty, &patterns, progress)?;
     }
 
@@ -59,7 +61,7 @@ pub fn execute(args: &Args, ctx: &mut PipelineContext) -> Result<()> {
 }
 
 fn scan(from: &Path, patterns: &Vec<Pattern>) -> Result<(u64, u64)> {
-    let spinner = Progress::spinner("正在扫描文件...");
+    let spinner = progress::spinner("正在扫描文件...");
     let resp = calc_size(from, patterns);
     spinner.finish_and_clear();
     resp

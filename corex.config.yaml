@@ -1,0 +1,43 @@
+# Corex 任务配置文件
+pipelines:
+  # ── H5+ 构建流水线 ──────────────────────────────────────────────────────
+  - id: build-h5
+    description: H5+ 构建流水线
+    steps:
+      - type: copy
+        from: cache
+        to: docs
+        ignores: ['.ts']
+
+      - type: generate-path
+        from: $last_output
+        to: docs/path.txt
+        transform: '<include name="IDR_ITAB_{{extension}}_{{index}}" file="{{fullpath}}" type="BINDATA" />'
+        index: 1
+        separator: "\\"
+        pad: true
+        ignores: ['example.js', '*.git', 'node_modules']
+        uppercase: ['extension']
+
+      - type: compression
+        from: C:\Users\iwell\Documents\Vue2\front\master\app
+        to: C:\Users\iwell\Documents\Vue2\front\master\H58991839.wgt
+
+  # ── 批量复制流水线 ──────────────────────────────────────────────────────
+  - id: batch-copy
+    description: 批量复制流水线
+    steps:
+      - type: copy
+        from: D:\Documents\Vue3\component-lib\node_modules
+        to: D:\Documents\Vue3\copies
+        ignores: ['.ts']
+
+      - type: generate-path
+        from: D:\Documents\Vue3\copies
+        to: D:\Documents\Vue3\path.txt
+        transform: '<include name="IDR_ITAB_{{extension}}_{{index}}" file="{{fullpath}}" type="BINDATA" />'
+        index: 1
+        separator: "\\"
+        pad: true
+        ignores: ['example.js', '*.git', 'node_modules']
+        uppercase: ['extension']

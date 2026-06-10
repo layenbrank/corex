@@ -1,21 +1,23 @@
 use clap::Parser;
-use corex_lib::{bootstrap, compression, copy, generate, schedule, scrub};
+use corex_lib::{bootstrap, compression, copy, generate, schedule, screenshot, scrub};
 
 #[derive(Debug, Parser)]
 pub enum Commands {
-    Copy(copy::controller::Args),
-    Scrub(scrub::controller::Args),
+    Copy(copy::schema::Args),
+    Scrub(scrub::schema::Args),
 
     #[command(subcommand)]
-    Generate(generate::controller::Args),
+    Generate(generate::schema::Args),
 
     #[command(subcommand)]
-    Bootstrap(bootstrap::controller::Args),
+    Bootstrap(bootstrap::schema::Args),
 
     #[command(subcommand)]
-    Schedule(schedule::controller::Args),
+    Schedule(schedule::schema::Args),
 
-    Compression(compression::controller::Args),
+    Screenshot(screenshot::schema::Args),
+
+    Compression(compression::schema::Args),
 }
 
 #[derive(Debug, Parser)]
@@ -29,14 +31,15 @@ pub struct Args {
     pub command: Commands,
 }
 
-#[tokio::main]
-async fn main() {
+fn main() -> anyhow::Result<()> {
     match Args::parse().command {
-        Commands::Schedule(args) => schedule::service::run(&args),
-        Commands::Copy(args) => copy::service::run(&args),
-        Commands::Scrub(args) => scrub::service::run(&args),
-        Commands::Generate(args) => generate::service::run(&args),
-        Commands::Bootstrap(args) => bootstrap::service::run(&args),
-        Commands::Compression(args) => compression::service::run(&args),
+        Commands::Copy(args) => copy::service::run(&args)?,
+        Commands::Scrub(args) => scrub::service::run(&args)?,
+        Commands::Schedule(args) => schedule::service::run(&args)?,
+        Commands::Generate(args) => generate::service::run(&args)?,
+        Commands::Bootstrap(args) => bootstrap::service::run(&args)?,
+        Commands::Screenshot(args) => screenshot::service::run(&args)?,
+        Commands::Compression(args) => compression::service::run(&args)?,
     }
+    Ok(())
 }

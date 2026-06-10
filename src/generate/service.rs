@@ -8,22 +8,24 @@ use anyhow::{Context, Result};
 use uuid::Uuid;
 use walkdir::{DirEntry, WalkDir};
 
-use crate::generate::controller::{Args, PathArgs, UuidArgs};
+use crate::generate::schema::{Args, PathArgs, UuidArgs};
 use crate::schedule::pipeline::Context as PipelineContext;
-use crate::utils::{ignore, notify::Notification, verifier};
+use crate::utils::{ignore, notify, verifier};
 
-pub fn run(args: &Args) {
+pub fn run(args: &Args) -> Result<()> {
     match args {
         Args::Path(path_args) => match path_task(path_args) {
             Ok(_) => {
-                let _ = Notification::success("路径生成成功", "路径生成操作已成功完成");
+                let _ = notify::success("路径生成成功", "路径生成操作已成功完成");
             }
             Err(e) => {
-                let _ = Notification::error("文件生成失败", &format!("生成过程中发生错误: {}", e));
+                let _ = notify::error("文件生成失败", &format!("生成过程中发生错误: {}", e));
+                return Err(e);
             }
         },
         Args::Uuid(uuid_args) => uuid_task(uuid_args),
     }
+    Ok(())
 }
 
 pub fn uuid_task(args: &UuidArgs) {
@@ -41,14 +43,7 @@ pub fn uuid_task(args: &UuidArgs) {
 /// - 若 `args.from` 为 `$last_output`，则从 ctx 读取上一步输出路径
 /// - 执行后将 `to` 路径写入 ctx.last_output
 pub fn execute_path(args: &PathArgs, ctx: &mut PipelineContext) -> Result<()> {
-    let resolved_from = if args.from == "$last_output" {
-        ctx.last_output
-            .as_ref()
-            .map(|p| p.to_string_lossy().to_string())
-            .unwrap_or_else(|| args.from.clone())
-    } else {
-        args.from.clone()
-    };
+    let resolved_from = ctx.resolve(&args.from);
 
     let resolved_args = PathArgs {
         from: resolved_from,
