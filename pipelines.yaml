@@ -2,21 +2,21 @@
 # 文档: https://github.com/your-org/corex/docs/pipelines.md
 
 variables:
-  cache_dir: 'cache'
-  docs_dir: 'docs'
+  base: 'D:\\Documents\\Vue3'
 
 pipelines:
   # ── H5+ 构建流水线 ──────────────────────────────────────────────────────
   - id: build-h5
     description: H5+ 构建流水线
+    schedule: '0/30 * * * * *' # 每 30 秒执行一次
     mode: sequential
     steps:
       - id: copy_cache
         module: copy
         description: 复制缓存文件
         params:
-          from: '${var.cache_dir}'
-          to: '${var.docs_dir}'
+          from: '${var.base}\\component-lib\\node_modules'
+          to: '${var.base}\\copies'
           empty: false
           includes: []
           excludes: ['.ts']
@@ -27,7 +27,7 @@ pipelines:
         description: 生成路径列表
         params:
           from: '${copy_cache.output}'
-          to: 'docs/path.txt'
+          to: '${var.base}\\path.txt'
           transform: '<include name="IDR_ITAB_{{extension}}_{{index}}" file="{{fullpath}}" type="BINDATA" />'
           index: 1
           separator: "\\"
@@ -40,21 +40,20 @@ pipelines:
         module: compression
         description: 打包 wgt
         params:
-          from: "C:\\Users\\iwell\\Documents\\Vue2\\front\\master\\app"
-          to: "C:\\Users\\iwell\\Documents\\Vue2\\front\\master\\H58991839.wgt"
+          from: '${copy_cache.output}'
+          to: '${var.base}\\H58991839.wgt'
 
-  # ── 批量复制流水线（每天 8:00 定时执行）─────────────────────────────────────
   - id: batch-copy
     description: 批量复制流水线
-    schedule: '0 8 * * *'
+    schedule: '0 0 9 * * *' # 每天 9:00 执行
     mode: sequential
     steps:
       - id: copy_modules
         module: copy
         description: 复制 node_modules
         params:
-          from: "D:\\Documents\\Vue3\\component-lib\\node_modules"
-          to: "D:\\Documents\\Vue3\\copies"
+          from: '${var.base}\\component-lib\\node_modules'
+          to: '${var.base}\\copies'
           includes: []
           excludes: ['.ts']
 
@@ -63,8 +62,8 @@ pipelines:
         action: path
         description: 生成路径文件
         params:
-          from: "D:\\Documents\\Vue3\\copies"
-          to: "D:\\Documents\\Vue3\\path.txt"
+          from: '${var.base}\\copies'
+          to: '${var.base}\\path.txt'
           transform: '<include name="IDR_ITAB_{{extension}}_{{index}}" file="{{fullpath}}" type="BINDATA" />'
           index: 1
           separator: "\\"
