@@ -1,0 +1,16 @@
+[package]
+name    = "corex"
+version.workspace = true
+edition.workspace = true
+description = "Corex CLI binary"
+authors.workspace = true
+
+[[bin]]
+name = "corex"
+path = "src/main.rs"
+
+[dependencies]
+corex-core = { path = "../corex-core" }
+anyhow     = { workspace = true }
+clap       = { workspace = true }
+tokio      = { workspace = true }

@@ -1,43 +1,74 @@
-# Corex 任务配置文件
+# Corex Pipeline 配置文件
+# 文档: https://github.com/your-org/corex/docs/pipelines.md
+
+variables:
+  cache_dir: 'cache'
+  docs_dir: 'docs'
+
 pipelines:
   # ── H5+ 构建流水线 ──────────────────────────────────────────────────────
   - id: build-h5
     description: H5+ 构建流水线
+    mode: sequential
     steps:
-      - type: copy
-        from: cache
-        to: docs
-        ignores: ['.ts']
+      - id: copy_cache
+        module: copy
+        description: 复制缓存文件
+        params:
+          from: '${var.cache_dir}'
+          to: '${var.docs_dir}'
+          empty: false
+          includes: []
+          excludes: ['.ts']
 
-      - type: generate-path
-        from: $last_output
-        to: docs/path.txt
-        transform: '<include name="IDR_ITAB_{{extension}}_{{index}}" file="{{fullpath}}" type="BINDATA" />'
-        index: 1
-        separator: "\\"
-        pad: true
-        ignores: ['example.js', '*.git', 'node_modules']
-        uppercase: ['extension']
+      - id: gen_path
+        module: generate
+        action: path
+        description: 生成路径列表
+        params:
+          from: '${copy_cache.output}'
+          to: 'docs/path.txt'
+          transform: '<include name="IDR_ITAB_{{extension}}_{{index}}" file="{{fullpath}}" type="BINDATA" />'
+          index: 1
+          separator: "\\"
+          pad: true
+          includes: []
+          excludes: ['example.js', '*.git', 'node_modules']
+          uppercase: ['extension']
 
-      - type: compression
-        from: C:\Users\iwell\Documents\Vue2\front\master\app
-        to: C:\Users\iwell\Documents\Vue2\front\master\H58991839.wgt
+      - id: compress_wgt
+        module: compression
+        description: 打包 wgt
+        params:
+          from: "C:\\Users\\iwell\\Documents\\Vue2\\front\\master\\app"
+          to: "C:\\Users\\iwell\\Documents\\Vue2\\front\\master\\H58991839.wgt"
 
-  # ── 批量复制流水线 ──────────────────────────────────────────────────────
+  # ── 批量复制流水线（每天 8:00 定时执行）─────────────────────────────────────
   - id: batch-copy
     description: 批量复制流水线
+    schedule: '0 8 * * *'
+    mode: sequential
     steps:
-      - type: copy
-        from: D:\Documents\Vue3\component-lib\node_modules
-        to: D:\Documents\Vue3\copies
-        ignores: ['.ts']
+      - id: copy_modules
+        module: copy
+        description: 复制 node_modules
+        params:
+          from: "D:\\Documents\\Vue3\\component-lib\\node_modules"
+          to: "D:\\Documents\\Vue3\\copies"
+          includes: []
+          excludes: ['.ts']
 
-      - type: generate-path
-        from: D:\Documents\Vue3\copies
-        to: D:\Documents\Vue3\path.txt
-        transform: '<include name="IDR_ITAB_{{extension}}_{{index}}" file="{{fullpath}}" type="BINDATA" />'
-        index: 1
-        separator: "\\"
-        pad: true
-        ignores: ['example.js', '*.git', 'node_modules']
-        uppercase: ['extension']
+      - id: gen_path_list
+        module: generate
+        action: path
+        description: 生成路径文件
+        params:
+          from: "D:\\Documents\\Vue3\\copies"
+          to: "D:\\Documents\\Vue3\\path.txt"
+          transform: '<include name="IDR_ITAB_{{extension}}_{{index}}" file="{{fullpath}}" type="BINDATA" />'
+          index: 1
+          separator: "\\"
+          pad: true
+          includes: []
+          excludes: ['example.js', '*.git', 'node_modules']
+          uppercase: ['extension']

@@ -1,0 +1,701 @@
+use std::fs;
+
+use anyhow::Result;
+use crossterm::style::Stylize;
+use dialoguer::theme::ColorfulTheme;
+
+use crate::pipeline::config::{
+    ExecutionMode, PipelineArgs, PipelineConfig, PipelinesConfig, ScheduleArgs, StepConfig,
+    find_config_path, load_config, validate_config,
+};
+use crate::pipeline::context::PipelineContext;
+use crate::tasks::{TaskOutput, create_executor};
+
+use chrono::Local;
+use cron::Schedule as CronSchedule;
+use std::str::FromStr;
+
+// ─── Pipeline 子命令入口 ────────────────────────────────────────────────────
+
+/// `corex pipeline` 命令处理
+pub fn run_pipeline_cmd(args: &PipelineArgs) -> Result<()> {
+    let config_path = args
+        .config
+        .as_ref()
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(find_config_path);
+
+    if !config_path.exists() {
+        anyhow::bail!(
+            "配置文件未找到：{}，请先运行 `corex schedule generate` 生成配置",
+            config_path.display()
+        );
+    }
+
+    let config = load_config(&config_path)?;
+    validate_config(&config)?;
+
+    if args.validate {
+        println!(
+            "  {} 配置验证通过 ({} 条 pipeline)",
+            "✓".green().bold(),
+            config.pipelines.len()
+        );
+        return Ok(());
+    }
+
+    // 选择 pipeline
+    let pipeline = if let Some(ref id) = args.id {
+        config
+            .pipelines
+            .iter()
+            .find(|p| p.id == *id)
+            .ok_or_else(|| anyhow::anyhow!("未找到 Pipeline: {}", id))?
+    } else if config.pipelines.len() == 1 {
+        &config.pipelines[0]
+    } else {
+        // 交互选择
+        let labels: Vec<String> = config
+            .pipelines
+            .iter()
+            .map(|p| {
+                let desc = p.description.as_deref().unwrap_or(&p.id);
+                format!("▶ {} ({} 步, {:?})", desc, p.steps.len(), p.mode)
+            })
+            .collect();
+
+        let idx = dialoguer::Select::with_theme(&ColorfulTheme::default())
+            .with_prompt("选择 Pipeline")
+            .items(&labels)
+            .default(0)
+            .interact()?;
+
+        &config.pipelines[idx]
+    };
+
+    let mut ctx = PipelineContext::with_variables(config.variables.clone());
+
+    if args.dry_run {
+        dry_run_pipeline(pipeline, &ctx);
+        return Ok(());
+    }
+
+    run_pipeline(pipeline, &mut ctx)
+}
+
+/// `corex schedule` 子命令入口
+pub fn run_schedule(args: &ScheduleArgs) -> Result<()> {
+    match args {
+        ScheduleArgs::Run => run_schedule_interactive(),
+        ScheduleArgs::Generate => generate_config_template(),
+        ScheduleArgs::Cron { config } => run_schedule_cron(config.as_deref()),
+    }
+}
+
+// ─── Cron 守护进程 ──────────────────────────────────────────────────────────
+
+/// 以守护进程模式运行，按 cron 表达式定时执行 Pipeline
+fn run_schedule_cron(config_path: Option<&str>) -> Result<()> {
+    let config_path = config_path
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(find_config_path);
+
+    if !config_path.exists() {
+        anyhow::bail!(
+            "配置文件未找到：{}，请先运行 `corex schedule generate` 生成配置",
+            config_path.display()
+        );
+    }
+
+    let config = load_config(&config_path)?;
+    validate_config(&config)?;
+
+    // 收集所有有 schedule 字段的 pipeline 及其 cron 表达式
+    let scheduled: Vec<(&PipelineConfig, CronSchedule)> = config
+        .pipelines
+        .iter()
+        .filter_map(|p| {
+            p.schedule
+                .as_ref()
+                .and_then(|expr| match CronSchedule::from_str(expr) {
+                    Ok(sched) => Some((p, sched)),
+                    Err(e) => {
+                        eprintln!(
+                            "  {} Pipeline '{}' cron 表达式无效 ({}): {}",
+                            "×".red(),
+                            p.id,
+                            expr,
+                            e
+                        );
+                        None
+                    }
+                })
+        })
+        .collect();
+
+    if scheduled.is_empty() {
+        anyhow::bail!(
+            "配置文件中没有任何 Pipeline 设置了 schedule 字段\n\
+             提示: 在 pipeline 配置中添加 `schedule: \"*/5 * * * *\"` 即可定时执行"
+        );
+    }
+
+    print_banner("Corex · 定时调度器");
+
+    println!(
+        "  {} 已加载 {} 条定时 Pipeline（共 {} 条）\n",
+        "✓".green().bold(),
+        scheduled.len(),
+        config.pipelines.len()
+    );
+
+    for (p, sched) in &scheduled {
+        let next = sched.upcoming(Local).next();
+        let next_str = next
+            .map(|t| t.format("%Y-%m-%d %H:%M:%S").to_string())
+            .unwrap_or_else(|| "无".to_string());
+        println!(
+            "  {} {} — schedule: {:?} — 下次执行: {}",
+            "▸".cyan(),
+            p.description.as_deref().unwrap_or(&p.id).bold(),
+            p.schedule.as_deref().unwrap_or(""),
+            next_str.dim()
+        );
+    }
+    println!();
+    println!("  {} 等待定时任务触发...（Ctrl+C 退出）\n", "⏳".yellow());
+
+    // 主循环：每秒检查一次是否有 pipeline 到达执行时间
+    let mut next_runs: std::collections::HashMap<String, chrono::DateTime<Local>> =
+        std::collections::HashMap::new();
+
+    // 初始化每个 pipeline 的下次执行时间
+    for (pipeline, sched) in &scheduled {
+        if let Some(next) = sched.upcoming(Local).next() {
+            next_runs.insert(pipeline.id.clone(), next);
+        }
+    }
+
+    loop {
+        let now = Local::now();
+
+        for (pipeline, sched) in &scheduled {
+            let should_run = next_runs
+                .get(&pipeline.id)
+                .map(|&next| now >= next)
+                .unwrap_or(false);
+
+            if should_run {
+                println!(
+                    "\n  {} [{}] 定时触发: {}",
+                    "⏰".yellow().bold(),
+                    Local::now().format("%H:%M:%S").to_string().bold(),
+                    pipeline
+                        .description
+                        .as_deref()
+                        .unwrap_or(&pipeline.id)
+                        .bold()
+                );
+
+                let mut ctx = PipelineContext::with_variables(config.variables.clone());
+                if let Err(e) = run_pipeline(pipeline, &mut ctx) {
+                    eprintln!("  {} Pipeline '{}' 执行失败: {}", "×".red(), pipeline.id, e);
+                }
+
+                // 更新下次执行时间
+                if let Some(next) = sched.upcoming(Local).next() {
+                    next_runs.insert(pipeline.id.clone(), next);
+                    println!(
+                        "  {} 下次执行: {}",
+                        "⏳".yellow(),
+                        next.format("%Y-%m-%d %H:%M:%S").to_string().dim()
+                    );
+                }
+                println!();
+            }
+        }
+
+        std::thread::sleep(std::time::Duration::from_secs(1));
+    }
+}
+
+// ─── Pipeline 执行引擎 ──────────────────────────────────────────────────────
+
+/// 执行一条 Pipeline
+pub fn run_pipeline(pipeline: &PipelineConfig, ctx: &mut PipelineContext) -> Result<()> {
+    println!(
+        "\n  {} 执行 Pipeline：{}\n",
+        "▶".green().bold(),
+        pipeline
+            .description
+            .as_deref()
+            .unwrap_or(&pipeline.id)
+            .bold()
+    );
+
+    match pipeline.mode {
+        ExecutionMode::Sequential => run_sequential(pipeline, ctx),
+        ExecutionMode::Parallel => run_parallel(pipeline, ctx),
+    }
+}
+
+/// Sequential 模式：顺序执行，支持步骤间协作
+fn run_sequential(pipeline: &PipelineConfig, ctx: &mut PipelineContext) -> Result<()> {
+    for (i, step) in pipeline.steps.iter().enumerate() {
+        let label = step_label(step, i);
+        println!(
+            "  {} [{}] {}",
+            "▸".cyan(),
+            (i + 1).to_string().bold(),
+            label
+        );
+
+        match execute_step(step, ctx) {
+            Ok(output) => {
+                ctx.set_step_output(step.id.clone(), output);
+            }
+            Err(e) => {
+                eprintln!(
+                    "  {} 步骤 {} [{}] 失败: {}",
+                    "×".red(),
+                    (i + 1).to_string().bold(),
+                    step.id,
+                    e
+                );
+                return Err(e);
+            }
+        }
+    }
+
+    println!(
+        "\n  {} Pipeline 执行完成（共 {} 步）",
+        "✓".green().bold(),
+        pipeline.steps.len()
+    );
+    Ok(())
+}
+
+/// Parallel 模式：并发执行，步骤间独立
+fn run_parallel(pipeline: &PipelineConfig, ctx: &mut PipelineContext) -> Result<()> {
+    println!(
+        "  {} 并发执行 {} 个步骤\n",
+        "⚡".yellow().bold(),
+        pipeline.steps.len()
+    );
+
+    // 使用 tokio 并发执行
+    let rt = tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()?;
+
+    rt.block_on(async {
+        let mut handles = Vec::new();
+
+        for (i, step) in pipeline.steps.iter().enumerate() {
+            let step = step.clone();
+            let vars = ctx.variables.clone();
+            let step_id = step.id.clone();
+
+            let handle = tokio::spawn(async move {
+                let mut step_ctx = PipelineContext::with_variables(vars);
+                println!(
+                    "  {} [{}] {} (parallel)",
+                    "▸".cyan(),
+                    (i + 1).to_string().bold(),
+                    step_label(&step, i)
+                );
+                execute_step(&step, &mut step_ctx)
+            });
+
+            handles.push((step_id, handle));
+        }
+
+        for (step_id, handle) in handles {
+            match handle.await {
+                Ok(Ok(output)) => {
+                    ctx.set_step_output(step_id, output);
+                }
+                Ok(Err(e)) => {
+                    eprintln!("  {} 步骤 [{}] 失败: {}", "×".red(), step_id, e);
+                    return Err(e);
+                }
+                Err(e) => {
+                    eprintln!("  {} 步骤 [{}] 被取消: {}", "×".red(), step_id, e);
+                    return Err(anyhow::anyhow!("步骤 {} 被取消", step_id));
+                }
+            }
+        }
+
+        Ok(())
+    })?;
+
+    println!(
+        "\n  {} Pipeline 并发执行完成（共 {} 步）",
+        "✓".green().bold(),
+        pipeline.steps.len()
+    );
+    Ok(())
+}
+
+/// 执行单个步骤
+fn execute_step(step: &StepConfig, ctx: &mut PipelineContext) -> Result<TaskOutput> {
+    let executor = create_executor(&step.module, step.action.as_deref()).ok_or_else(|| {
+        anyhow::anyhow!(
+            "未知的模块/动作组合: module={}, action={:?}",
+            step.module,
+            step.action
+        )
+    })?;
+
+    // 解析 params 中的变量引用
+    let resolved_params = ctx.resolve_value(&step.params);
+
+    executor.execute(&resolved_params, ctx)
+}
+
+// ─── Dry-run ────────────────────────────────────────────────────────────────
+
+fn dry_run_pipeline(pipeline: &PipelineConfig, _ctx: &PipelineContext) {
+    println!(
+        "\n  {} Dry-run：{}\n",
+        "◇".yellow().bold(),
+        pipeline
+            .description
+            .as_deref()
+            .unwrap_or(&pipeline.id)
+            .bold()
+    );
+
+    println!("  模式: {:?}", pipeline.mode);
+    if let Some(ref sched) = pipeline.schedule {
+        println!("  定时调度: {}", sched);
+    }
+    println!("  步骤数: {}\n", pipeline.steps.len());
+
+    for (i, step) in pipeline.steps.iter().enumerate() {
+        println!(
+            "  [{}] {} — module={}, action={:?}",
+            (i + 1).to_string().bold(),
+            step.id,
+            step.module,
+            step.action,
+        );
+        if let Some(ref desc) = step.description {
+            println!("       描述: {}", desc);
+        }
+        println!(
+            "       参数: {}",
+            serde_json::to_string_pretty(&step.params).unwrap_or_default()
+        );
+        println!();
+    }
+}
+
+// ─── 调度器交互模式 ─────────────────────────────────────────────────────────
+
+fn run_schedule_interactive() -> Result<()> {
+    let path = find_config_path();
+
+    if !path.exists() {
+        anyhow::bail!(
+            "配置文件未找到：{}，请先运行 `corex schedule generate` 生成配置",
+            path.display()
+        );
+    }
+
+    let config = load_config(&path)?;
+    validate_config(&config)?;
+
+    if config.pipelines.is_empty() {
+        anyhow::bail!("配置文件中没有找到有效的 Pipeline");
+    }
+
+    print_banner("Corex · 任务调度器");
+
+    // 一级菜单：选择 Pipeline
+    let mut labels: Vec<String> = config
+        .pipelines
+        .iter()
+        .map(|p| {
+            let desc = p.description.as_deref().unwrap_or(&p.id);
+            format!(
+                "{} {} ({} 步, {:?})",
+                "▶".green().bold(),
+                desc.bold(),
+                p.steps.len(),
+                p.mode
+            )
+        })
+        .collect();
+    labels.push(format!("{} {}", "↩".dim(), "返回".dim()));
+
+    let pipeline_idx = dialoguer::Select::with_theme(&ColorfulTheme::default())
+        .with_prompt("选择 Pipeline")
+        .items(&labels)
+        .default(0)
+        .interact()?;
+
+    if pipeline_idx >= config.pipelines.len() {
+        return Ok(());
+    }
+
+    let pipeline = &config.pipelines[pipeline_idx];
+    let mut ctx = PipelineContext::with_variables(config.variables.clone());
+    run_pipeline(pipeline, &mut ctx)
+}
+
+// ─── 配置生成向导 ────────────────────────────────────────────────────────────
+
+fn generate_config_template() -> Result<()> {
+    print_banner("Corex · 配置向导");
+    let path = find_config_path();
+
+    if path.exists() {
+        println!(
+            "  {} 配置文件已存在：{}",
+            "→".yellow(),
+            path.display().to_string().dim()
+        );
+        let confirmed = dialoguer::Confirm::with_theme(&ColorfulTheme::default())
+            .with_prompt("是否覆盖")
+            .default(false)
+            .interact()
+            .unwrap_or(false);
+        if !confirmed {
+            println!("  {} 已取消。", "×".red());
+            return Ok(());
+        }
+    }
+
+    // 询问 Pipeline 名称
+    let pipeline_id: String = dialoguer::Input::with_theme(&ColorfulTheme::default())
+        .with_prompt("Pipeline ID（英文，无空格）")
+        .default("default".to_string())
+        .interact_text()?;
+
+    let pipeline_desc: String = dialoguer::Input::with_theme(&ColorfulTheme::default())
+        .with_prompt("Pipeline 描述")
+        .allow_empty(true)
+        .interact_text()?;
+
+    // 选择执行模式
+    let mode_idx = dialoguer::Select::with_theme(&ColorfulTheme::default())
+        .with_prompt("执行模式")
+        .items([
+            "sequential（顺序执行，支持步骤协作）",
+            "parallel（并发执行，步骤独立）",
+        ])
+        .default(0)
+        .interact()?;
+    let mode = if mode_idx == 0 {
+        ExecutionMode::Sequential
+    } else {
+        ExecutionMode::Parallel
+    };
+
+    // 可选：cron 定时调度
+    let schedule_input: String = dialoguer::Input::with_theme(&ColorfulTheme::default())
+        .with_prompt("定时调度 cron 表达式（留空则不定时执行，如 */5 * * * *）")
+        .allow_empty(true)
+        .interact_text()?;
+    let schedule = if schedule_input.is_empty() {
+        None
+    } else {
+        Some(schedule_input)
+    };
+
+    // 选择步骤类型
+    let task_types = [
+        "  复制目录      copy",
+        "  路径生成      generate path",
+        "  UUID 生成     generate uuid",
+        "  压缩打包      compression",
+        "  清理删除      scrub",
+    ];
+    println!();
+    let selections = dialoguer::MultiSelect::with_theme(&ColorfulTheme::default())
+        .with_prompt("选择要添加的步骤类型（按顺序）")
+        .items(task_types)
+        .interact()?;
+
+    if selections.is_empty() {
+        println!("  {} 未选择任何步骤，已取消。", "×".red());
+        return Ok(());
+    }
+
+    let mut steps: Vec<StepConfig> = Vec::new();
+
+    for (seq, &sel) in selections.iter().enumerate() {
+        let step_id = format!("step_{}", seq + 1);
+
+        let step = match sel {
+            0 => {
+                println!("\n  {} 复制步骤", "▸".cyan());
+                let from: String = dialoguer::Input::with_theme(&ColorfulTheme::default())
+                    .with_prompt("源路径")
+                    .interact_text()?;
+                let to: String = dialoguer::Input::with_theme(&ColorfulTheme::default())
+                    .with_prompt("目标路径")
+                    .interact_text()?;
+                StepConfig {
+                    id: step_id,
+                    module: "copy".to_string(),
+                    action: None,
+                    description: Some("复制任务".to_string()),
+                    params: serde_json::json!({ "from": from, "to": to, "empty": false, "includes": [], "excludes": [] }),
+                }
+            }
+            1 => {
+                println!("\n  {} 路径生成步骤", "▸".cyan());
+                let from: String = dialoguer::Input::with_theme(&ColorfulTheme::default())
+                    .with_prompt("源目录")
+                    .interact_text()?;
+                let to: String = dialoguer::Input::with_theme(&ColorfulTheme::default())
+                    .with_prompt("输出文件路径")
+                    .interact_text()?;
+                let transform: String = dialoguer::Input::with_theme(&ColorfulTheme::default())
+                    .with_prompt("转换规则")
+                    .interact_text()?;
+                StepConfig {
+                    id: step_id,
+                    module: "generate".to_string(),
+                    action: Some("path".to_string()),
+                    description: Some("路径生成任务".to_string()),
+                    params: serde_json::json!({
+                        "from": from, "to": to, "transform": transform,
+                        "index": 0, "separator": "/", "pad": false,
+                        "includes": [], "excludes": [], "uppercase": []
+                    }),
+                }
+            }
+            2 => {
+                println!("\n  {} UUID 生成步骤", "▸".cyan());
+                let count: usize = dialoguer::Input::with_theme(&ColorfulTheme::default())
+                    .with_prompt("生成数量")
+                    .default(1usize)
+                    .interact_text()?;
+                StepConfig {
+                    id: step_id,
+                    module: "generate".to_string(),
+                    action: Some("uuid".to_string()),
+                    description: Some("UUID 生成任务".to_string()),
+                    params: serde_json::json!({ "count": count, "uppercase": false }),
+                }
+            }
+            3 => {
+                println!("\n  {} 压缩步骤", "▸".cyan());
+                let from: String = dialoguer::Input::with_theme(&ColorfulTheme::default())
+                    .with_prompt("源路径")
+                    .interact_text()?;
+                let to: String = dialoguer::Input::with_theme(&ColorfulTheme::default())
+                    .with_prompt("输出压缩包路径")
+                    .interact_text()?;
+                StepConfig {
+                    id: step_id,
+                    module: "compression".to_string(),
+                    action: None,
+                    description: Some("压缩任务".to_string()),
+                    params: serde_json::json!({ "from": from, "to": to }),
+                }
+            }
+            4 => {
+                println!("\n  {} 清理步骤", "▸".cyan());
+                let source: String = dialoguer::Input::with_theme(&ColorfulTheme::default())
+                    .with_prompt("目标路径")
+                    .interact_text()?;
+                let target: String = dialoguer::Input::with_theme(&ColorfulTheme::default())
+                    .with_prompt("要删除的目标名称")
+                    .interact_text()?;
+                let recursive: bool = dialoguer::Confirm::with_theme(&ColorfulTheme::default())
+                    .with_prompt("递归删除")
+                    .default(true)
+                    .interact()
+                    .unwrap_or(true);
+                StepConfig {
+                    id: step_id,
+                    module: "scrub".to_string(),
+                    action: None,
+                    description: Some("清理任务".to_string()),
+                    params: serde_json::json!({
+                        "source": source, "target": target, "recursive": recursive
+                    }),
+                }
+            }
+            _ => continue,
+        };
+
+        steps.push(step);
+    }
+
+    let config = PipelinesConfig {
+        variables: std::collections::HashMap::new(),
+        pipelines: vec![PipelineConfig {
+            id: pipeline_id,
+            description: if pipeline_desc.is_empty() {
+                None
+            } else {
+                Some(pipeline_desc)
+            },
+            schedule,
+            mode,
+            steps,
+        }],
+    };
+
+    let content = serde_yml::to_string(&config)?;
+    let content = format!("# Corex Pipeline 配置文件\n{}", content);
+
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)?;
+    }
+    fs::write(&path, &content)?;
+
+    println!(
+        "\n  {} 配置已生成：{}",
+        "✓".green().bold(),
+        path.display().to_string().bold()
+    );
+    Ok(())
+}
+
+// ─── UI 辅助函数 ────────────────────────────────────────────────────────────
+
+fn step_label(step: &StepConfig, _index: usize) -> String {
+    let desc = step.description.as_deref().unwrap_or(&step.module);
+
+    let tag = match step.module.as_str() {
+        "copy" => format!("[{}]", "复制".cyan().bold()),
+        "scrub" => format!("[{}]", "清理".red().bold()),
+        "compression" => format!("[{}]", "压缩".yellow().bold()),
+        "generate" => format!(
+            "[{}]",
+            step.action.as_deref().unwrap_or("path").green().bold()
+        ),
+        other => format!("[{}]", other.bold()),
+    };
+
+    format!("{} {}", tag, desc)
+}
+
+fn print_banner(title: &str) {
+    let width: usize = 54;
+    let title_len = title.chars().count();
+    let pad_total = width.saturating_sub(title_len + 2);
+    let pad_left = pad_total / 2;
+    let pad_right = pad_total - pad_left;
+    println!();
+    println!("{}", format!("╭{}╮", "─".repeat(width)).cyan().bold());
+    println!(
+        "{}",
+        format!(
+            "│{}{}{}│",
+            " ".repeat(pad_left),
+            title,
+            " ".repeat(pad_right)
+        )
+        .cyan()
+        .bold()
+    );
+    println!("{}", format!("╰{}╯", "─".repeat(width)).cyan().bold());
+    println!();
+}

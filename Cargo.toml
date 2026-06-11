@@ -1,37 +1,18 @@
-[package]
-name        = "corex"
-version     = "0.2.4"
+[workspace]
+members = ["corex", "corex-core"]
+resolver = "2"
+
+[workspace.package]
+version     = "0.3.0"
 edition     = "2024"
 description = "corex-cli"
 authors     = ["layen"]
 
-[profile.release]
-# opt-level = 3       # 最高优化级别
-opt-level = 2    # 降低优化级别 (从 3 改为 2)
-lto       = true # 链接时优化（平衡大小与速度）
-# lto = "thin"        # 使用轻量级 LTO (从 true 改为 "thin")
-codegen-units = 1 # 单线程代码生成（提升优化）
-# codegen-units = 16  # 增加代码生成单元 (从 1 改为 16)
-incremental = false     # 禁用增量编译（避免优化冲突）
-panic       = "abort"   # 替换展开为直接终止（减小体积）
-strip       = "symbols" # 移除调试符号（Rust 1.59+）
-# strip = true        # Rust 1.59+ 原生支持
-# strip = "debuginfo" # 只移除调试信息，保留符号表
-
-[lib]
-name       = "corex_lib"
-path       = "src/lib.rs"
-crate-type = ["rlib"]
-doctest    = false
-
-[[bin]]
-name = "corex"
-path = "src/main.rs"
-
-[dependencies]
+[workspace.dependencies]
 anyhow        = "1.0.102"
 chrono        = { version = "0.4.45", features = ["serde"] }
 clap          = { version = "4.6.1", features = ["derive"] }
+cron          = "0.15.0"
 crossterm     = "0.29.0"
 dialoguer     = "0.12.0"
 dirs          = "6.0.0"
@@ -44,24 +25,15 @@ serde_json    = "1.0.150"
 serde_yml     = "0.0.13"
 tokio         = { version = "1.49.0", features = ["full"] }
 uuid          = { version = "1.23.2", features = ["v4"] }
-unicode-width = "0.2"
 walkdir       = "2.5.0"
 zip           = "8.6.0"
-image = "0.25.10"
-xcap = "0.9.6"
+image         = "0.25.10"
+xcap          = "0.9.6"
 
-[dev-dependencies]
-tempfile = "3.27.0"
-
-[dependencies.windows]
-version = "0.62.2"
-features = [
-  "Data_Xml_Dom",
-  "Win32_UI_WindowsAndMessaging",
-  "Win32_UI_Shell",
-  "Win32_Foundation",
-  "Win32_System_Services",
-  "UI_Notifications",
-  "UI_Notifications_Management",
-  "Foundation",
-]
+[profile.release]
+opt-level     = 2
+lto           = true
+codegen-units = 1
+incremental   = false
+panic         = "abort"
+strip         = "symbols"
