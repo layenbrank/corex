@@ -1,5 +1,5 @@
 use std::{
-    fs::{File, OpenOptions},
+    fs::{self, File, OpenOptions},
     io::{BufWriter, Write},
     path::Path,
 };
@@ -8,7 +8,8 @@ use anyhow::{Context, Result};
 use uuid::Uuid;
 use walkdir::{DirEntry, WalkDir};
 
-use crate::generate::schema::{Args, PathArgs, UuidArgs};
+use crate::generate::schema::{Args, FileArgs, PathArgs, UuidArgs};
+use crate::generate::template::create_handlebars;
 use crate::utils::{ignore::Filter, notify, verifier};
 
 pub fn run(args: &Args) -> Result<()> {
@@ -23,7 +24,43 @@ pub fn run(args: &Args) -> Result<()> {
             }
         },
         Args::Uuid(uuid_args) => uuid_task(uuid_args),
+        Args::File(file_args) => match file_task(file_args) {
+            Ok(_) => {
+                let _ = notify::success("文件生成成功", "文件生成操作已成功完成");
+            }
+            Err(e) => {
+                let _ = notify::error("文件生成失败", &format!("生成过程中发生错误: {}", e));
+                return Err(e);
+            }
+        },
     }
+    Ok(())
+}
+
+pub fn file_task(args: &FileArgs) -> Result<()> {
+    let hb = create_handlebars()?;
+
+    // 构建模板数据
+    let mut data = serde_json::Map::new();
+    for (k, v) in &args.variable {
+        data.insert(k.clone(), serde_json::Value::String(v.clone()));
+    }
+
+    let rendered = if let Some(tpl_path) = &args.template {
+        let template_content = fs::read_to_string(tpl_path)?;
+        hb.render_template(&template_content, &data)?
+    } else if let Some(fragment) = &args.fragment {
+        hb.render_template(fragment, &data)?
+    } else {
+        anyhow::bail!("必须指定 --template 或 --fragment");
+    };
+
+    if let Some(parent) = std::path::Path::new(&args.to).parent() {
+        fs::create_dir_all(parent)?;
+    }
+    fs::write(&args.to, rendered)?;
+
+    let _ = crate::utils::notify::success("文件生成成功", &format!("已生成: {}", args.to));
     Ok(())
 }
 

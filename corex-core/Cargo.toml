@@ -1,8 +1,8 @@
 [package]
-name    = "corex-core"
+name              = "corex-core"
 version.workspace = true
 edition.workspace = true
-description = "Corex core library"
+description       = "Corex core library"
 authors.workspace = true
 
 [lib]
@@ -12,26 +12,28 @@ crate-type = ["rlib"]
 doctest    = false
 
 [dependencies]
-anyhow        = { workspace = true }
-chrono        = { workspace = true }
-clap          = { workspace = true }
-cron          = { workspace = true }
-crossterm     = { workspace = true }
-dialoguer     = { workspace = true }
-dirs          = { workspace = true }
-glob          = { workspace = true }
-indicatif     = { workspace = true }
-notify-rust   = { workspace = true }
-regex         = { workspace = true }
-serde         = { workspace = true }
-serde_json    = { workspace = true }
-serde_yml     = { workspace = true }
-tokio         = { workspace = true }
-uuid          = { workspace = true }
-walkdir       = { workspace = true }
-zip           = { workspace = true }
-image         = { workspace = true }
-xcap          = { workspace = true }
+anyhow      = { workspace = true }
+chrono      = { workspace = true }
+clap        = { workspace = true }
+cron        = { workspace = true }
+crossterm   = { workspace = true }
+dialoguer   = { workspace = true }
+dirs        = { workspace = true }
+glob        = { workspace = true }
+indicatif   = { workspace = true }
+notify-rust = { workspace = true }
+regex       = { workspace = true }
+serde       = { workspace = true }
+serde_json  = { workspace = true }
+serde_yml   = { workspace = true }
+tokio       = { workspace = true }
+uuid        = { workspace = true }
+walkdir     = { workspace = true }
+zip         = { workspace = true }
+image       = { workspace = true }
+xcap        = { workspace = true }
+handlebars  = { workspace = true }
+rand        = { workspace = true }
 
 [dev-dependencies]
 tempfile = "3.27.0"
