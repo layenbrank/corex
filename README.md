@@ -31,6 +31,7 @@ corex schedule cron
 | `corex scrub`                       | 清理指定名称的文件/目录   |
 | `corex generate path`               | 扫描目录并生成路径列表    |
 | `corex generate uuid`               | 生成 UUID                 |
+| `corex generate file`               | 基于模板生成文件          |
 | `corex compression`                 | 将目录打包为 ZIP/WGT      |
 | `corex screenshot`                  | 截图                      |
 | `corex bootstrap env/inspect/force` | 环境初始化与检查          |
@@ -143,6 +144,82 @@ corex generate path `
   --excludes "example.js,*.git,node_modules" `
   --uppercase "extension" `
   --transform '<include name="IDR_ITAB_{{extension}}_{{index}}" file="{{fullpath}}" type="BINDATA" />'
+```
+
+---
+
+## 文件生成 (generate file)
+
+基于 Handlebars 模板引擎生成文件。支持模板文件或直接传入内容片段，可注入动态变量。
+
+### 参数
+
+| 参数           | 缩写 | 必填 | 说明                                         |
+| -------------- | ---- | ---- | -------------------------------------------- |
+| `--to`         | `-t` | ✓    | 输出文件路径（自动创建不存在的目录）         |
+| `--template`   | `-p` | ✗    | 模板文件路径（推荐，与 `--fragment` 二选一） |
+| `--fragment`   | `-f` | ✗    | 直接传入模板内容（简单模式）                 |
+| `--variable`   |      | ✗    | 动态变量 `key=value`，可多次使用             |
+
+> `--template` 和 `--fragment` 必须指定其一。
+
+### 模板引擎
+
+使用 Handlebars 语法，支持标准变量替换和内置 Helper：
+
+| Helper                    | 说明                                                  |
+| ------------------------- | ----------------------------------------------------- |
+| `{{now "format"}}`        | 输出当前时间（`iso` / `unix` / `unix_ms` 或 strftime）|
+| `{{uuid true}}`           | 生成 UUID v4，传 `true` 为大写                        |
+| `{{rand 32}}`             | 生成随机字符串，参数为长度（默认 16）                  |
+
+### 使用示例
+
+```powershell
+# 使用模板文件 + 变量生成配置
+corex generate file `
+  --to ./dist/config.json `
+  --template ./templates/config.hbs `
+  --variable name=myapp `
+  --variable version=1.0.0
+
+# 直接用 fragment 快速生成
+corex generate file `
+  --to ./dist/version.txt `
+  --fragment "Build: {{now \"%Y-%m-%d %H:%M:%S\"}} | ID: {{uuid}}"
+
+# 生成带随机 token 的环境文件
+corex generate file `
+  --to ./.env `
+  --fragment "APP_SECRET={{rand 32}}" `
+```
+
+### 模板文件示例
+
+`templates/config.hbs`：
+```handlebars
+{
+  "name": "{{name}}",
+  "version": "{{version}}",
+  "build": {
+    "time": "{{now "unix"}}",
+    "id": "{{uuid}}"
+  }
+}
+```
+
+### Pipeline YAML 示例
+
+```yaml
+- id: gen_config
+  module: generate
+  action: file
+  params:
+    to: '${var.dist_dir}/config.json'
+    template: './templates/config.hbs'
+    variable:
+      - [name, '${var.project_name}']
+      - [version, '2.0.0']
 ```
 
 ---

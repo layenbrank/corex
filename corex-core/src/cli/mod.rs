@@ -8,6 +8,7 @@ use crate::generate;
 use crate::pipeline;
 use crate::screenshot;
 use crate::scrub;
+use crate::shade;
 
 /// Corex 命令行入口
 #[derive(Debug, Parser)]
@@ -35,8 +36,11 @@ pub enum Commands {
     Bootstrap(bootstrap::schema::Args),
     /// 截图
     Screenshot(screenshot::schema::Args),
-    /// 压缩打包
+    /// 压缩打包 / 解压缩
+    #[command(subcommand)]
     Compression(compression::schema::Args),
+    /// 图片处理（格式转换 / 无损压缩）
+    Shade(shade::schema::Args),
     /// 执行 Pipeline
     Pipeline(pipeline::config::PipelineArgs),
     /// 任务调度器
@@ -49,6 +53,7 @@ pub fn dispatch(args: Args) -> Result<()> {
     match args.command {
         Commands::Copy(a) => copy::service::run(&a),
         Commands::Scrub(a) => scrub::service::run(&a),
+        Commands::Shade(a) => shade::service::run(&a),
         Commands::Schedule(a) => pipeline::runner::run_schedule(&a),
         Commands::Generate(a) => generate::service::run(&a),
         Commands::Bootstrap(a) => bootstrap::service::run(&a),

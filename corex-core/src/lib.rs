@@ -11,3 +11,4 @@ pub mod copy;
 pub mod generate;
 pub mod screenshot;
 pub mod scrub;
+pub mod shade;

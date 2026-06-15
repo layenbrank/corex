@@ -509,8 +509,12 @@ fn generate_config_template() -> Result<()> {
         "  复制目录      copy",
         "  路径生成      generate path",
         "  UUID 生成     generate uuid",
-        "  压缩打包      compression",
+        "  压缩打包      compression zip",
+        "  解压缩        compression unzip",
+        "  图片处理      shade",
         "  清理删除      scrub",
+        "  截图          screenshot",
+        "  环境初始化    bootstrap",
     ];
     println!();
     let selections = dialoguer::MultiSelect::with_theme(&ColorfulTheme::default())
@@ -585,7 +589,7 @@ fn generate_config_template() -> Result<()> {
             3 => {
                 println!("\n  {} 压缩步骤", "▸".cyan());
                 let from: String = dialoguer::Input::with_theme(&ColorfulTheme::default())
-                    .with_prompt("源路径")
+                    .with_prompt("源路径（目录）")
                     .interact_text()?;
                 let to: String = dialoguer::Input::with_theme(&ColorfulTheme::default())
                     .with_prompt("输出压缩包路径")
@@ -593,12 +597,59 @@ fn generate_config_template() -> Result<()> {
                 StepConfig {
                     id: step_id,
                     module: "compression".to_string(),
-                    action: None,
+                    action: Some("zip".to_string()),
                     description: Some("压缩任务".to_string()),
                     params: serde_json::json!({ "from": from, "to": to }),
                 }
             }
             4 => {
+                println!("\n  {} 解压缩步骤", "▸".cyan());
+                let from: String = dialoguer::Input::with_theme(&ColorfulTheme::default())
+                    .with_prompt("ZIP 文件路径")
+                    .interact_text()?;
+                let to: String = dialoguer::Input::with_theme(&ColorfulTheme::default())
+                    .with_prompt("解压目标目录")
+                    .interact_text()?;
+                StepConfig {
+                    id: step_id,
+                    module: "compression".to_string(),
+                    action: Some("unzip".to_string()),
+                    description: Some("解压缩任务".to_string()),
+                    params: serde_json::json!({ "from": from, "to": to }),
+                }
+            }
+            5 => {
+                println!("\n  {} 图片处理步骤", "▸".cyan());
+                let from: String = dialoguer::Input::with_theme(&ColorfulTheme::default())
+                    .with_prompt("输入图片路径或目录")
+                    .interact_text()?;
+                let to: String = dialoguer::Input::with_theme(&ColorfulTheme::default())
+                    .with_prompt("输出路径")
+                    .interact_text()?;
+                let format: String = dialoguer::Input::with_theme(&ColorfulTheme::default())
+                    .with_prompt("输出格式（png/jpg/webp/bmp，留空自动推断）")
+                    .allow_empty(true)
+                    .interact_text()?;
+                let quality: u8 = dialoguer::Input::with_theme(&ColorfulTheme::default())
+                    .with_prompt("输出质量 1-100（100=无损）")
+                    .default(100u8)
+                    .interact_text()?;
+                let format_val = if format.is_empty() {
+                    serde_json::Value::Null
+                } else {
+                    serde_json::Value::String(format)
+                };
+                StepConfig {
+                    id: step_id,
+                    module: "shade".to_string(),
+                    action: None,
+                    description: Some("图片处理任务".to_string()),
+                    params: serde_json::json!({
+                        "from": from, "to": to, "format": format_val, "quality": quality
+                    }),
+                }
+            }
+            6 => {
                 println!("\n  {} 清理步骤", "▸".cyan());
                 let source: String = dialoguer::Input::with_theme(&ColorfulTheme::default())
                     .with_prompt("目标路径")
@@ -619,6 +670,43 @@ fn generate_config_template() -> Result<()> {
                     params: serde_json::json!({
                         "source": source, "target": target, "recursive": recursive
                     }),
+                }
+            }
+            7 => {
+                println!("\n  {} 截图步骤", "▸".cyan());
+                let to: String = dialoguer::Input::with_theme(&ColorfulTheme::default())
+                    .with_prompt("输出目录")
+                    .interact_text()?;
+                StepConfig {
+                    id: step_id,
+                    module: "screenshot".to_string(),
+                    action: None,
+                    description: Some("截图任务".to_string()),
+                    params: serde_json::json!({ "to": to }),
+                }
+            }
+            8 => {
+                println!("\n  {} 环境初始化步骤", "▸".cyan());
+                let action_idx = dialoguer::Select::with_theme(&ColorfulTheme::default())
+                    .with_prompt("操作类型")
+                    .items([
+                        "env（设置环境变量）",
+                        "inspect（检查环境）",
+                        "force（强制重新设置）",
+                    ])
+                    .default(1)
+                    .interact()?;
+                let action = match action_idx {
+                    0 => "env",
+                    2 => "force",
+                    _ => "inspect",
+                };
+                StepConfig {
+                    id: step_id,
+                    module: "bootstrap".to_string(),
+                    action: Some(action.to_string()),
+                    description: Some("环境初始化".to_string()),
+                    params: serde_json::json!({ "action": action }),
                 }
             }
             _ => continue,
@@ -666,11 +754,17 @@ fn step_label(step: &StepConfig, _index: usize) -> String {
     let tag = match step.module.as_str() {
         "copy" => format!("[{}]", "复制".cyan().bold()),
         "scrub" => format!("[{}]", "清理".red().bold()),
-        "compression" => format!("[{}]", "压缩".yellow().bold()),
+        "compression" => format!(
+            "[{}]",
+            step.action.as_deref().unwrap_or("zip").yellow().bold()
+        ),
         "generate" => format!(
             "[{}]",
             step.action.as_deref().unwrap_or("path").green().bold()
         ),
+        "screenshot" => format!("[{}]", "截图".magenta().bold()),
+        "shade" => format!("[{}]", "图片".cyan().bold()),
+        "bootstrap" => format!("[{}]", "环境".blue().bold()),
         other => format!("[{}]", other.bold()),
     };
 

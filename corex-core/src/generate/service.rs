@@ -9,7 +9,7 @@ use uuid::Uuid;
 use walkdir::{DirEntry, WalkDir};
 
 use crate::generate::schema::{Args, FileArgs, PathArgs, UuidArgs};
-use crate::generate::template::create_handlebars;
+use crate::generate::template::engine;
 use crate::utils::{ignore::Filter, notify, verifier};
 
 pub fn run(args: &Args) -> Result<()> {
@@ -38,7 +38,7 @@ pub fn run(args: &Args) -> Result<()> {
 }
 
 pub fn file_task(args: &FileArgs) -> Result<()> {
-    let hb = create_handlebars()?;
+    let hb = engine()?;
 
     // 构建模板数据
     let mut data = serde_json::Map::new();
@@ -60,7 +60,6 @@ pub fn file_task(args: &FileArgs) -> Result<()> {
     }
     fs::write(&args.to, rendered)?;
 
-    let _ = crate::utils::notify::success("文件生成成功", &format!("已生成: {}", args.to));
     Ok(())
 }
 
@@ -170,7 +169,7 @@ pub fn path_task(args: &PathArgs) -> Result<()> {
     // 确保所有数据都被写入到文件
     writer.flush().context("刷新缓冲区失败")?;
 
-    anyhow::Ok(())
+    Ok(())
 }
 
 struct Replacement {
