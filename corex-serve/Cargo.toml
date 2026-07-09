@@ -1,0 +1,15 @@
+[package]
+name              = "corex-serve"
+version.workspace = true
+edition.workspace = true
+description       = "Corex daemon for Tauri IPC via Named Pipe"
+authors.workspace = true
+
+[[bin]]
+name = "corex-serve"
+path = "src/main.rs"
+
+[dependencies]
+corex-core = { path = "../corex-core", default-features = false, features = ["serve"] }
+anyhow     = { workspace = true }
+clap       = { workspace = true }
