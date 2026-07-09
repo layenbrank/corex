@@ -6,47 +6,113 @@ description       = "Corex core library"
 authors.workspace = true
 
 [lib]
-name       = "corex_core"
+name       = "cx"
 path       = "src/lib.rs"
 crate-type = ["rlib"]
 doctest    = false
 
+[features]
+default = ["all"]
+
+all = ["command"]
+
+command = [
+    "cli",
+    "copy",
+    "scrub",
+    "shade",
+    "compression",
+    "generate",
+    "bootstrap",
+    "screenshot",
+    "pipeline",
+    "schedule",
+]
+
+cli = ["dep:clap"]
+
+daemon = [
+    "cli",
+    "copy",
+    "scrub",
+    "shade",
+    "compression",
+    "generate",
+    "bootstrap",
+    "screenshot",
+]
+
+serve = ["daemon"]
+
+copy = ["dep:walkdir", "dep:indicatif", "glob", "notify", "progress"]
+scrub = ["dep:tokio", "dep:walkdir", "progress"]
+shade = ["dep:image", "dep:walkdir", "notify", "progress"]
+compression = ["dep:zip", "dep:walkdir", "notify", "progress"]
+generate = ["dep:handlebars", "dep:walkdir", "dep:uuid", "dep:rand", "dep:chrono", "glob", "notify"]
+bootstrap = []
+screenshot = ["dep:xcap", "dep:image"]
+
+pipeline = [
+    "dep:regex",
+    "dep:serde_yml",
+    "dep:dialoguer",
+    "dep:crossterm",
+    "dep:tokio",
+    "dep:dirs",
+    "tasks",
+]
+schedule = ["pipeline", "dep:cron", "dep:chrono"]
+tasks = [
+    "copy",
+    "scrub",
+    "shade",
+    "compression",
+    "generate",
+    "bootstrap",
+    "screenshot",
+]
+
+glob = ["dep:glob"]
+notify = ["dep:notify-rust"]
+progress = ["dep:indicatif"]
+
 [dependencies]
-anyhow      = { workspace = true }
-chrono      = { workspace = true }
-clap        = { workspace = true }
-cron        = { workspace = true }
-crossterm   = { workspace = true }
-dialoguer   = { workspace = true }
-dirs        = { workspace = true }
-glob        = { workspace = true }
-indicatif   = { workspace = true }
-notify-rust = { workspace = true }
-regex       = { workspace = true }
-serde       = { workspace = true }
-serde_json  = { workspace = true }
-serde_yml   = { workspace = true }
-tokio       = { workspace = true }
-uuid        = { workspace = true }
-walkdir     = { workspace = true }
-zip         = { workspace = true }
-image       = { workspace = true }
-xcap        = { workspace = true }
-handlebars  = { workspace = true }
-rand        = { workspace = true }
+anyhow     = { workspace = true }
+serde      = { workspace = true }
+serde_json = { workspace = true }
+
+chrono      = { workspace = true, optional = true }
+clap        = { workspace = true, optional = true }
+cron        = { workspace = true, optional = true }
+crossterm   = { workspace = true, optional = true }
+dialoguer   = { workspace = true, optional = true }
+dirs        = { workspace = true, optional = true }
+glob        = { workspace = true, optional = true }
+handlebars  = { workspace = true, optional = true }
+image       = { workspace = true, optional = true }
+indicatif   = { workspace = true, optional = true }
+notify-rust = { workspace = true, optional = true }
+rand        = { workspace = true, optional = true }
+regex       = { workspace = true, optional = true }
+serde_yml   = { workspace = true, optional = true }
+tokio       = { workspace = true, optional = true }
+uuid        = { workspace = true, optional = true }
+walkdir     = { workspace = true, optional = true }
+xcap        = { workspace = true, optional = true }
+zip         = { workspace = true, optional = true }
+
+[target.'cfg(windows)'.dependencies]
+windows = { version = "0.62", features = [
+    "Win32_Foundation",
+    "Win32_Security",
+    "Win32_Storage_FileSystem",
+    "Win32_System_Pipes",
+    "Win32_System_IO",
+] }
 
 [dev-dependencies]
 tempfile = "3.27.0"
 
-[dependencies.windows]
-version = "0.62.2"
-features = [
-  "Data_Xml_Dom",
-  "Win32_UI_WindowsAndMessaging",
-  "Win32_UI_Shell",
-  "Win32_Foundation",
-  "Win32_System_Services",
-  "UI_Notifications",
-  "UI_Notifications_Management",
-  "Foundation",
-]
+[[example]]
+name = "ipc"
+required-features = ["serve"]

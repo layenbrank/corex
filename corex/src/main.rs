@@ -1,5 +1,5 @@
 use clap::Parser;
-use corex_core::cli::{Args, dispatch};
+use cx::command::{Args, dispatch};
 
 fn main() -> anyhow::Result<()> {
     let args = Args::parse();

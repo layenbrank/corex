@@ -1,6 +1,6 @@
 use std::{
     fs,
-    path::Path,
+    path::{Path, PathBuf},
     time::{Instant, SystemTime},
 };
 
@@ -9,16 +9,22 @@ use xcap::Monitor;
 
 use crate::screenshot::schema::Args;
 
-pub fn run(args: &Args) -> anyhow::Result<()> {
+/// 执行截图并返回输出文件路径
+pub fn capture(args: &Args, cached_monitors: Option<&[Monitor]>) -> anyhow::Result<PathBuf> {
     let to = Path::new(&args.to);
     let start = Instant::now();
 
-    let monitors = Monitor::all().map_err(|e| anyhow::anyhow!(e.to_string()))?;
+    let owned_monitors;
+    let monitors = match cached_monitors {
+        Some(monitors) => monitors,
+        None => {
+            owned_monitors = Monitor::all().map_err(|e| anyhow::anyhow!(e.to_string()))?;
+            &owned_monitors
+        }
+    };
 
-    // 确保输出目录存在
     fs::create_dir_all(to).with_context(|| format!("创建输出目录失败: {}", to.display()))?;
 
-    // 选择主显示器，否则取第一个
     let target = monitors
         .iter()
         .find(|m| m.is_primary().unwrap_or(false))
@@ -43,18 +49,29 @@ pub fn run(args: &Args) -> anyhow::Result<()> {
     let filename = format!("screenshot-{}-{}.png", monitor_name, timestamp);
     let output_path = to.join(&filename);
 
-    println!("📸 截图时间戳: {}", timestamp);
-
     image
         .save(&output_path)
         .map_err(|e| anyhow::anyhow!(e.to_string()))?;
 
     let duration = start.elapsed();
-    println!(
-        "✅ 截图已保存: {} (耗时 {:?})",
+    eprintln!(
+        "screenshot saved: {} ({:?})",
         output_path.display(),
         duration
     );
+
+    Ok(output_path)
+}
+
+pub fn run(args: &Args) -> anyhow::Result<()> {
+    let output_path = capture(args, None)?;
+    let timestamp = SystemTime::now()
+        .duration_since(SystemTime::UNIX_EPOCH)
+        .map_err(|e| anyhow::anyhow!(e.to_string()))?
+        .as_millis();
+
+    println!("📸 截图时间戳: {}", timestamp);
+    println!("✅ 截图已保存: {}", output_path.display());
 
     Ok(())
 }

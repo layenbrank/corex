@@ -16,27 +16,21 @@ pub struct TaskOutput {
 }
 
 /// 核心任务 trait —— Pipeline 中所有步骤的统一接口
-///
-/// 每个业务模块（copy、compression、generate 等）都实现此 trait，
-/// 以便被 Pipeline Runner 统一调度。
 pub trait TaskExecutor: Send + Sync {
-    /// 执行任务
-    ///
-    /// - `params`: 从 YAML 配置反序列化得到的参数（`serde_json::Value`）
-    /// - `ctx`: Pipeline 上下文，用于读取/写入步骤间共享数据
     fn execute(&self, params: &Value, ctx: &mut PipelineContext) -> Result<TaskOutput>;
 }
 
 // ─── 各模块的 TaskExecutor 实现 ─────────────────────────────────────────────
 
+#[cfg(feature = "copy")]
 /// Copy 任务执行器
 pub struct CopyExecutor;
 
+#[cfg(feature = "copy")]
 impl TaskExecutor for CopyExecutor {
     fn execute(&self, params: &Value, ctx: &mut PipelineContext) -> Result<TaskOutput> {
         let args: crate::copy::schema::Args = serde_json::from_value(params.clone())?;
 
-        // 解析变量引用
         let from = ctx.resolve(&args.from);
         let to = ctx.resolve(&args.to);
         let resolved = crate::copy::schema::Args {
@@ -49,7 +43,7 @@ impl TaskExecutor for CopyExecutor {
             description: args.description,
         };
 
-        crate::copy::service::run(&resolved)?;
+        crate::copy::run(&resolved)?;
 
         Ok(TaskOutput {
             path: Some(PathBuf::from(&resolved.to)),
@@ -58,9 +52,11 @@ impl TaskExecutor for CopyExecutor {
     }
 }
 
+#[cfg(feature = "scrub")]
 /// Scrub 任务执行器
 pub struct ScrubExecutor;
 
+#[cfg(feature = "scrub")]
 impl TaskExecutor for ScrubExecutor {
     fn execute(&self, params: &Value, ctx: &mut PipelineContext) -> Result<TaskOutput> {
         let args: crate::scrub::schema::Args = serde_json::from_value(params.clone())?;
@@ -74,7 +70,7 @@ impl TaskExecutor for ScrubExecutor {
             description: args.description,
         };
 
-        crate::scrub::service::run(&resolved)?;
+        crate::scrub::run(&resolved)?;
 
         Ok(TaskOutput {
             path: Some(PathBuf::from(&resolved.target)),
@@ -83,9 +79,11 @@ impl TaskExecutor for ScrubExecutor {
     }
 }
 
+#[cfg(feature = "compression")]
 /// Compression ZIP 任务执行器
 pub struct CompressionZipExecutor;
 
+#[cfg(feature = "compression")]
 impl TaskExecutor for CompressionZipExecutor {
     fn execute(&self, params: &Value, ctx: &mut PipelineContext) -> Result<TaskOutput> {
         let args: crate::compression::schema::ZipArgs = serde_json::from_value(params.clone())?;
@@ -99,7 +97,7 @@ impl TaskExecutor for CompressionZipExecutor {
             id: args.id,
         };
 
-        crate::compression::service::run(&crate::compression::schema::Args::Zip(resolved.clone()))?;
+        crate::compression::run(&crate::compression::schema::Args::Zip(resolved.clone()))?;
 
         Ok(TaskOutput {
             path: Some(PathBuf::from(&resolved.to)),
@@ -108,9 +106,11 @@ impl TaskExecutor for CompressionZipExecutor {
     }
 }
 
+#[cfg(feature = "compression")]
 /// Decompression（解压）任务执行器
 pub struct DecompressionExecutor;
 
+#[cfg(feature = "compression")]
 impl TaskExecutor for DecompressionExecutor {
     fn execute(&self, params: &Value, ctx: &mut PipelineContext) -> Result<TaskOutput> {
         let args: crate::compression::schema::UnzipArgs = serde_json::from_value(params.clone())?;
@@ -124,7 +124,7 @@ impl TaskExecutor for DecompressionExecutor {
             id: args.id,
         };
 
-        crate::compression::service::run(&crate::compression::schema::Args::Unzip(
+        crate::compression::run(&crate::compression::schema::Args::Unzip(
             resolved.clone(),
         ))?;
 
@@ -135,9 +135,11 @@ impl TaskExecutor for DecompressionExecutor {
     }
 }
 
+#[cfg(feature = "shade")]
 /// Shade（图片处理）任务执行器
 pub struct ShadeExecutor;
 
+#[cfg(feature = "shade")]
 impl TaskExecutor for ShadeExecutor {
     fn execute(&self, params: &Value, ctx: &mut PipelineContext) -> Result<TaskOutput> {
         let args: crate::shade::schema::Args = serde_json::from_value(params.clone())?;
@@ -153,7 +155,7 @@ impl TaskExecutor for ShadeExecutor {
             id: args.id,
         };
 
-        crate::shade::service::run(&resolved)?;
+        crate::shade::run(&resolved)?;
 
         Ok(TaskOutput {
             path: Some(PathBuf::from(&resolved.to)),
@@ -162,9 +164,11 @@ impl TaskExecutor for ShadeExecutor {
     }
 }
 
+#[cfg(feature = "generate")]
 /// Generate Path 任务执行器
 pub struct GeneratePathExecutor;
 
+#[cfg(feature = "generate")]
 impl TaskExecutor for GeneratePathExecutor {
     fn execute(&self, params: &Value, ctx: &mut PipelineContext) -> Result<TaskOutput> {
         let args: crate::generate::schema::PathArgs = serde_json::from_value(params.clone())?;
@@ -194,9 +198,11 @@ impl TaskExecutor for GeneratePathExecutor {
     }
 }
 
+#[cfg(feature = "generate")]
 /// Generate UUID 任务执行器
 pub struct GenerateUuidExecutor;
 
+#[cfg(feature = "generate")]
 impl TaskExecutor for GenerateUuidExecutor {
     fn execute(&self, params: &Value, _ctx: &mut PipelineContext) -> Result<TaskOutput> {
         let args: crate::generate::schema::UuidArgs = serde_json::from_value(params.clone())?;
@@ -205,9 +211,11 @@ impl TaskExecutor for GenerateUuidExecutor {
     }
 }
 
+#[cfg(feature = "generate")]
 /// Generate File 任务执行器
 pub struct GenerateFileExecutor;
 
+#[cfg(feature = "generate")]
 impl TaskExecutor for GenerateFileExecutor {
     fn execute(&self, params: &Value, ctx: &mut PipelineContext) -> Result<TaskOutput> {
         let args: crate::generate::schema::FileArgs = serde_json::from_value(params.clone())?;
@@ -239,9 +247,11 @@ impl TaskExecutor for GenerateFileExecutor {
     }
 }
 
+#[cfg(feature = "screenshot")]
 /// Screenshot 任务执行器
 pub struct ScreenshotExecutor;
 
+#[cfg(feature = "screenshot")]
 impl TaskExecutor for ScreenshotExecutor {
     fn execute(&self, params: &Value, ctx: &mut PipelineContext) -> Result<TaskOutput> {
         let args: crate::screenshot::schema::Args = serde_json::from_value(params.clone())?;
@@ -252,7 +262,7 @@ impl TaskExecutor for ScreenshotExecutor {
             description: args.description,
         };
 
-        crate::screenshot::service::run(&resolved)?;
+        crate::screenshot::run(&resolved)?;
 
         Ok(TaskOutput {
             path: Some(PathBuf::from(&resolved.to)),
@@ -261,12 +271,13 @@ impl TaskExecutor for ScreenshotExecutor {
     }
 }
 
+#[cfg(feature = "bootstrap")]
 /// Bootstrap 任务执行器
 pub struct BootstrapExecutor;
 
+#[cfg(feature = "bootstrap")]
 impl TaskExecutor for BootstrapExecutor {
     fn execute(&self, params: &Value, _ctx: &mut PipelineContext) -> Result<TaskOutput> {
-        // bootstrap 通过 action 字段决定行为：env / inspect / force
         let action = params
             .get("action")
             .and_then(|v| v.as_str())
@@ -278,7 +289,7 @@ impl TaskExecutor for BootstrapExecutor {
             _ => crate::bootstrap::schema::Args::Inspect,
         };
 
-        crate::bootstrap::service::run(&args)?;
+        crate::bootstrap::run(&args)?;
 
         Ok(TaskOutput::default())
     }
@@ -289,16 +300,27 @@ impl TaskExecutor for BootstrapExecutor {
 /// 根据 module + action 创建对应的 TaskExecutor
 pub fn create_executor(module: &str, action: Option<&str>) -> Option<Box<dyn TaskExecutor>> {
     match (module, action) {
+        #[cfg(feature = "copy")]
         ("copy", _) => Some(Box::new(CopyExecutor)),
+        #[cfg(feature = "scrub")]
         ("scrub", _) => Some(Box::new(ScrubExecutor)),
+        #[cfg(feature = "compression")]
         ("compression", Some("unzip")) => Some(Box::new(DecompressionExecutor)),
+        #[cfg(feature = "compression")]
         ("compression", _) => Some(Box::new(CompressionZipExecutor)),
+        #[cfg(feature = "shade")]
         ("shade", _) => Some(Box::new(ShadeExecutor)),
+        #[cfg(feature = "generate")]
         ("generate", Some("path")) => Some(Box::new(GeneratePathExecutor)),
+        #[cfg(feature = "generate")]
         ("generate", Some("uuid")) => Some(Box::new(GenerateUuidExecutor)),
+        #[cfg(feature = "generate")]
         ("generate", Some("file")) => Some(Box::new(GenerateFileExecutor)),
+        #[cfg(feature = "generate")]
         ("generate", None) => Some(Box::new(GeneratePathExecutor)),
+        #[cfg(feature = "screenshot")]
         ("screenshot", _) => Some(Box::new(ScreenshotExecutor)),
+        #[cfg(feature = "bootstrap")]
         ("bootstrap", _) => Some(Box::new(BootstrapExecutor)),
         _ => None,
     }

@@ -2,6 +2,32 @@
 
 一个面向 H5+ 应用构建的自动化任务调度 CLI 工具，支持文件复制、目录清理、路径生成、压缩打包、Pipeline 编排和 cron 定时任务。
 
+## 架构与 Tauri 集成
+
+Corex 从 Tauri 项目中独立拆分，重依赖（xcap、image、tokio 等）保留在本仓库。Tauri 作为瘦客户端，通过 Named Pipe 调用 `corex-serve` Daemon，**不**链回 `corex-core` 库。
+
+| 文档 | 说明 |
+|------|------|
+| [docs/architecture-and-tauri-integration.md](docs/architecture-and-tauri-integration.md) | 架构总览、四阶段改动、快速开始 |
+| [docs/architecture.md](docs/architecture.md) | Feature 体系、serve 模块深度 |
+| [docs/ipc-protocol.md](docs/ipc-protocol.md) | Named Pipe JSON 协议 |
+| [docs/tauri-integration.md](docs/tauri-integration.md) | Tauri 2 完整接入指南 |
+| [examples/tauri/](examples/tauri/) | 可复制的 Tauri 示例代码 |
+
+### Daemon 与 IPC
+
+```powershell
+# 启动 Daemon（默认 \\.\pipe\corex）
+cargo run -p corex-serve
+
+# 验证 IPC（另开终端，Daemon 运行中）
+cargo run -p corex-core --example ipc --features serve -- C:\Temp\screenshots
+```
+
+协议与 args 格式见 [docs/ipc-protocol.md](docs/ipc-protocol.md)。
+
+---
+
 ## 快速开始
 
 ```powershell
