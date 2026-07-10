@@ -1,29 +1,29 @@
 use std::ffi::OsStr;
 use std::fs::File;
-use std::io::{self, BufRead, BufReader, Read, Write};
+use std::io::{self, BufRead, BufReader, Write};
 use std::os::windows::ffi::OsStrExt;
 use std::os::windows::io::{FromRawHandle, IntoRawHandle};
 
-use windows::core::PCWSTR;
 use windows::Win32::Foundation::{CloseHandle, HANDLE};
 use windows::Win32::Storage::FileSystem::{
     CreateFileW, FILE_ATTRIBUTE_NORMAL, FILE_GENERIC_READ, FILE_GENERIC_WRITE, FILE_SHARE_NONE,
     OPEN_EXISTING, PIPE_ACCESS_DUPLEX,
 };
 use windows::Win32::System::Pipes::{
-    ConnectNamedPipe, CreateNamedPipeW, DisconnectNamedPipe, NAMED_PIPE_MODE,
-    PIPE_READMODE_BYTE, PIPE_TYPE_BYTE, PIPE_UNLIMITED_INSTANCES, PIPE_WAIT,
+    ConnectNamedPipe, CreateNamedPipeW, DisconnectNamedPipe, NAMED_PIPE_MODE, PIPE_READMODE_BYTE,
+    PIPE_TYPE_BYTE, PIPE_UNLIMITED_INSTANCES, PIPE_WAIT,
 };
+use windows::core::PCWSTR;
 
+use crate::serve::ServeOptions;
 use crate::serve::dispatch::handle_invoke;
 use crate::serve::protocol::{self, Request};
 use crate::serve::state::DaemonState;
-use crate::serve::ServeOptions;
 
 const PIPE_BUFFER_SIZE: u32 = 65_536;
 const MAX_LINE_BYTES: usize = 64 * 1024;
 
-pub fn run_server(options: &ServeOptions, state: &DaemonState) -> anyhow::Result<()> {
+pub fn run_server(options: &ServeOptions, state: &mut DaemonState) -> anyhow::Result<()> {
     let pipe_name = to_wide(&options.pipe_name);
 
     eprintln!(
@@ -51,7 +51,9 @@ pub fn run_server(options: &ServeOptions, state: &DaemonState) -> anyhow::Result
 
         if let Err(err) = unsafe { ConnectNamedPipe(handle, None) } {
             if err.code().0 as u32 != 535 {
-                unsafe { let _ = CloseHandle(handle); };
+                unsafe {
+                    let _ = CloseHandle(handle);
+                };
                 anyhow::bail!("ConnectNamedPipe 失败: {err}");
             }
         }
@@ -74,12 +76,13 @@ pub fn run_server(options: &ServeOptions, state: &DaemonState) -> anyhow::Result
 }
 
 /// 处理单个客户端连接，返回 false 表示 Daemon 应退出
-fn handle_client(handle: HANDLE, state: &DaemonState) -> anyhow::Result<bool> {
-    let mut file = pipe_file(handle);
+fn handle_client(handle: HANDLE, state: &mut DaemonState) -> anyhow::Result<bool> {
+    let file = pipe_file(handle);
+    let mut reader = BufReader::new(file);
     let mut result = Ok(true);
 
     loop {
-        match read_line_limited(&mut file, MAX_LINE_BYTES) {
+        match read_line_limited(&mut reader, MAX_LINE_BYTES) {
             Ok(None) => break,
             Ok(Some(line)) => match protocol::parse_request(&line) {
                 Ok(Request::Shutdown) => {
@@ -88,11 +91,11 @@ fn handle_client(handle: HANDLE, state: &DaemonState) -> anyhow::Result<bool> {
                 }
                 Ok(Request::Invoke { id, module, args }) => {
                     let response = handle_invoke(state, id, &module, &args);
-                    write_response(&mut file, &response)?;
+                    write_response(reader.get_mut(), &response)?;
                 }
                 Err(err) => {
                     let response = protocol::Response::failure(0, err.to_string(), 0);
-                    write_response(&mut file, &response)?;
+                    write_response(reader.get_mut(), &response)?;
                 }
             },
             Err(err) => {
@@ -102,7 +105,7 @@ fn handle_client(handle: HANDLE, state: &DaemonState) -> anyhow::Result<bool> {
         }
     }
 
-    disconnect_pipe_file(file);
+    disconnect_pipe_file(reader.into_inner());
     result
 }
 
@@ -114,31 +117,30 @@ fn write_response(file: &mut File, response: &protocol::Response) -> anyhow::Res
     Ok(())
 }
 
-fn read_line_limited(file: &mut File, max_bytes: usize) -> io::Result<Option<String>> {
-    let mut line = String::new();
-    let mut reader = BufReader::new(file);
+fn read_line_limited(reader: &mut impl BufRead, max_bytes: usize) -> io::Result<Option<String>> {
+    let mut buf = Vec::new();
     let mut byte = [0u8; 1];
 
     loop {
         match reader.read(&mut byte)? {
             0 => {
-                return if line.is_empty() {
+                return if buf.is_empty() {
                     Ok(None)
                 } else {
-                    Ok(Some(line))
+                    Ok(Some(String::from_utf8_lossy(&buf).into_owned()))
                 };
             }
             _ => {
-                if line.len() >= max_bytes {
+                if buf.len() >= max_bytes {
                     return Err(io::Error::new(
                         io::ErrorKind::InvalidData,
                         format!("请求行超过 {max_bytes} 字节限制"),
                     ));
                 }
                 if byte[0] == b'\n' {
-                    return Ok(Some(line));
+                    return Ok(Some(String::from_utf8_lossy(&buf).into_owned()));
                 }
-                line.push(byte[0] as char);
+                buf.push(byte[0]);
             }
         }
     }
@@ -192,6 +194,7 @@ pub fn send_request(
     let mut file = open_pipe_file(pipe_name)?;
 
     let request = serde_json::json!({
+        "type": "invoke",
         "id": id,
         "module": module,
         "args": args,

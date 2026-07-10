@@ -22,17 +22,20 @@ pub struct Response {
     pub ok: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub path: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub data: Option<Value>,
     pub ms: u64,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
 }
 
 impl Response {
-    pub fn success(id: u64, path: Option<String>, ms: u64) -> Self {
+    pub fn success(id: u64, path: Option<String>, data: Option<Value>, ms: u64) -> Self {
         Self {
             id,
             ok: true,
             path,
+            data,
             ms,
             error: None,
         }
@@ -43,51 +46,21 @@ impl Response {
             id,
             ok: false,
             path: None,
+            data: None,
             ms,
             error: Some(error.into()),
         }
     }
 }
 
-/// 解析单行 JSON 请求
+/// 解析单行 JSON 请求（仅支持 typed 格式）
 pub fn parse_request(line: &str) -> anyhow::Result<Request> {
     let trimmed = line.trim();
     if trimmed.is_empty() {
         anyhow::bail!("空请求");
     }
 
-    if let Ok(req) = serde_json::from_str::<Request>(trimmed) {
-        return Ok(req);
-    }
-
-    // 兼容简写：{"id":1,"module":"screenshot","args":{...}}
-    #[derive(Deserialize)]
-    struct LegacyInvoke {
-        id: u64,
-        module: String,
-        args: Value,
-    }
-
-    if let Ok(legacy) = serde_json::from_str::<LegacyInvoke>(trimmed) {
-        return Ok(Request::Invoke {
-            id: legacy.id,
-            module: legacy.module,
-            args: legacy.args,
-        });
-    }
-
-    #[derive(Deserialize)]
-    struct LegacyShutdown {
-        cmd: String,
-    }
-
-    if let Ok(shutdown) = serde_json::from_str::<LegacyShutdown>(trimmed) {
-        if shutdown.cmd == "shutdown" {
-            return Ok(Request::Shutdown);
-        }
-    }
-
-    anyhow::bail!("无法解析请求: {trimmed}")
+    serde_json::from_str::<Request>(trimmed).map_err(|err| anyhow::anyhow!("无法解析请求: {err}"))
 }
 
 #[cfg(test)]
@@ -96,25 +69,13 @@ mod tests {
 
     #[test]
     fn parse_typed_invoke() {
-        let line = r#"{"type":"invoke","id":1,"module":"screenshot","args":{"to":"/tmp"}}"#;
+        let line =
+            r#"{"type":"invoke","id":1,"module":"screenshot","args":{"Capture":{"to":"/tmp"}}}"#;
         let req = parse_request(line).unwrap();
         match req {
             Request::Invoke { id, module, .. } => {
                 assert_eq!(id, 1);
                 assert_eq!(module, "screenshot");
-            }
-            _ => panic!("expected invoke"),
-        }
-    }
-
-    #[test]
-    fn parse_legacy_invoke() {
-        let line = r#"{"id":2,"module":"copy","args":{"from":"a","to":"b"}}"#;
-        let req = parse_request(line).unwrap();
-        match req {
-            Request::Invoke { id, module, .. } => {
-                assert_eq!(id, 2);
-                assert_eq!(module, "copy");
             }
             _ => panic!("expected invoke"),
         }
@@ -127,9 +88,15 @@ mod tests {
     }
 
     #[test]
-    fn parse_legacy_shutdown() {
+    fn parse_legacy_invoke_fails() {
+        let line = r#"{"id":2,"module":"copy","args":{"from":"a","to":"b"}}"#;
+        assert!(parse_request(line).is_err());
+    }
+
+    #[test]
+    fn parse_legacy_shutdown_fails() {
         let line = r#"{"cmd":"shutdown"}"#;
-        assert!(matches!(parse_request(line).unwrap(), Request::Shutdown));
+        assert!(parse_request(line).is_err());
     }
 
     #[test]

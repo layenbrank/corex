@@ -8,7 +8,7 @@ use crossterm::style::Stylize;
 use dialoguer::theme::ColorfulTheme;
 
 use crate::pipeline::config::{
-    ExecutionMode, PipelineConfig, PipelinesConfig, StepConfig, find_config_path, load_config,
+    CONFIG_VERSION, PipelineConfig, PipelinesConfig, StepConfig, find_config_path, load_config,
     validate_config,
 };
 use crate::pipeline::context::PipelineContext;
@@ -170,11 +170,10 @@ fn run_interactive() -> Result<()> {
         .map(|p| {
             let desc = p.description.as_deref().unwrap_or(&p.id);
             format!(
-                "{} {} ({} 步, {:?})",
+                "{} {} ({} 步)",
                 "▶".green().bold(),
                 desc.bold(),
                 p.steps.len(),
-                p.mode
             )
         })
         .collect();
@@ -193,6 +192,23 @@ fn run_interactive() -> Result<()> {
     let pipeline = &config.pipelines[pipeline_idx];
     let mut ctx = PipelineContext::with_variables(config.variables.clone());
     run_pipeline(pipeline, &mut ctx)
+}
+
+fn new_step(
+    id: String,
+    module: &str,
+    description: Option<String>,
+    params: serde_json::Value,
+) -> StepConfig {
+    StepConfig {
+        id,
+        module: module.to_string(),
+        description,
+        depends_on: vec![],
+        when: None,
+        retry: None,
+        params,
+    }
 }
 
 fn generate_config_template() -> Result<()> {
@@ -225,20 +241,6 @@ fn generate_config_template() -> Result<()> {
         .with_prompt("Pipeline 描述")
         .allow_empty(true)
         .interact_text()?;
-
-    let mode_idx = dialoguer::Select::with_theme(&ColorfulTheme::default())
-        .with_prompt("执行模式")
-        .items([
-            "sequential（顺序执行，支持步骤协作）",
-            "parallel（并发执行，步骤独立）",
-        ])
-        .default(0)
-        .interact()?;
-    let mode = if mode_idx == 0 {
-        ExecutionMode::Sequential
-    } else {
-        ExecutionMode::Parallel
-    };
 
     let schedule_input: String = dialoguer::Input::with_theme(&ColorfulTheme::default())
         .with_prompt("定时调度 cron 表达式（留空则不定时执行，如 */5 * * * *）")
@@ -286,13 +288,12 @@ fn generate_config_template() -> Result<()> {
                 let to: String = dialoguer::Input::with_theme(&ColorfulTheme::default())
                     .with_prompt("目标路径")
                     .interact_text()?;
-                StepConfig {
-                    id: step_id,
-                    module: "copy".to_string(),
-                    action: None,
-                    description: Some("复制任务".to_string()),
-                    params: serde_json::json!({ "from": from, "to": to, "empty": false, "includes": [], "excludes": [] }),
-                }
+                new_step(
+                    step_id,
+                    "copy",
+                    Some("复制任务".to_string()),
+                    serde_json::json!({ "from": from, "to": to, "empty": false, "includes": [], "excludes": [] }),
+                )
             }
             1 => {
                 println!("\n  {} 路径生成步骤", "▸".cyan());
@@ -305,17 +306,18 @@ fn generate_config_template() -> Result<()> {
                 let transform: String = dialoguer::Input::with_theme(&ColorfulTheme::default())
                     .with_prompt("转换规则")
                     .interact_text()?;
-                StepConfig {
-                    id: step_id,
-                    module: "generate".to_string(),
-                    action: Some("path".to_string()),
-                    description: Some("路径生成任务".to_string()),
-                    params: serde_json::json!({
-                        "from": from, "to": to, "transform": transform,
-                        "index": 0, "separator": "/", "pad": false,
-                        "includes": [], "excludes": [], "uppercase": []
+                new_step(
+                    step_id,
+                    "generate",
+                    Some("路径生成任务".to_string()),
+                    serde_json::json!({
+                        "Path": {
+                            "from": from, "to": to, "transform": transform,
+                            "index": 0, "separator": "/", "pad": false,
+                            "includes": [], "excludes": [], "uppercase": []
+                        }
                     }),
-                }
+                )
             }
             2 => {
                 println!("\n  {} UUID 生成步骤", "▸".cyan());
@@ -323,13 +325,12 @@ fn generate_config_template() -> Result<()> {
                     .with_prompt("生成数量")
                     .default(1usize)
                     .interact_text()?;
-                StepConfig {
-                    id: step_id,
-                    module: "generate".to_string(),
-                    action: Some("uuid".to_string()),
-                    description: Some("UUID 生成任务".to_string()),
-                    params: serde_json::json!({ "count": count, "uppercase": false }),
-                }
+                new_step(
+                    step_id,
+                    "generate",
+                    Some("UUID 生成任务".to_string()),
+                    serde_json::json!({ "Uuid": { "count": count, "uppercase": false } }),
+                )
             }
             3 => {
                 println!("\n  {} 压缩步骤", "▸".cyan());
@@ -339,13 +340,18 @@ fn generate_config_template() -> Result<()> {
                 let to: String = dialoguer::Input::with_theme(&ColorfulTheme::default())
                     .with_prompt("输出压缩包路径")
                     .interact_text()?;
-                StepConfig {
-                    id: step_id,
-                    module: "compression".to_string(),
-                    action: Some("zip".to_string()),
-                    description: Some("压缩任务".to_string()),
-                    params: serde_json::json!({ "from": from, "to": to }),
-                }
+                new_step(
+                    step_id,
+                    "compression",
+                    Some("压缩任务".to_string()),
+                    serde_json::json!({
+                        "Compress": {
+                            "scheme": {
+                                "Zip": { "from": from, "to": to, "level": 6, "method": "deflated" }
+                            }
+                        }
+                    }),
+                )
             }
             4 => {
                 println!("\n  {} 解压缩步骤", "▸".cyan());
@@ -355,13 +361,18 @@ fn generate_config_template() -> Result<()> {
                 let to: String = dialoguer::Input::with_theme(&ColorfulTheme::default())
                     .with_prompt("解压目标目录")
                     .interact_text()?;
-                StepConfig {
-                    id: step_id,
-                    module: "compression".to_string(),
-                    action: Some("unzip".to_string()),
-                    description: Some("解压缩任务".to_string()),
-                    params: serde_json::json!({ "from": from, "to": to }),
-                }
+                new_step(
+                    step_id,
+                    "compression",
+                    Some("解压缩任务".to_string()),
+                    serde_json::json!({
+                        "Decompress": {
+                            "scheme": {
+                                "Zip": { "from": from, "to": to }
+                            }
+                        }
+                    }),
+                )
             }
             5 => {
                 println!("\n  {} 图片处理步骤", "▸".cyan());
@@ -384,15 +395,14 @@ fn generate_config_template() -> Result<()> {
                 } else {
                     serde_json::Value::String(format)
                 };
-                StepConfig {
-                    id: step_id,
-                    module: "shade".to_string(),
-                    action: None,
-                    description: Some("图片处理任务".to_string()),
-                    params: serde_json::json!({
+                new_step(
+                    step_id,
+                    "shade",
+                    Some("图片处理任务".to_string()),
+                    serde_json::json!({
                         "from": from, "to": to, "format": format_val, "quality": quality
                     }),
-                }
+                )
             }
             6 => {
                 println!("\n  {} 清理步骤", "▸".cyan());
@@ -407,28 +417,26 @@ fn generate_config_template() -> Result<()> {
                     .default(true)
                     .interact()
                     .unwrap_or(true);
-                StepConfig {
-                    id: step_id,
-                    module: "scrub".to_string(),
-                    action: None,
-                    description: Some("清理任务".to_string()),
-                    params: serde_json::json!({
+                new_step(
+                    step_id,
+                    "scrub",
+                    Some("清理任务".to_string()),
+                    serde_json::json!({
                         "source": source, "target": target, "recursive": recursive
                     }),
-                }
+                )
             }
             7 => {
                 println!("\n  {} 截图步骤", "▸".cyan());
                 let to: String = dialoguer::Input::with_theme(&ColorfulTheme::default())
                     .with_prompt("输出目录")
                     .interact_text()?;
-                StepConfig {
-                    id: step_id,
-                    module: "screenshot".to_string(),
-                    action: None,
-                    description: Some("截图任务".to_string()),
-                    params: serde_json::json!({ "to": to }),
-                }
+                new_step(
+                    step_id,
+                    "screenshot",
+                    Some("截图任务".to_string()),
+                    serde_json::json!({ "Capture": { "to": to } }),
+                )
             }
             8 => {
                 println!("\n  {} 环境初始化步骤", "▸".cyan());
@@ -441,18 +449,17 @@ fn generate_config_template() -> Result<()> {
                     ])
                     .default(1)
                     .interact()?;
-                let action = match action_idx {
-                    0 => "env",
-                    2 => "force",
-                    _ => "inspect",
+                let variant = match action_idx {
+                    0 => "Env",
+                    2 => "Force",
+                    _ => "Inspect",
                 };
-                StepConfig {
-                    id: step_id,
-                    module: "bootstrap".to_string(),
-                    action: Some(action.to_string()),
-                    description: Some("环境初始化".to_string()),
-                    params: serde_json::json!({ "action": action }),
-                }
+                new_step(
+                    step_id,
+                    "bootstrap",
+                    Some("环境初始化".to_string()),
+                    serde_json::json!({ variant: serde_json::Value::Object(Default::default()) }),
+                )
             }
             _ => continue,
         };
@@ -460,7 +467,15 @@ fn generate_config_template() -> Result<()> {
         steps.push(step);
     }
 
+    // 为顺序步骤添加隐式 depends_on（除第一步外依赖前一步）
+    for i in 1..steps.len() {
+        if steps[i].depends_on.is_empty() {
+            steps[i].depends_on = vec![steps[i - 1].id.clone()];
+        }
+    }
+
     let config = PipelinesConfig {
+        version: CONFIG_VERSION,
         variables: std::collections::HashMap::new(),
         pipelines: vec![PipelineConfig {
             id: pipeline_id,
@@ -470,13 +485,13 @@ fn generate_config_template() -> Result<()> {
                 Some(pipeline_desc)
             },
             schedule,
-            mode,
+            watch: None,
             steps,
         }],
     };
 
     let content = serde_yml::to_string(&config)?;
-    let content = format!("# Corex Pipeline 配置文件\n{}", content);
+    let content = format!("# Corex Pipeline v3 配置文件\n{content}");
 
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent)?;

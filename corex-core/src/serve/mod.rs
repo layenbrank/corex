@@ -20,8 +20,8 @@ impl Default for ServeOptions {
 
 /// 启动 corex serve Daemon
 pub fn run(options: ServeOptions) -> anyhow::Result<()> {
-    let state = state::DaemonState::init()?;
-    pipe::run_server(&options, &state)
+    let mut state = state::DaemonState::init()?;
+    pipe::run_server(&options, &mut state)
 }
 
 /// IPC 客户端：调用指定模块

@@ -3,28 +3,20 @@ use std::collections::HashMap;
 use regex::Regex;
 use serde_json::Value;
 
-use crate::tasks::TaskOutput;
+use crate::invoke::Artifact;
 
-/// Pipeline 执行上下文 —— 在步骤间传递数据与协作信息
-///
-/// Sequential 模式：步骤可以通过 `${step_id.output}` 和 `${step_id.metadata.key}` 引用前序步骤
-/// Parallel 模式：仅支持全局变量 `${var.name}`，禁止跨步骤引用
+/// Pipeline 执行上下文（v3 变量语法）
 #[derive(Debug, Clone, Default)]
 pub struct PipelineContext {
-    /// 全局变量（来自 YAML `variables` 段）
     pub variables: HashMap<String, String>,
-
-    /// 各步骤的执行输出（step_id → TaskOutput）
-    pub step_outputs: HashMap<String, TaskOutput>,
+    pub step_artifacts: HashMap<String, Artifact>,
 }
 
 impl PipelineContext {
-    /// 创建空上下文
     pub fn new() -> Self {
         Self::default()
     }
 
-    /// 用全局变量初始化上下文
     pub fn with_variables(variables: HashMap<String, String>) -> Self {
         Self {
             variables,
@@ -32,69 +24,69 @@ impl PipelineContext {
         }
     }
 
-    /// 记录某步骤的输出
-    pub fn set_step_output(&mut self, step_id: String, output: TaskOutput) {
-        self.step_outputs.insert(step_id, output);
+    pub fn set_artifact(&mut self, step_id: String, artifact: Artifact) {
+        self.step_artifacts.insert(step_id, artifact);
     }
 
-    /// 解析字符串中的变量引用
-    ///
-    /// 支持的语法：
-    /// - `${var.name}`            → 全局变量
-    /// - `${step_id.output}`      → 步骤输出路径
-    /// - `${step_id.metadata.key}` → 步骤元数据
-    pub fn resolve(&self, input: &str) -> String {
+    /// 解析字符串中的 `${var.*}` / `${steps.*}` 占位符。
+    pub fn parse(&self, input: &str) -> String {
         let re = Regex::new(r"\$\{([^}]+)\}").unwrap();
         re.replace_all(input, |caps: &regex::Captures| {
-            let reference = &caps[1];
-            self.resolve_reference(reference)
+            self.parse_reference(&caps[1])
                 .unwrap_or_else(|| caps[0].to_string())
         })
         .to_string()
     }
 
-    /// 解析单个引用路径
-    fn resolve_reference(&self, reference: &str) -> Option<String> {
-        let parts: Vec<&str> = reference.splitn(3, '.').collect();
-
+    fn parse_reference(&self, reference: &str) -> Option<String> {
+        let parts: Vec<&str> = reference.split('.').collect();
         match parts.as_slice() {
-            // ${var.name} → 全局变量
+            ["env", name] => std::env::var(name).ok(),
             ["var", name] => self.variables.get(*name).cloned(),
-
-            // ${step_id.output} → 步骤输出路径
-            [step_id, "output"] => self
-                .step_outputs
+            ["steps", step_id, "artifact", "path"] => self
+                .step_artifacts
                 .get(*step_id)
-                .and_then(|o| o.path.as_ref())
+                .and_then(|a| a.path.as_ref())
                 .map(|p| p.to_string_lossy().to_string()),
-
-            // ${step_id.metadata.key} → 步骤元数据
-            [step_id, "metadata", key] => self
-                .step_outputs
+            ["steps", step_id, "artifact", "data", key] => self
+                .step_artifacts
                 .get(*step_id)
-                .and_then(|o| o.metadata.get(*key))
-                .map(|v| match v {
-                    Value::String(s) => s.clone(),
-                    other => other.to_string(),
-                }),
-
+                .and_then(|a| a.data.get(*key))
+                .map(value_to_string),
             _ => None,
         }
     }
 
-    /// 对 Value 中的所有字符串值进行变量替换
-    pub fn resolve_value(&self, value: &Value) -> Value {
+    /// 递归解析 JSON 值中的占位符。
+    pub fn parse_value(&self, value: &Value) -> Value {
         match value {
-            Value::String(s) => Value::String(self.resolve(s)),
+            Value::String(s) => Value::String(self.parse(s)),
             Value::Object(map) => {
-                let resolved: serde_json::Map<String, Value> = map
+                let parsed: serde_json::Map<String, Value> = map
                     .iter()
-                    .map(|(k, v)| (k.clone(), self.resolve_value(v)))
+                    .map(|(k, v)| (k.clone(), self.parse_value(v)))
                     .collect();
-                Value::Object(resolved)
+                Value::Object(parsed)
             }
-            Value::Array(arr) => Value::Array(arr.iter().map(|v| self.resolve_value(v)).collect()),
+            Value::Array(arr) => Value::Array(arr.iter().map(|v| self.parse_value(v)).collect()),
             other => other.clone(),
         }
+    }
+
+    /// when 条件：非空且不为 false/0/no 视为 true
+    pub fn eval_when(&self, expr: &str) -> bool {
+        let parsed = self.parse(expr).trim().to_lowercase();
+        !parsed.is_empty()
+            && parsed != "false"
+            && parsed != "0"
+            && parsed != "no"
+            && parsed != "off"
+    }
+}
+
+fn value_to_string(v: &Value) -> String {
+    match v {
+        Value::String(s) => s.clone(),
+        other => other.to_string(),
     }
 }

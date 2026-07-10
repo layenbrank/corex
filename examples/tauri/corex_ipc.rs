@@ -54,7 +54,7 @@
 //!
 //! ## 协议（与 corex-serve 一致）
 //!
-//! 请求：`{"id":1,"module":"screenshot","args":{"to":"C:/out"}}\n`
+//! 请求：`{"type":"invoke","id":1,"module":"screenshot","args":{"Capture":{"to":"C:/out"}}}\n`
 //! 响应：`{"id":1,"ok":true,"path":"...","ms":87}\n`
 //! 关闭：`{"type":"shutdown"}\n`
 
@@ -80,6 +80,8 @@ pub struct Response {
     pub ok: bool,
     #[serde(default)]
     pub path: Option<String>,
+    #[serde(default)]
+    pub data: Option<Value>,
     pub ms: u64,
     #[serde(default)]
     pub error: Option<String>,
@@ -110,6 +112,7 @@ pub fn spawn_daemon(exe: impl AsRef<Path>) -> Result<Child, String> {
 pub fn invoke(module: &str, args: Value) -> Result<Response, String> {
     let id = REQUEST_ID.fetch_add(1, Ordering::Relaxed);
     let payload = json!({
+        "type": "invoke",
         "id": id,
         "module": module,
         "args": args,
@@ -119,7 +122,10 @@ pub fn invoke(module: &str, args: Value) -> Result<Response, String> {
 
 /// 截图（全局快捷键等高频场景）
 pub fn screenshot(to: impl AsRef<str>) -> Result<String, String> {
-    let resp = invoke("screenshot", json!({ "to": to.as_ref() }))?;
+    let resp = invoke(
+        "screenshot",
+        json!({ "Capture": { "to": to.as_ref() } }),
+    )?;
     if resp.ok {
         resp.path.ok_or_else(|| "screenshot 成功但未返回 path".to_string())
     } else {

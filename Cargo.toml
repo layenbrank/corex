@@ -1,42 +1,76 @@
 [workspace]
-members  = ["corex", "corex-core", "corex-shot", "corex-serve"]
+members = ["corex", "corex-core", "corex-shot", "corex-serve"]
 resolver = "2"
 
 [workspace.package]
-version     = "0.3.0"
-edition     = "2024"
+version = "2.0.0"
+edition = "2024"
 description = "corex-cli"
-authors     = ["layen"]
+authors = ["layen"]
 
 [workspace.dependencies]
-anyhow      = "1.0.102"
-chrono      = { version = "0.4.45", features = ["serde"] }
-clap        = { version = "4.6.1", features = ["derive"] }
-cron        = "0.16.0"
-crossterm   = "0.29.0"
-dialoguer   = "0.12.0"
-dirs        = "6.0.0"
-glob        = "0.3.2"
-indicatif   = "0.18.4"
-notify-rust = "4.17.0"
-regex       = "1.12.4"
-serde       = { version = "1.0.219", features = ["derive"] }
-serde_json  = "1.0.150"
-serde_yml   = "0.0.13"
-tokio       = { version = "1.49.0", features = ["rt-multi-thread", "macros", "fs", "sync"] }
-uuid        = { version = "1.23.3", features = ["v4"] }
-walkdir     = "2.5.0"
-zip         = "8.6.0"
-image       = "0.25.10"
-xcap        = "0.9.6"
-handlebars  = "6.4.1"
-rand        = "0.10.1"
+anyhow = "1.0.103"
+chrono = { version = "0.4.45", features = ["serde"] }
+clap = { version = "4.6.1", features = ["derive"] }
+cron = "0.17.0"
+crossterm = "0.29.0"
+dialoguer = "0.12.0"
+dirs = "6.0.0"
+glob = "0.3.2"
+indicatif = "0.18.6"
+notify-rust = "4.18.0"
+regex = "1.13.0"
+serde = { version = "1.0.219", features = ["derive"] }
+serde_json = "1.0.150"
+serde_yml = "0.0.12"
+tokio = { version = "1.49.0", features = [
+  "rt-multi-thread",
+  "macros",
+  "fs",
+  "sync",
+] }
+uuid = { version = "1.23.4", features = ["v4"] }
+walkdir = "2.5.0"
+zip = "8.6.0"
+flate2 = "1.1"
+tar = "0.4"
+sevenz-rust2 = { version = "0.21", default-features = false, features = [
+  "compress",
+  "aes256",
+  "util",
+] }
+image = "0.25.10"
+xcap = "0.9.6"
+handlebars = "6.4.2"
+rand = "0.10.2"
+base64 = "0.22"
+md-5 = "0.11"
+sysinfo = "0.39.6"
+arboard = "3.4"
+lopdf = "0.42.0"
+docx-rs = "0.4"
+rust_xlsxwriter = "0.96.0"
+pdfium-render = { version = "0.9.1", features = [
+  "image_latest",
+  "pdfium_latest",
+  "thread_safe",
+] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+thiserror = "2.0"
+figment = { version = "0.10", features = ["yaml", "env"] }
+petgraph = "0.8"
+tokio-stream = "0.1"
+futures = "0.3"
+assert_cmd = "2.0"
+predicates = "3.1"
+tempfile = "3.27.0"
 
 
 [profile.release]
-opt-level     = 3
-lto           = true
+opt-level = 3
+lto = true
 codegen-units = 1
-incremental   = false
-panic         = "abort"
-strip         = "symbols"
+incremental = false
+panic = "abort"
+strip = "symbols"

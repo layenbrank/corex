@@ -136,3 +136,44 @@ pnpm tauri dev
 - **截图目录**：修改 `lib.rs` 中 `SCREENSHOT_DIR`，或通过 `set_screenshot_dir` command 持久化到 `tauri-plugin-store`
 - **快捷键**：修改 `register_hotkeys` 中的 `"Ctrl+Shift+S"`
 - **仅托盘无窗口**：`tauri.conf.json` 中 `"visible": false`，关闭窗口时 `prevent_close` 改为 hide（见 Tauri 文档）
+
+## 9. 通用 IPC 调用（codec / scan / morph / screenshot）
+
+`corex_ipc::invoke` 发送与 CLI 同构的 JSON args；结构化结果在响应 `data` 字段，文件路径在 `path` 字段。
+
+```rust
+use crate::corex_ipc;
+
+// 系统信息
+let resp = corex_ipc::invoke("scan", serde_json::json!({ "Os": {} }))?;
+let os_ctx = resp.data.unwrap();
+
+// Base64 编码
+let resp = corex_ipc::invoke(
+    "codec",
+    serde_json::json!({
+        "Encode": {
+            "scheme": { "Base64": { "input": "hello" } }
+        }
+    }),
+)?;
+let text = resp.data.unwrap()["text"].as_str().unwrap();
+
+// PDF 合并
+let resp = corex_ipc::invoke(
+    "morph",
+    serde_json::json!({
+        "Merge": {
+            "paths": ["C:/a.pdf", "C:/b.pdf"],
+            "dest": "C:/out.pdf"
+        }
+    }),
+)?;
+let merged = resp.path.unwrap();
+
+// 枚举窗口
+let resp = corex_ipc::invoke("screenshot", serde_json::json!({ "Windows": null }))?;
+let windows = resp.data.unwrap();
+```
+
+> `morph` 依赖系统 Pdfium 动态库，与 i-thinking 相同约束。详见 [ipc-protocol.md](../../docs/ipc-protocol.md)。

@@ -1,15 +1,15 @@
 [package]
-name              = "corex-core"
+name = "corex-core"
 version.workspace = true
 edition.workspace = true
-description       = "Corex core library"
+description = "Corex core library"
 authors.workspace = true
 
 [lib]
-name       = "cx"
-path       = "src/lib.rs"
+name = "cx"
+path = "src/lib.rs"
 crate-type = ["rlib"]
-doctest    = false
+doctest = false
 
 [features]
 default = ["all"]
@@ -17,102 +17,211 @@ default = ["all"]
 all = ["command"]
 
 command = [
-    "cli",
-    "copy",
-    "scrub",
-    "shade",
-    "compression",
-    "generate",
-    "bootstrap",
-    "screenshot",
-    "pipeline",
-    "schedule",
+  "cli",
+  "runtime",
+  "invoke",
+  "codec",
+  "scan",
+  "morph",
+  "copy",
+  "scrub",
+  "shade",
+  "compression",
+  "generate",
+  "bootstrap",
+  "screenshot",
+  "pipeline",
+  "schedule",
+  "watch",
 ]
 
 cli = ["dep:clap"]
 
+runtime = ["cli", "dep:tracing", "dep:tracing-subscriber", "dep:thiserror"]
+
+invoke = [
+  "codec",
+  "scan",
+  "morph",
+  "copy",
+  "scrub",
+  "shade",
+  "compression",
+  "generate",
+  "bootstrap",
+  "screenshot",
+]
+
 daemon = [
-    "cli",
-    "copy",
-    "scrub",
-    "shade",
-    "compression",
-    "generate",
-    "bootstrap",
-    "screenshot",
+  "cli",
+  "runtime",
+  "invoke",
+  "codec",
+  "scan",
+  "morph",
+  "copy",
+  "scrub",
+  "shade",
+  "compression",
+  "generate",
+  "bootstrap",
+  "screenshot",
 ]
 
 serve = ["daemon"]
 
+codec = ["dep:base64", "dep:md-5"]
+scan = ["dep:sysinfo"]
+morph = [
+  "dep:pdfium-render",
+  "dep:lopdf",
+  "dep:docx-rs",
+  "dep:rust_xlsxwriter",
+  "dep:base64",
+  "dep:image",
+]
+
 copy = ["dep:walkdir", "dep:indicatif", "glob", "notify", "progress"]
 scrub = ["dep:tokio", "dep:walkdir", "progress"]
 shade = ["dep:image", "dep:walkdir", "notify", "progress"]
-compression = ["dep:zip", "dep:walkdir", "notify", "progress"]
-generate = ["dep:handlebars", "dep:walkdir", "dep:uuid", "dep:rand", "dep:chrono", "glob", "notify"]
+compression = [
+  "dep:zip",
+  "dep:walkdir",
+  "dep:flate2",
+  "dep:tar",
+  "dep:sevenz-rust2",
+  "glob",
+  "notify",
+  "progress",
+]
+generate = [
+  "dep:handlebars",
+  "dep:walkdir",
+  "dep:uuid",
+  "dep:rand",
+  "dep:chrono",
+  "glob",
+  "notify",
+  "runtime",
+]
 bootstrap = []
-screenshot = ["dep:xcap", "dep:image"]
+screenshot = ["dep:xcap", "dep:image", "dep:base64", "dep:arboard"]
 
 pipeline = [
-    "dep:regex",
-    "dep:serde_yml",
-    "dep:dialoguer",
-    "dep:crossterm",
-    "dep:tokio",
-    "dep:dirs",
-    "tasks",
+  "dep:regex",
+  "dep:serde_yml",
+  "dep:dialoguer",
+  "dep:crossterm",
+  "dep:tokio",
+  "dep:dirs",
+  "dep:petgraph",
+  "dep:futures",
+  "dep:tokio-stream",
+  "dep:chrono",
+  "invoke",
+  "runtime",
 ]
 schedule = ["pipeline", "dep:cron", "dep:chrono"]
-tasks = [
-    "copy",
-    "scrub",
-    "shade",
-    "compression",
-    "generate",
-    "bootstrap",
-    "screenshot",
-]
+watch = ["pipeline", "dep:notify-fs", "dep:notify-debouncer-full", "dep:chrono", "glob"]
 
 glob = ["dep:glob"]
 notify = ["dep:notify-rust"]
 progress = ["dep:indicatif"]
 
 [dependencies]
-anyhow     = { workspace = true }
-serde      = { workspace = true }
+anyhow = { workspace = true }
+serde = { workspace = true }
 serde_json = { workspace = true }
 
-chrono      = { workspace = true, optional = true }
-clap        = { workspace = true, optional = true }
-cron        = { workspace = true, optional = true }
-crossterm   = { workspace = true, optional = true }
-dialoguer   = { workspace = true, optional = true }
-dirs        = { workspace = true, optional = true }
-glob        = { workspace = true, optional = true }
-handlebars  = { workspace = true, optional = true }
-image       = { workspace = true, optional = true }
-indicatif   = { workspace = true, optional = true }
+arboard = { workspace = true, optional = true }
+base64 = { workspace = true, optional = true }
+chrono = { workspace = true, optional = true }
+clap = { workspace = true, optional = true }
+cron = { workspace = true, optional = true }
+crossterm = { workspace = true, optional = true }
+dialoguer = { workspace = true, optional = true }
+dirs = { workspace = true, optional = true }
+docx-rs = { workspace = true, optional = true }
+figment = { workspace = true, optional = true }
+futures = { workspace = true, optional = true }
+glob = { workspace = true, optional = true }
+handlebars = { workspace = true, optional = true }
+image = { workspace = true, optional = true }
+indicatif = { workspace = true, optional = true }
+lopdf = { workspace = true, optional = true }
+md-5 = { workspace = true, optional = true }
 notify-rust = { workspace = true, optional = true }
-rand        = { workspace = true, optional = true }
-regex       = { workspace = true, optional = true }
-serde_yml   = { workspace = true, optional = true }
-tokio       = { workspace = true, optional = true }
-uuid        = { workspace = true, optional = true }
-walkdir     = { workspace = true, optional = true }
-xcap        = { workspace = true, optional = true }
-zip         = { workspace = true, optional = true }
+notify-fs = { package = "notify", version = "8", optional = true }
+notify-debouncer-full = { version = "0.7", optional = true }
+pdfium-render = { workspace = true, optional = true }
+petgraph = { workspace = true, optional = true }
+rand = { workspace = true, optional = true }
+regex = { workspace = true, optional = true }
+rust_xlsxwriter = { workspace = true, optional = true }
+serde_yml = { workspace = true, optional = true }
+sysinfo = { workspace = true, optional = true }
+thiserror = { workspace = true, optional = true }
+tokio = { workspace = true, optional = true }
+tokio-stream = { workspace = true, optional = true }
+tracing = { workspace = true, optional = true }
+tracing-subscriber = { workspace = true, optional = true }
+uuid = { workspace = true, optional = true }
+walkdir = { workspace = true, optional = true }
+xcap = { workspace = true, optional = true }
+zip = { workspace = true, optional = true }
+flate2 = { workspace = true, optional = true }
+tar = { workspace = true, optional = true }
+sevenz-rust2 = { workspace = true, optional = true }
 
 [target.'cfg(windows)'.dependencies]
 windows = { version = "0.62", features = [
-    "Win32_Foundation",
-    "Win32_Security",
-    "Win32_Storage_FileSystem",
-    "Win32_System_Pipes",
-    "Win32_System_IO",
+  "Win32_Foundation",
+  "Win32_Security",
+  "Win32_Storage_FileSystem",
+  "Win32_System_Pipes",
+  "Win32_System_IO",
 ] }
 
 [dev-dependencies]
-tempfile = "3.27.0"
+tempfile = { workspace = true }
+assert_cmd = { workspace = true }
+predicates = { workspace = true }
 
 [[example]]
 name = "ipc"
 required-features = ["serve"]
+
+[[test]]
+name = "pipeline_v3"
+required-features = ["pipeline"]
+path = "tests/pipeline_v3.rs"
+
+[[test]]
+name = "path_stream"
+required-features = ["pipeline", "generate"]
+path = "tests/path_stream.rs"
+
+[[test]]
+name = "invoke_modules"
+required-features = ["invoke", "copy"]
+path = "tests/invoke_modules.rs"
+
+[[test]]
+name = "orchestrator_failed"
+required-features = ["pipeline", "copy"]
+path = "tests/orchestrator_failed.rs"
+
+[[test]]
+name = "invoke_parse"
+required-features = ["invoke", "codec", "compression", "screenshot"]
+path = "tests/invoke_parse.rs"
+
+[[test]]
+name = "orchestrator_parallel"
+required-features = ["pipeline", "generate"]
+path = "tests/orchestrator_parallel.rs"
+
+[[test]]
+name = "watch_smoke"
+required-features = ["watch"]
+path = "tests/watch_smoke.rs"

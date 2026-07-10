@@ -1,0 +1,23 @@
+{
+  "skill_name": "corex-add-module",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "在 corex 里新增一个 hash 模块，支持 sha256 摘要，要能 CLI 调用也能被 pipeline invoke",
+      "expected_output": "创建 hash/ 目录（schema+service+mod），注册 Cargo feature、lib.rs、command、invoke/registry，含 execute/run 分离与测试",
+      "files": []
+    },
+    {
+      "id": 2,
+      "prompt": "把 i-thinking 的 utils/pdf.rs 里读 PDF 页数的功能迁到 corex，模块名用 morph 的子命令还是新模块你帮我判断",
+      "expected_output": "分析是否应扩展 morph 或新建模块，按 Invoke 契约实现，说明 Tauri 侧如何改为 invoke 调用",
+      "files": []
+    },
+    {
+      "id": 3,
+      "prompt": "给 corex 加一个仅 CLI 的 doctor 命令，检查环境依赖但不走 IPC",
+      "expected_output": "实现非 Invoke 模块：无 registry 注册，仅 command/mod.rs + feature，文档说明与 daemon 的区别",
+      "files": []
+    }
+  ]
+}

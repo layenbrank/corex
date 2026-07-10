@@ -1,5 +1,5 @@
 [build]
-# rustc-wrapper = "sccache" # 替换为 sccache 实际路径
+rustc-wrapper = "sccache" # 替换为 sccache 实际路径
 incremental = true
 # 默认目标平台（可通过--target覆盖）
 target = "x86_64-pc-windows-msvc"

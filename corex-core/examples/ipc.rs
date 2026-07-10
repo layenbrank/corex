@@ -18,7 +18,7 @@ fn main() -> anyhow::Result<()> {
     let resp = cx::serve::request(
         r"\\.\pipe\corex",
         "screenshot",
-        serde_json::json!({ "to": to }),
+        serde_json::json!({ "Capture": { "to": to } }),
     )?;
 
     if resp.ok {

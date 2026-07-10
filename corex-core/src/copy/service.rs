@@ -1,33 +1,47 @@
-use std::{fs, path::Path, sync::Arc, time::Instant};
+use std::{
+    fs,
+    path::{Path, PathBuf},
+    sync::Arc,
+    time::Instant,
+};
 
 use anyhow::{Context, Result};
 use indicatif::ProgressBar;
 use walkdir::WalkDir;
 
 use crate::copy::schema::Args;
-use crate::utils::{file, ignore::Filter, notify, progress};
+use crate::utils::{file, notify, progress, Filter};
 
+#[derive(Debug, Clone)]
+pub struct Output {
+    pub path: PathBuf,
+}
+
+/// CLI 入口：复制文件或目录。
 pub fn run(args: &Args) -> Result<()> {
+    execute(args).map(|_| ())
+}
+
+/// 执行复制，返回实际写入路径。
+pub fn execute(args: &Args) -> Result<Output> {
     let from = Path::new(&args.from);
     let to = Path::new(&args.to);
 
-    if from.is_file() {
-        copy_single_file(from, to)
+    let path = if from.is_file() {
+        copy_single_file(from, to)?
     } else if from.is_dir() {
-        copy_directory(from, to, args)
+        copy_directory(from, to, args)?
     } else {
         anyhow::bail!("源路径不存在或不是有效的文件/目录: {}", args.from)
-    }
+    };
+    Ok(Output { path })
 }
 
-// ─── 单文件复制（支持重命名）────────────────────────────────────────────────
-
-fn copy_single_file(from: &Path, to: &Path) -> Result<()> {
-    // 如果 to 是已有目录，则把文件放入该目录（保持原名）
+/// 复制单个文件；若 `to` 为目录则写入该目录并保持原名。
+fn copy_single_file(from: &Path, to: &Path) -> Result<PathBuf> {
     let target = if to.is_dir() {
         to.join(from.file_name().unwrap_or_default())
     } else {
-        // to 是文件路径（可能重命名），确保父目录存在
         if let Some(parent) = to.parent()
             && !parent.exists()
         {
@@ -45,19 +59,17 @@ fn copy_single_file(from: &Path, to: &Path) -> Result<()> {
 
     let _ = notify::success("复制成功", "文件复制操作已成功完成");
     println!("✅ 完成，大小: {}", file::size(size));
-    Ok(())
+    Ok(target)
 }
 
-// ─── 目录复制 ────────────────────────────────────────────────────────────────
-
-fn copy_directory(from: &Path, to: &Path, args: &Args) -> Result<()> {
+/// 递归复制目录，返回目标根目录。
+fn copy_directory(from: &Path, to: &Path, args: &Args) -> Result<PathBuf> {
     let filter = Filter::new(&args.includes, &args.excludes);
 
     let (count, size) = scan(from, &filter).context("扫描失败")?;
 
     if count == 0 {
-        println!("📂 没有文件需要复制");
-        return Ok(());
+        anyhow::bail!("没有文件需要复制");
     }
 
     println!("📊 找到 {} 个文件，总大小: {}", count, file::size(size));
@@ -73,7 +85,7 @@ fn copy_directory(from: &Path, to: &Path, args: &Args) -> Result<()> {
             let _ = notify::error("文件复制失败", &format!("复制过程中发生错误: {}", e));
         }
     }
-    status
+    status.map(|_| to.to_path_buf())
 }
 
 fn scan(from: &Path, filter: &Filter) -> Result<(u64, u64)> {

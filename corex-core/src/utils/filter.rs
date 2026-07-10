@@ -60,9 +60,29 @@ fn parse_patterns(patterns: &[String]) -> Vec<Pattern> {
         .filter_map(|p| match Pattern::new(p) {
             Ok(pat) => Some(pat),
             Err(e) => {
-                eprintln!("⚠️ 无效的过滤模式 '{}': {}", p, e);
+                eprintln!("⚠️  无效的过滤模式 '{}': {}", p, e);
                 None
             }
         })
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::path::Path;
+
+    #[test]
+    fn exclude_filters_matching_paths() {
+        let filter = Filter::new(&[], &["**/*.tmp".to_string()]);
+        assert!(filter.is_filtered(Path::new("foo/bar.tmp")));
+        assert!(!filter.is_filtered(Path::new("foo/bar.rs")));
+    }
+
+    #[test]
+    fn include_whitelist_only() {
+        let filter = Filter::new(&["**/*.rs".to_string()], &[]);
+        assert!(!filter.is_filtered(Path::new("main.rs")));
+        assert!(filter.is_filtered(Path::new("main.js")));
+    }
 }

@@ -13,8 +13,10 @@ struct Args {
 
 fn main() -> Result<()> {
     let args = Args::parse();
-    screenshot::run(&screenshot::schema::Args {
-        to: args.to,
-        description: None,
-    })
+    screenshot::run(&screenshot::schema::Args::Capture(
+        screenshot::schema::CaptureArgs {
+            to: args.to,
+            description: None,
+        },
+    ))
 }

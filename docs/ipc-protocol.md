@@ -26,39 +26,23 @@
 
 ### Invoke（执行业务模块）
 
-**Typed 格式（推荐）：**
-
 ```json
-{"type":"invoke","id":1,"module":"screenshot","args":{"to":"C:/Screenshots"}}
-```
-
-**Legacy 简写（兼容）：**
-
-```json
-{"id":1,"module":"screenshot","args":{"to":"C:/Screenshots"}}
+{"type":"invoke","id":1,"module":"screenshot","args":{"Capture":{"to":"C:/Screenshots"}}}
 ```
 
 字段说明：
 
 | 字段 | 类型 | 必填 | 说明 |
 |------|------|------|------|
-| type | string | typed 时必填 | 固定 `"invoke"` |
+| type | string | 是 | 固定 `"invoke"` |
 | id | u64 | 是 | 请求 ID，响应原样返回 |
 | module | string | 是 | 模块名，见下表 |
 | args | object | 是 | 对应模块 `Args` 的 JSON |
 
 ### Shutdown（关闭 Daemon）
 
-**Typed 格式：**
-
 ```json
 {"type":"shutdown"}
-```
-
-**Legacy 格式：**
-
-```json
-{"cmd":"shutdown"}
 ```
 
 收到 Shutdown 后，Daemon **不**返回响应，处理完当前连接后退出主循环。
@@ -73,6 +57,12 @@
 {"id":1,"ok":true,"path":"C:/Screenshots/screenshot-Primary-1234567890.png","ms":87}
 ```
 
+带结构化数据时（如 scan、codec、morph meta）：
+
+```json
+{"id":2,"ok":true,"data":{"text":"aGVsbG8="},"ms":1}
+```
+
 失败时：
 
 ```json
@@ -83,7 +73,8 @@
 |------|------|------|
 | id | u64 | 与请求 id 一致 |
 | ok | bool | 是否成功 |
-| path | string? | 成功时可选输出路径 |
+| path | string? | 成功时可选输出路径（写文件类操作） |
+| data | object? | 成功时可选结构化 JSON（文本、列表、元数据等） |
 | ms | u64 | 处理耗时（毫秒） |
 | error | string? | 失败时错误信息 |
 
@@ -101,13 +92,143 @@ args 字段与各模块 `schema::Args` 的 serde 结构一致，可直接对照 
 {
   "module": "screenshot",
   "args": {
-    "to": "C:/Screenshots",
-    "description": "可选描述"
+    "Capture": {
+      "to": "C:/Screenshots",
+      "description": "可选描述"
+    }
   }
 }
 ```
 
-成功时 `path` 为生成的 PNG 文件路径。
+**Monitors / Windows：**
+
+```json
+{ "module": "screenshot", "args": { "Monitors": null } }
+{ "module": "screenshot", "args": { "Windows": null } }
+```
+
+成功时 `data` 为 `MonitorInfo[]` 或 `WindowInfo[]`；Capture 成功时 `path` 为生成的 PNG 文件路径。
+
+**Crop / Clipboard：**
+
+```json
+{
+  "module": "screenshot",
+  "args": {
+    "Crop": {
+      "source": "C:/in.png",
+      "to": "C:/out",
+      "x": 0,
+      "y": 0,
+      "w": 100,
+      "h": 100
+    }
+  }
+}
+```
+
+IPC 大图裁剪推荐使用 `image_file`（PNG 文件路径）而非 `final_image_base64`，避免超过 64KB 行限。`Crop.to` 与 `Capture.to` 相同，均为**输出目录**。
+
+Crop 成功时 `path` 为输出 PNG 路径；Clipboard 无 `path`，仅 `ok: true`。
+
+### codec
+
+args 为三层 enum：操作 → 算法 → 参数。算法名必填，不可省略。
+
+**Base64 编码：**
+
+```json
+{
+  "module": "codec",
+  "args": {
+    "Encode": {
+      "scheme": {
+        "Base64": { "input": "hello" }
+      }
+    }
+  }
+}
+```
+
+**Base64 解码：**
+
+```json
+{
+  "module": "codec",
+  "args": {
+    "Decode": {
+      "scheme": {
+        "Base64": { "input": "aGVsbG8=" }
+      }
+    }
+  }
+}
+```
+
+**MD5 摘要：**
+
+```json
+{
+  "module": "codec",
+  "args": {
+    "Hash": {
+      "scheme": {
+        "Md5": { "input": "hello" }
+      }
+    }
+  }
+}
+```
+
+成功时 `data` 为 `{"text":"..."}`（Base64 字符串或小写 hex MD5）。
+
+### scan
+
+```json
+{ "module": "scan", "args": { "Os": {} } }
+```
+
+成功时 `data` 为 `OsContext` JSON（OS、CPU、内存等），CLI 同样输出 JSON 到 stdout。
+
+### morph
+
+PDF 操作需系统安装 Pdfium 动态库。args 为 tagged enum，与 CLI 子命令对应。
+
+**Meta：**
+
+```json
+{
+  "module": "morph",
+  "args": {
+    "Meta": { "path": "C:/report.pdf" }
+  }
+}
+```
+
+**Merge：**
+
+```json
+{
+  "module": "morph",
+  "args": {
+    "Merge": {
+      "paths": ["C:/a.pdf", "C:/b.pdf"],
+      "dest": "C:/out.pdf"
+    }
+  }
+}
+```
+
+| 子命令 | IPC variant | 主要输出 |
+|--------|-------------|----------|
+| meta | `Meta` | `data`（PDF 元数据） |
+| render-page | `RenderPage` | `data`（base64 PNG） |
+| render-thumbnails | `RenderThumbnails` | `data`（base64 PNG 数组） |
+| search | `Search` | `data`（匹配列表） |
+| export / merge / to-office | `Export` / `Merge` / `ToOffice` | `path` |
+| split / split-by-count / to-images | `Split` / `SplitByCount` / `ToImages` | `data` |
+
+完整字段见 `morph/schema.rs`。
 
 ### copy
 
@@ -159,35 +280,53 @@ args 字段与各模块 `schema::Args` 的 serde 结构一致，可直接对照 
 
 ### compression
 
-args 为 tagged enum，与 CLI 子命令对应：
+args 为 `Compress` / `Decompress` + `scheme.{Zip|TarGz|SevenZ}`，与 CLI 同构。
 
-**Zip：**
-
-```json
-{
-  "module": "compression",
-  "args": {
-    "Zip": {
-      "from": "C:/project",
-      "to": "C:/out/project.zip"
-    }
-  }
-}
-```
-
-**Unzip：**
+**Zip 压缩（wgt = Zip + `.wgt` 扩展名）：**
 
 ```json
 {
   "module": "compression",
   "args": {
-    "Unzip": {
-      "from": "C:/in/project.zip",
-      "to": "C:/out"
+    "Compress": {
+      "scheme": {
+        "Zip": {
+          "from": "C:/project",
+          "to": "C:/out/app.wgt",
+          "level": 6,
+          "method": "deflated",
+          "encryption": "aes256",
+          "password": "secret",
+          "excludes": ["*.map"]
+        }
+      }
     }
   }
 }
 ```
+
+**Zip 解压：**
+
+```json
+{
+  "module": "compression",
+  "args": {
+    "Decompress": {
+      "scheme": {
+        "Zip": {
+          "from": "C:/in/project.zip",
+          "to": "C:/out",
+          "overwrite": false
+        }
+      }
+    }
+  }
+}
+```
+
+**TarGz / SevenZ：** 同上结构，scheme 键改为 `TarGz` 或 `SevenZ`。TarGz 不支持 `password`。
+
+Pipeline 密码推荐 `${env.COREX_ARCHIVE_PASSWORD}`，勿在 YAML 写明文。
 
 ### generate
 
@@ -284,7 +423,7 @@ use cx::serve;
 let resp = serve::request(
     r"\\.\pipe\corex",
     "screenshot",
-    serde_json::json!({ "to": "C:/out" }),
+    serde_json::json!({ "Capture": { "to": "C:/out" } }),
 )?;
 
 // 关闭 Daemon
@@ -320,13 +459,13 @@ cargo run -p corex-core --example ipc --features serve -- C:\Temp\screenshots
 
 | 版本 | 变更 |
 |------|------|
-| 当前 | typed + legacy 双格式；64KB 行限；Windows Named Pipe |
+| 当前 | typed 格式（`type: invoke/shutdown`）；64KB 行限；Windows Named Pipe |
 
 未来可能扩展：
 
 - Unix Domain Socket（非 Windows）
 - 客户端长连接复用（服务端已支持同连接多请求）
-- pipeline/schedule 模块（当前仅 CLI）
+- pipeline/schedule/watch 模块（当前仅 CLI）
 
 ---
 
@@ -352,4 +491,4 @@ screenshot saved: C:\out\screenshot-....png (87ms)
 cargo test -p corex-core --features serve -- protocol::
 ```
 
-覆盖 `parse_request` 的 typed/legacy/empty/invalid 场景。
+覆盖 `parse_request` 的 typed/empty/invalid 场景。

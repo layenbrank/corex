@@ -13,3 +13,12 @@ path = "src/main.rs"
 corex-core = { path = "../corex-core", features = ["all"] }
 anyhow     = { workspace = true }
 clap       = { workspace = true }
+
+[dev-dependencies]
+assert_cmd = { workspace = true }
+predicates = { workspace = true }
+tempfile   = { workspace = true }
+
+[[test]]
+name = "cli_contract"
+path = "tests/cli_contract.rs"

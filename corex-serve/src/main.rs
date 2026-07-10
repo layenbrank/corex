@@ -1,6 +1,6 @@
 use anyhow::Result;
 use clap::Parser;
-use cx::serve::{run, ServeOptions};
+use cx::serve::{ServeOptions, run};
 
 /// Corex 长驻 Daemon — 通过 Named Pipe 接收 JSON 请求
 #[derive(Debug, Parser)]

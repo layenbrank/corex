@@ -1,29 +1,30 @@
-# Progress Log: Corex 文档
+# Progress Log
 
-## 2026-07-10 — 文档与代码同步
+## 2026-07-10 — watch 模块
 
 ### 完成项
+- `utils/ignore.rs` 重命名为 `utils/filter.rs`，统一 includes/excludes 命名
+- 新增 `watch/` 模块（`corex watch start`）
+- `PipelineConfig.watch: Option<WatchConfig>`
+- 依赖：`notify-fs`、`notify-debouncer-full`
+- 测试：config 解析、Filter 单元测试、watch_smoke 集成测试
+- 文档：architecture.md、pipelines.yaml 示例
 
-- [x] 更新 planning 三文件
-- [x] 修正 `docs/ipc-protocol.md`（连接语义、args、并发节）
-- [x] 修正 `docs/architecture.md`（生命周期图、handle_client）
-- [x] 修正 `docs/architecture-and-tauri-integration.md`（call graph）
-- [x] 更新 `README.md`（shade、compression zip/unzip、binary 表）
-
-### 验证
-
+### 验证命令
 ```powershell
-cargo test -p corex-core --features serve -- protocol::
-cargo check -p corex-core --example ipc --features serve
-cargo run -p corex -- compression --help
+cargo test -p corex-core --features watch
+cargo test -p corex --test cli_contract
+corex pipeline --validate --config pipelines.yaml
+corex watch start --help
 ```
 
-## 2026-07-09 — 全阶段文档初版
+## 2026-07-10 — 模块架构重构启动
 
-### 完成项
+### Phase 0–6
+- 全部阶段代码与测试完成
 
-- [x] 创建 planning 三文件
-- [x] 编写 docs/ 四份文档
-- [x] 恢复 corex-core/examples/ipc.rs
-- [x] 更新 README 架构索引
-
+### 验证命令
+```bash
+cargo test --workspace
+cargo build --workspace --release
+```

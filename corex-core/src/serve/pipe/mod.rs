@@ -7,7 +7,7 @@ pub use windows::{run_server, send_request, send_shutdown};
 #[cfg(not(windows))]
 pub fn run_server(
     _options: &crate::serve::ServeOptions,
-    _state: &crate::serve::state::DaemonState,
+    _state: &mut crate::serve::state::DaemonState,
 ) -> anyhow::Result<()> {
     anyhow::bail!("corex serve 当前仅支持 Windows Named Pipe")
 }

@@ -39,13 +39,20 @@ Module notes (中文说明):
 */
 /// 同步入口：保持 `run(&Args)` 签名不变，内部在有/无 Tokio 运行时时
 /// 采用不同策略调度并等待 `run_async` 完成。
+#[derive(Debug, Clone)]
+pub struct Output {
+    pub path: PathBuf,
+}
+
 pub fn run(args: &Args) -> anyhow::Result<()> {
+    execute(args).map(|_| ())
+}
+
+pub fn execute(args: &Args) -> anyhow::Result<Output> {
     let source = args.source.clone();
     let recursive = args.recursive;
     let target = args.target.clone();
 
-    // 如果当前线程已有 Tokio 运行时，则 spawn 异步任务并在阻塞上下文内等待结果；
-    // 否则新建临时运行时并 block_on
     match tokio::runtime::Handle::try_current() {
         Ok(handle) => {
             let (tx, rx) = mpsc::channel::<Result<(), String>>();
@@ -60,7 +67,9 @@ pub fn run(args: &Args) -> anyhow::Result<()> {
 
             // 在运行时线程上阻塞等待异步任务完成（安全地进入阻塞上下文）
             tokio::task::block_in_place(|| match rx.recv() {
-                Ok(Ok(())) => Ok(()),
+                Ok(Ok(())) => Ok(Output {
+                    path: PathBuf::from(&source),
+                }),
                 Ok(Err(e)) => Err(anyhow::anyhow!("{}", e)),
                 Err(_) => Err(anyhow::anyhow!("scrub task canceled")),
             })
@@ -71,7 +80,10 @@ pub fn run(args: &Args) -> anyhow::Result<()> {
                 .build()
                 .expect("failed to create tokio runtime");
 
-            rt.block_on(launcher(&source, recursive, &target))
+            rt.block_on(launcher(&source, recursive, &target))?;
+            Ok(Output {
+                path: PathBuf::from(&source),
+            })
         }
     }
 }

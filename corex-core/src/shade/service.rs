@@ -15,17 +15,29 @@ use walkdir::WalkDir;
 use crate::shade::schema::Args;
 use crate::utils::{file, notify, progress};
 
+#[derive(Debug, Clone)]
+pub struct Output {
+    pub path: PathBuf,
+}
+
 pub fn run(args: &Args) -> Result<()> {
-    match image_task(args) {
+    match execute(args) {
         Ok(_) => {
             let _ = notify::success("图片处理成功", "图片处理操作已成功完成");
+            Ok(())
         }
         Err(e) => {
             let _ = notify::error("图片处理失败", &format!("图片处理过程中发生错误: {}", e));
-            return Err(e);
+            Err(e)
         }
     }
-    Ok(())
+}
+
+pub fn execute(args: &Args) -> Result<Output> {
+    image_task(args)?;
+    Ok(Output {
+        path: PathBuf::from(&args.to),
+    })
 }
 
 // ─── 图片处理 ────────────────────────────────────────────────────────────────

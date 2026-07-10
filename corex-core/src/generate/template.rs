@@ -28,17 +28,14 @@ fn now_helper(
     _: &mut RenderContext,
     out: &mut dyn Output,
 ) -> HelperResult {
-    let fmt = h
-        .param(0)
-        .and_then(|v| v.value().as_str())
-        .unwrap_or("iso");
+    let fmt = h.param(0).and_then(|v| v.value().as_str()).unwrap_or("iso");
 
     let now = chrono::Local::now();
     let result = match fmt {
         "iso" | "iso8601" => now.to_rfc3339(),
-        "unix"            => now.timestamp().to_string(),
-        "unix_ms"         => now.timestamp_millis().to_string(),
-        other             => now.format(other).to_string(),
+        "unix" => now.timestamp().to_string(),
+        "unix_ms" => now.timestamp_millis().to_string(),
+        other => now.format(other).to_string(),
     };
     out.write(&result)?;
     Ok(())

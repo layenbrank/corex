@@ -1,42 +1,27 @@
-# Task Plan: 文档与 Rust 代码同步
+# Task Plan: Corex v3 模块架构重构 + watch 模块
 
 ## Goal
-
-对照实际 Rust 源码修正 `docs/` 与 `README.md` 中的不准确描述，使文档与 `serve/pipe`、`schema`、CLI 子命令一致。
-
-## Current Phase
-
-Phase 4 — Verification
+统一 run→execute→Artifact 契约；修复 orchestrator/IPC 缺陷；补齐测试与文档；新增 watch 文件监听。
 
 ## Phases
 
-### Phase 1: 代码审计
-- [x] 对照 pipe/windows.rs、各 schema.rs、command/mod.rs
-- [x] 记录差异到 findings.md
-- **Status:** complete
+| Phase | Task | Status |
+|-------|------|--------|
+| 0 | planning 文件同步 | complete |
+| 1 | orchestrator 失败报告、并行 abort、IPC monitors、删 tasks/ | complete |
+| 2 | copy/scrub/shade execute 层 | complete |
+| 3 | generate 统一 execute + path_stream | complete |
+| 4 | resolve 下沉、screenshot 完整 Artifact | complete |
+| 5 | ExitStatus 精细映射 | complete |
+| 6 | 契约测试 + 文档 | complete |
+| 7 | watch 模块 + utils/filter 重命名 | complete |
 
-### Phase 2: IPC / 架构文档修正
-- [x] docs/ipc-protocol.md
-- [x] docs/architecture.md
-- [x] docs/architecture-and-tauri-integration.md
-- **Status:** complete
+## 模块契约
+- `execute()` → `Output` → `Artifact`
+- `run()` → execute + CLI 输出
+- `invoke()` → resolve → execute → InvokeResult
 
-### Phase 3: README 修正
-- [x] shade、compression 子命令、binary 表
-- **Status:** complete
-
-### Phase 4: 验证
-- [x] cargo test / check
-- **Status:** complete
-
-## Key Corrections
-
-1. `handle_client` 同连接可多行 Invoke（非单次即断）
-2. generate Path/File、bootstrap unit enum args 示例
-3. README compression 改为 zip/unzip 子命令
-
-## Errors Encountered
-
-| Error | Attempt | Resolution |
-|-------|---------|------------|
-| （无） | — | — |
+## watch 模块（Phase 7）
+- `utils/ignore.rs` → `utils/filter.rs`（includes/excludes）
+- `PipelineConfig.watch: Option<WatchConfig>`
+- `corex watch start` — debounce 后重跑 Pipeline

@@ -1,8 +1,11 @@
 pub mod file;
 #[cfg(feature = "glob")]
-pub mod ignore;
+pub mod filter;
+#[cfg(feature = "glob")]
+pub use filter::Filter;
 #[cfg(feature = "notify")]
 pub mod notify;
+pub mod paths;
 #[cfg(feature = "progress")]
 pub mod progress;
 pub mod verifier;
