@@ -1,8 +1,9 @@
 # Corex Pipeline v3
 # version 必须为 3
 # 变量：${var.*} ${env.*} ${steps.id.artifact.path}
-# schedule: 可选 cron，由 `corex schedule cron` 定时触发
-# watch: 可选文件监听，由 `corex watch start` debounce 后重跑整条 Pipeline
+# schedule: 可选 cron，由 `corex schedule cron` 或 `corex pipeline -p <id>` 定时触发
+# watch: 可选文件监听，由 `corex watch run` 或 `corex pipeline -p <id>` debounce 后重跑整条 Pipeline
+# 或直接 `corex pipeline -p <id>` 自动遵守 yaml 中的 watch / schedule 配置
 #   paths: 监听路径（文件或目录，支持 ${var.*}）
 #   includes / excludes: glob 白名单 / 黑名单（与 copy/generate 一致）
 #   debounce_ms: 防抖毫秒，默认 300
@@ -86,7 +87,7 @@ pipelines:
             uppercase: ['extension']
 
   - id: dev-tools
-    description: 新模块 smoke test（含 watch 示例，见 corex watch start -p dev-tools）
+    description: 新模块 smoke test（含 watch 示例，见 corex watch run -p dev-tools）
     watch:
       paths: ['${var.base}']
       includes: []

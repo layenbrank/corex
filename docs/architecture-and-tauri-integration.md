@@ -66,7 +66,7 @@ flowchart LR
 |----|------|------|
 | Tauri | `corex_ipc.rs` | 发 JSON 请求，无 xcap/image/tokio |
 | Daemon | `corex-serve` | 长驻进程，缓存 Monitor，JSON IPC |
-| CLI | `corex` / `corex-shot` | 一次性命令行调用 |
+| CLI | `corex` / `corex-capture` | 一次性命令行调用 |
 
 ---
 
@@ -77,7 +77,7 @@ corex/                    # workspace 根
 ├── corex-core/           # 库 crate，对外名 cx
 ├── corex/                # 完整 CLI（all features）
 ├── corex-serve/          # Daemon（serve feature）
-├── corex-shot/           # 轻量截图（screenshot only）
+├── corex-capture/           # 轻量截图（screenshot only）
 ├── examples/tauri/       # Tauri 集成示例（阶段 4）
 └── docs/                 # 本文档体系
 ```
@@ -88,7 +88,7 @@ corex/                    # workspace 根
 |--------|----------|------|
 | `corex` | `all` | 开发、脚本、Pipeline、Schedule |
 | `corex-serve` | `serve` | Tauri sidecar，Named Pipe Daemon |
-| `corex-shot` | `screenshot` | 无 Daemon 时的轻量截图 |
+| `corex-capture` | `screenshot` | 无 Daemon 时的轻量截图 |
 
 ### i-thinking 能力对照（corex 模块）
 
@@ -107,7 +107,7 @@ corex/                    # workspace 根
 ```powershell
 cargo build -p corex --release
 cargo build -p corex-serve --release
-cargo build -p corex-shot --release
+cargo build -p corex-capture --release
 ```
 
 ---
@@ -137,10 +137,10 @@ cargo build -p corex-shot --release
 **改动：**
 
 - `corex-core/Cargo.toml` 建立 feature 树（`all` / `command` / `daemon` / `serve` / 各模块）
-- 拆分三个 binary：`corex`、`corex-serve`、`corex-shot`
+- 拆分三个 binary：`corex`、`corex-serve`、`corex-capture`
 - workspace 级 tokio 从 `full` 裁剪为 `rt-multi-thread, macros, fs, sync`
 
-**价值：** `corex-shot` 体积远小于完整版；rust-analyzer 负担减轻。
+**价值：** `corex-capture` 体积远小于完整版；rust-analyzer 负担减轻。
 
 详见 [architecture.md — 阶段 2](./architecture.md#阶段-2cargo-feature-模块化)。
 
@@ -215,7 +215,7 @@ cargo run -p corex-core --example ipc --features serve -- C:\Temp\screenshots
 ### 5. 轻量截图（无 Daemon）
 
 ```powershell
-cargo run -p corex-shot -- --to C:\Temp\screenshots
+cargo run -p corex-capture -- --to C:\Temp\screenshots
 ```
 
 ---

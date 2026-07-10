@@ -7,7 +7,7 @@ mod settings;
 mod trace;
 
 pub use emit::{Emitter, OutputFormat};
-pub use exit::{AppError, ExitStatus, app_error_from_anyhow};
+pub use exit::{AppError, ExitStatus, app_error_from_anyhow, parse_fail};
 pub use opts::{ColorChoice, RuntimeOpts};
 pub use settings::{merge_variables, parse_define};
 pub use trace::init_tracing;

@@ -14,6 +14,7 @@
 
 | 变更 | 旧 | 新 |
 |------|----|----|
+| 轻量 binary | `corex-capture` | 等价 `corex screenshot capture --to` |
 | CLI | `corex screenshot --to DIR` | `corex screenshot capture --to DIR` |
 | IPC Capture | `{"to":"DIR"}` | `{"Capture":{"to":"DIR"}}` |
 | Crop 输出 | 文档误写为文件路径 | `to` 为**输出目录**（与 Capture 一致，自动生成文件名） |
@@ -53,7 +54,7 @@
 
 | 字段 | 说明 |
 |------|------|
-| `watch.paths` | 文件/目录监听路径，由 `corex watch start` 读取 |
+| `watch.paths` | 文件/目录监听路径，由 `corex watch run` 读取 |
 | `watch.includes` / `watch.excludes` | 与 copy/generate 相同的 glob 过滤命名 |
 
 详见 [pipeline-v3.md](./pipeline-v3.md#watch-字段文件监听)。

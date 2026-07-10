@@ -114,3 +114,74 @@ pipelines:
         .stdout(predicate::str::contains("\"status\":\"failed\""))
         .stdout(predicate::str::contains("\"pipeline_id\":\"fail-run\""));
 }
+
+#[test]
+fn pipeline_once_skips_schedule_daemon() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("scheduled.yaml");
+    std::fs::write(
+        &path,
+        r#"version: 3
+variables: {}
+pipelines:
+  - id: cron-once
+    schedule: '0/30 * * * * *'
+    steps:
+      - id: scan_os
+        module: scan
+        params:
+          Os: {}
+"#,
+    )
+    .unwrap();
+
+    corex()
+        .args(["pipeline", "--id", "cron-once", "--once", "--config"])
+        .arg(&path)
+        .assert()
+        .success();
+}
+
+#[test]
+fn pipeline_json_rejects_daemon_mode() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("scheduled.yaml");
+    std::fs::write(
+        &path,
+        r#"version: 3
+variables: {}
+pipelines:
+  - id: cron-daemon
+    schedule: '0/30 * * * * *'
+    steps:
+      - id: scan_os
+        module: scan
+        params:
+          Os: {}
+"#,
+    )
+    .unwrap();
+
+    corex()
+        .args([
+            "pipeline",
+            "--id",
+            "cron-daemon",
+            "--format",
+            "json",
+            "--config",
+        ])
+        .arg(&path)
+        .assert()
+        .failure()
+        .stdout(predicate::str::contains("守护模式不支持 --format json"));
+}
+
+#[test]
+fn watch_immediate_flag_in_help() {
+    corex()
+        .args(["watch", "run", "--help"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("immediate"));
+}

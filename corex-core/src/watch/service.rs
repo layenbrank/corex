@@ -1,6 +1,6 @@
-use std::collections::{HashMap, HashSet};
-use std::path::PathBuf;
-use std::sync::{Arc, Mutex};
+use std::collections::HashSet;
+use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use std::time::Duration;
 
 use anyhow::{Context, Result};
@@ -11,67 +11,91 @@ use crate::pipeline::config::{
     PipelineConfig, PipelinesConfig, WatchConfig, find_config_path, load_config, validate_config,
 };
 use crate::pipeline::context::PipelineContext;
-use crate::pipeline::runner::run_pipeline;
+use crate::pipeline::guard::{self, RunningSet};
 use crate::utils::Filter;
 use crate::watch::schema::Args;
 
-struct WatchTarget {
-    pipeline: PipelineConfig,
-    paths: Vec<PathBuf>,
-    filter: Filter,
-    debounce_ms: u64,
+#[derive(Debug)]
+pub(crate) struct WatchTarget {
+    pub(crate) pipeline: PipelineConfig,
+    pub(crate) paths: Vec<PathBuf>,
+    pub(crate) filter: Filter,
+    pub(crate) debounce_ms: u64,
+}
+
+/// watch 守护选项
+#[derive(Debug, Clone, Default)]
+pub struct WatchOpts {
+    pub debounce_ms: Option<u64>,
+    pub includes: Vec<String>,
+    pub excludes: Vec<String>,
+    pub immediate: bool,
+    /// 与 cron 并行守护时共享，防止重复触发
+    pub running: Option<RunningSet>,
 }
 
 /// `corex watch` 命令入口
 pub fn run(args: &Args) -> Result<()> {
     match args {
-        Args::Start {
+        Args::Run {
             config,
             pipeline,
             debounce_ms,
             includes,
             excludes,
-            run_on_start,
-        } => run_watch(
-            config.as_deref(),
-            pipeline,
-            *debounce_ms,
-            includes,
-            excludes,
-            *run_on_start,
-        ),
+            immediate,
+        } => {
+            let config_path = config
+                .as_deref()
+                .map(PathBuf::from)
+                .unwrap_or_else(find_config_path);
+            if !config_path.exists() {
+                anyhow::bail!(
+                    "配置文件未找到：{}，请先运行 `corex schedule generate` 生成配置",
+                    config_path.display()
+                );
+            }
+            let cfg = load_config(&config_path)?;
+            validate_config(&cfg)?;
+            let opts = WatchOpts {
+                debounce_ms: *debounce_ms,
+                includes: includes.clone(),
+                excludes: excludes.clone(),
+                immediate: *immediate,
+                ..WatchOpts::default()
+            };
+            serve(&cfg, &config_path, pipeline, &opts, None)
+        }
     }
 }
 
-fn run_watch(
-    config_path: Option<&str>,
-    pipeline_filter: &[String],
-    debounce_override: Option<u64>,
-    cli_includes: &[String],
-    cli_excludes: &[String],
-    run_on_start: bool,
+/// 解析并校验 watch 目标（路径必须存在）
+pub(crate) fn resolve(
+    config: &PipelinesConfig,
+    ids: &[String],
+    opts: &WatchOpts,
+) -> Result<Vec<WatchTarget>> {
+    collect_targets(
+        config,
+        ids,
+        opts.debounce_ms,
+        &opts.includes,
+        &opts.excludes,
+    )
+}
+
+/// 常驻文件监听；`targets` 已解析时跳过 resolve
+pub fn serve(
+    config: &PipelinesConfig,
+    _config_path: &Path,
+    ids: &[String],
+    opts: &WatchOpts,
+    targets: Option<Vec<WatchTarget>>,
 ) -> Result<()> {
-    let config_path = config_path
-        .map(PathBuf::from)
-        .unwrap_or_else(find_config_path);
-
-    if !config_path.exists() {
-        anyhow::bail!(
-            "配置文件未找到：{}，请先运行 `corex schedule generate` 生成配置",
-            config_path.display()
-        );
-    }
-
-    let config = load_config(&config_path)?;
-    validate_config(&config)?;
-
-    let targets = collect_targets(
-        &config,
-        pipeline_filter,
-        debounce_override,
-        cli_includes,
-        cli_excludes,
-    )?;
+    let targets = match targets {
+        Some(t) => t,
+        None => resolve(config, ids, opts)?,
+    };
 
     if targets.is_empty() {
         anyhow::bail!(
@@ -111,13 +135,30 @@ fn run_watch(
     }
     println!();
 
-    let running: Arc<Mutex<HashSet<String>>> = Arc::new(Mutex::new(HashSet::new()));
+    run_loop(config, targets, opts)
+}
+
+/// 监听循环（假定 targets 已通过 resolve 校验）
+pub(crate) fn run_loop(
+    config: &PipelinesConfig,
+    targets: Vec<WatchTarget>,
+    opts: &WatchOpts,
+) -> Result<()> {
+    let running = opts
+        .running
+        .clone()
+        .unwrap_or_else(guard::new_set);
     let variables = config.variables.clone();
 
-    if run_on_start {
+    if opts.immediate {
         println!("  {} 启动时执行 Pipeline...\n", "▶".yellow().bold());
         for target in &targets {
-            trigger_pipeline(&target.pipeline, &variables, Arc::clone(&running), "启动");
+            guard::spawn(
+                Arc::clone(&running),
+                &target.pipeline,
+                &variables,
+                "启动",
+            );
         }
     }
 
@@ -138,7 +179,12 @@ fn run_watch(
                 if !should_trigger(&result, &filter) {
                     return;
                 }
-                trigger_pipeline(&pipeline, &variables, Arc::clone(&running), "变更");
+                guard::spawn(
+                    Arc::clone(&running),
+                    &pipeline,
+                    &variables,
+                    "变更",
+                );
             },
         )
         .with_context(|| format!("创建 debouncer 失败: pipeline '{pipeline_id}'"))?;
@@ -181,63 +227,6 @@ fn should_trigger(result: &DebounceEventResult, filter: &Filter) -> bool {
 
 fn paths_should_trigger(paths: &[PathBuf], filter: &Filter) -> bool {
     paths.iter().any(|path| !filter.is_filtered(path))
-}
-
-fn trigger_pipeline(
-    pipeline: &PipelineConfig,
-    variables: &HashMap<String, String>,
-    running: Arc<Mutex<HashSet<String>>>,
-    reason: &str,
-) {
-    let pipeline_id = pipeline.id.clone();
-    {
-        let mut guard = running.lock().expect("running lock poisoned");
-        if guard.contains(&pipeline_id) {
-            eprintln!(
-                "  {} Pipeline '{}' 正在执行，跳过本次{}触发",
-                "⊘".yellow(),
-                pipeline_id,
-                reason
-            );
-            return;
-        }
-        guard.insert(pipeline_id.clone());
-    }
-
-    let desc = pipeline
-        .description
-        .as_deref()
-        .unwrap_or(&pipeline.id)
-        .to_string();
-    let pipeline = pipeline.clone();
-    let variables = variables.clone();
-
-    println!(
-        "\n  {} [{}] {} 触发: {}",
-        "⚡".yellow().bold(),
-        chrono::Local::now().format("%H:%M:%S"),
-        reason,
-        desc.bold()
-    );
-
-    std::thread::spawn(move || {
-        let mut ctx = PipelineContext::with_variables(variables);
-        let result = run_pipeline(&pipeline, &mut ctx);
-        running
-            .lock()
-            .expect("running lock poisoned")
-            .remove(&pipeline_id);
-
-        match result {
-            Ok(()) => println!("  {} Pipeline '{}' 执行完成\n", "✓".green(), pipeline_id),
-            Err(e) => eprintln!(
-                "  {} Pipeline '{}' 执行失败: {}\n",
-                "×".red(),
-                pipeline_id,
-                e
-            ),
-        }
-    });
 }
 
 fn collect_targets(

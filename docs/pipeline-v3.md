@@ -13,7 +13,7 @@ pipelines:
   - id: build-h5
     description: H5+ 构建
     schedule: '0/30 * * * * *'   # 可选 cron（`corex schedule cron`）
-    watch:                        # 可选文件监听（`corex watch start`）
+    watch:                        # 可选文件监听（`corex watch run`）
       paths: ['${var.base}/src']
       includes: []
       excludes: ['**/node_modules/**', '**/.git/**']
@@ -69,7 +69,7 @@ pipelines:
 
 ## watch 字段（文件监听）
 
-与 `schedule` 类似，`watch` 为 Pipeline 级可选字段，**不由 Pipeline step 执行**，而由 `corex watch start` 守护进程读取。
+与 `schedule` 类似，`watch` 为 Pipeline 级可选字段，**不由 Pipeline step 执行**，而由 `corex watch run` 守护进程读取。
 
 ```yaml
 - id: dev-rebuild
@@ -92,12 +92,12 @@ pipelines:
 过滤逻辑复用 `utils/filter.rs`（与 copy / generate 的 `includes` / `excludes` 语义一致）。CLI 可追加 `--includes` / `--excludes` / `--debounce-ms` 覆盖。
 
 ```powershell
-corex watch start
-corex watch start -p dev-rebuild --run-on-start
-corex watch start --debounce-ms 500 --excludes '**/*.tmp'
+corex watch run
+corex watch run -p dev-rebuild --immediate
+corex watch run --debounce-ms 500 --excludes '**/*.tmp'
 ```
 
-`schedule` 与 `watch` 可共存（cron 与文件变更两种触发源）。
+`schedule` 与 `watch` 可共存（cron 与文件变更两种触发源）。也可直接 `corex pipeline -p <id>`，由 trigger 模块自动进入对应守护模式。
 
 ## Stage 类型
 
@@ -114,13 +114,27 @@ corex watch start --debounce-ms 500 --excludes '**/*.tmp'
 corex pipeline --validate --config pipelines.yaml
 corex pipeline --validate --format json
 
-# 运行
+# 运行（按 yaml 自动选择单次 / watch / cron / 双守护）
 corex pipeline --id build-h5 --config pipelines.yaml
 corex pipeline --id build-h5 --format json --report-file report.json
+
+# 强制单次执行（忽略 watch / schedule）
+corex pipeline --id build-h5 --once
 
 # 覆盖变量
 corex pipeline --id build-h5 -D base=D:/proj/dist
 ```
+
+守护模式不支持 `--format json`，请使用 `--once`。
+
+### 自动触发矩阵
+
+| yaml 配置 | `corex pipeline` | `corex pipeline --once` |
+|-----------|------------------|-------------------------|
+| 无 watch/schedule | 单次执行 | 单次执行 |
+| 仅 watch | `watch run` 等价（启动即执行） | 单次执行 |
+| 仅 schedule | `schedule cron` 等价 | 单次执行 |
+| watch + schedule | 并行守护（watch + cron，共享运行锁） | 单次执行 |
 
 ## RunReport（JSON）
 

@@ -6,7 +6,7 @@
 
 Corex 从 Tauri 项目中独立拆分，重依赖（xcap、image、tokio 等）保留在本仓库。Tauri 作为瘦客户端，通过 Named Pipe 调用 `corex-serve` Daemon，**不**链回 `corex-core` 库。
 
-**Workspace：** `corex-core`（库 `cx`）、`corex`（完整 CLI）、`corex-serve`（Daemon）、`corex-shot`（轻量截图）。
+**Workspace：** `corex-core`（库 `cx`）、`corex`（完整 CLI）、`corex-serve`（Daemon）、`corex-capture`（轻量截图 capture）。
 
 | 文档 | 说明 |
 |------|------|
@@ -51,7 +51,7 @@ corex schedule run
 corex schedule cron
 
 # 文件变更监听（Vite 风格 dev watch）
-corex watch start --run-on-start
+corex watch run --immediate
 ```
 
 ---
@@ -75,7 +75,7 @@ corex watch start --run-on-start
 | `corex bootstrap env/inspect/force` | 环境初始化与检查          |
 | `corex pipeline`                    | 执行 YAML 定义的 Pipeline |
 | `corex schedule run/generate/cron`  | 任务调度器                |
-| `corex watch start`                 | 文件变更监听，debounce 后重跑 Pipeline |
+| `corex watch run`                 | 文件变更监听，debounce 后重跑 Pipeline |
 
 ### 独立 Binary
 
@@ -83,13 +83,13 @@ corex watch start --run-on-start
 | ------------- | ----------------------------------------- |
 | `corex`       | 完整 CLI（`features = all`）              |
 | `corex-serve` | Named Pipe Daemon，供 Tauri sidecar 使用  |
-| `corex-shot`  | 仅截图，无完整 corex 依赖                 |
+| `corex-capture` | 轻量 capture，等价 `corex screenshot capture --to` |
 
-完整 CLI 截图请使用 `corex screenshot capture --to`；`corex-shot` 为轻量独立 binary。
+完整 CLI 截图请使用 `corex screenshot capture --to`；`corex-capture` 为轻量独立 binary。
 
 ```powershell
 cargo build -p corex-serve --release
-cargo run -p corex-shot -- --to C:\Temp\screenshots
+cargo run -p corex-capture -- --to C:\Temp\screenshots
 corex screenshot capture --to C:\Temp\screenshots
 ```
 
@@ -455,7 +455,12 @@ corex pipeline --validate
 
 # Dry-run 预览
 corex pipeline --dry-run
+
+# 强制单次执行（忽略 yaml 中的 watch / schedule）
+corex pipeline --id build-h5 --once
 ```
+
+配置了 `watch` 或 `schedule` 时，`corex pipeline` 会自动进入对应守护模式；加 `--once` 则只跑一遍。详见 [docs/pipeline-v3.md](docs/pipeline-v3.md#cli)。
 
 ### 支持的 module
 
@@ -487,7 +492,9 @@ corex pipeline --dry-run
 ### YAML 配置格式
 
 ```yaml
-# 全局变量（所有步骤中可用 ${var.name} 引用）
+# version 必须为 3
+version: 3
+
 variables:
   src_dir: './src'
   dist_dir: './dist'
@@ -495,8 +502,10 @@ variables:
 pipelines:
   - id: build-pipeline
     description: 构建流水线
-    mode: sequential # sequential（顺序）| parallel（并发）
-    schedule: '0 8 * * *' # 可选：cron 定时执行
+    schedule: '0 8 * * *'   # 可选：cron 定时（见 schedule 章节）
+    watch:                  # 可选：文件监听（见 watch 章节）
+      paths: ['${var.src_dir}']
+      debounce_ms: 300
     steps:
       - id: step_copy
         module: copy
@@ -505,15 +514,16 @@ pipelines:
           from: '${var.src_dir}'
           to: '${var.dist_dir}'
           empty: false
-          includes: [] # 白名单（空 = 全部）
+          includes: []
           excludes: ['*.log', 'node_modules']
 
       - id: step_generate
         module: generate
         description: 生成路径列表
+        depends_on: [step_copy]
         params:
           Path:
-            from: '${step_copy.output}'
+            from: '${steps.step_copy.artifact.path}'
             to: './output/path.txt'
             transform: '{{fullpath}}'
             index: 1
@@ -526,6 +536,7 @@ pipelines:
       - id: step_compress
         module: compression
         description: 打包
+        depends_on: [step_copy]
         params:
           Compress:
             scheme:
@@ -535,41 +546,42 @@ pipelines:
                 level: 6
 ```
 
-### 执行模式
+### 执行模式（v3 DAG）
 
-| 模式         | 说明                                          |
-| ------------ | --------------------------------------------- |
-| `sequential` | 顺序执行，步骤间可传递数据（默认）            |
-| `parallel`   | 并发执行（tokio），步骤间独立，禁止跨步骤引用 |
+- 无 `depends_on`：按 `steps` 数组顺序建隐式链（顺序执行）
+- 有 `depends_on`：fork-join；同层步骤并发（`JoinSet`）
+- 支持 `when` 条件跳过、`retry` 重试
 
-### 变量引用语法
+变量语法见 [docs/pipeline-v3.md](docs/pipeline-v3.md#变量语法-v3)。
 
-| 语法                      | 说明                   |
-| ------------------------- | ---------------------- |
-| `${var.name}`             | 引用全局变量           |
-| `${step_id.output}`       | 引用前序步骤的输出路径 |
-| `${step_id.metadata.key}` | 引用前序步骤的元数据   |
+### 变量引用语法（v3）
 
-> **注意**：`parallel` 模式下仅支持 `${var.name}`，禁止跨步骤引用。
+| 语法 | 说明 |
+|------|------|
+| `${var.name}` | 引用全局变量 |
+| `${steps.step_id.artifact.path}` | 引用前序步骤产物路径 |
+| `${env.NAME}` | 环境变量 |
+
+> v3 已移除 `mode: sequential|parallel` 与 `${step_id.output}` 语法。
 
 ---
 
 ## 文件监听 (watch)
 
-Vite 风格开发监听：当 `pipelines.yaml` 中 Pipeline 配置了 `watch` 字段时，`corex watch start` 会在文件变更（debounce 后）**重跑整条 Pipeline**。
+Vite 风格开发监听：当 `pipelines.yaml` 中 Pipeline 配置了 `watch` 字段时，`corex watch run` 会在文件变更（debounce 后）**重跑整条 Pipeline**。
 
 ```powershell
 # 监听所有带 watch 的 Pipeline
-corex watch start
+corex watch run
 
 # 仅监听 dev-tools
-corex watch start -p dev-tools
+corex watch run -p dev-tools
 
 # 启动先执行一遍，再进入监听
-corex watch start --run-on-start
+corex watch run --immediate
 
 # CLI 覆盖 debounce / 追加过滤规则
-corex watch start --debounce-ms 500 --excludes '**/*.tmp'
+corex watch run --debounce-ms 500 --excludes '**/*.tmp'
 ```
 
 ```yaml

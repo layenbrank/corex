@@ -1,12 +1,12 @@
 [package]
-name              = "corex-shot"
+name              = "corex-capture"
 version.workspace = true
 edition.workspace = true
-description       = "Corex minimal screenshot binary"
+description       = "Corex minimal screenshot capture binary"
 authors.workspace = true
 
 [[bin]]
-name = "corex-shot"
+name = "corex-capture"
 path = "src/main.rs"
 
 [dependencies]

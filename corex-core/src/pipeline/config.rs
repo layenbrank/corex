@@ -33,6 +33,10 @@ pub struct PipelineArgs {
     #[arg(long, action = ArgAction::SetTrue)]
     pub dry_run: bool,
 
+    /// 单次执行，忽略 yaml 中的 watch/schedule
+    #[arg(long, action = ArgAction::SetTrue)]
+    pub once: bool,
+
     /// 写入 JSON 执行报告
     #[arg(long)]
     pub report_file: Option<PathBuf>,
@@ -63,7 +67,7 @@ pub struct PipelineConfig {
     pub steps: Vec<StepConfig>,
 }
 
-/// 文件监听配置（`corex watch start`）
+/// 文件监听配置（`corex watch run`）
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WatchConfig {
     /// 监听路径（文件或目录，可多个）

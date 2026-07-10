@@ -855,6 +855,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "corex-capture"
+version = "2.0.0"
+dependencies = [
+ "anyhow",
+ "clap",
+ "corex-core",
+]
+
+[[package]]
 name = "corex-core"
 version = "2.0.0"
 dependencies = [
@@ -908,15 +917,6 @@ dependencies = [
 
 [[package]]
 name = "corex-serve"
-version = "2.0.0"
-dependencies = [
- "anyhow",
- "clap",
- "corex-core",
-]
-
-[[package]]
-name = "corex-shot"
 version = "2.0.0"
 dependencies = [
  "anyhow",

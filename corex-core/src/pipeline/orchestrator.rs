@@ -71,6 +71,7 @@ pub fn run_pipeline(pipeline: &PipelineConfig, ctx: &mut PipelineContext) -> Res
                 "×".red().bold(),
                 report.duration_ms
             );
+            eprint_failed(&report);
         }
     } else if !runtime::is_quiet() && !runtime::is_json_output() {
         println!(
@@ -81,6 +82,21 @@ pub fn run_pipeline(pipeline: &PipelineConfig, ctx: &mut PipelineContext) -> Res
     }
 
     Ok(report)
+}
+
+fn eprint_failed(report: &RunReport) {
+    for step in &report.steps {
+        if step.status == StepStatus::Failed {
+            if let Some(ref err) = step.error {
+                eprintln!(
+                    "     {} [{}] {}",
+                    "×".red(),
+                    step.id.as_str().bold(),
+                    err
+                );
+            }
+        }
+    }
 }
 
 /// 并行执行同层步骤；任一步失败则 abort 其余任务。返回 true 表示本层失败。

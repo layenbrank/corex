@@ -72,6 +72,13 @@ pub fn app_error_from_anyhow(err: anyhow::Error) -> AppError {
     }
 }
 
+/// 从错误消息解析 `(step_id, detail)`
+pub fn parse_fail(message: &str) -> Option<(&str, &str)> {
+    let rest = message.strip_prefix("步骤 ")?;
+    let (step_id, detail) = rest.split_once(" 失败: ")?;
+    Some((step_id, detail))
+}
+
 impl From<anyhow::Error> for AppError {
     fn from(err: anyhow::Error) -> Self {
         app_error_from_anyhow(err)

@@ -12,5 +12,8 @@ pub enum Args {
         /// 配置文件路径
         #[arg(short, long)]
         config: Option<String>,
+        /// 仅调度指定 pipeline id（可多次指定）
+        #[arg(short, long)]
+        pipeline: Vec<String>,
     },
 }

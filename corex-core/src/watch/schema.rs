@@ -4,7 +4,7 @@ use clap::{ArgAction, Parser};
 #[derive(Debug, Clone, Parser)]
 pub enum Args {
     /// 启动文件监听守护进程
-    Start {
+    Run {
         /// 配置文件路径
         #[arg(short, long)]
         config: Option<String>,
@@ -22,6 +22,6 @@ pub enum Args {
         excludes: Vec<String>,
         /// 启动后立即执行一次
         #[arg(long)]
-        run_on_start: bool,
+        immediate: bool,
     },
 }

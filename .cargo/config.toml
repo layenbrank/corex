@@ -1,7 +1,8 @@
 [build]
 # 本地编译加速（需已安装 sccache）；CI 通过 RUSTC_WRAPPER="" 覆盖，不使用 sccache
 rustc-wrapper = "sccache"
-incremental = true
+target-dir    = "target"
+incremental   = true
 # 默认目标平台（可通过--target覆盖）
 target = "x86_64-pc-windows-msvc"
 

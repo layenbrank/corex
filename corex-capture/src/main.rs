@@ -2,9 +2,9 @@ use anyhow::Result;
 use clap::Parser;
 use cx::screenshot;
 
-/// 轻量截图工具（仅含 xcap，无完整 corex 依赖）
+/// 轻量截图 capture（等价 `corex screenshot capture --to`）
 #[derive(Debug, Parser)]
-#[command(version, about = "Corex 轻量截图工具")]
+#[command(version, about = "Corex 轻量截图 capture")]
 struct Args {
     /// 截图输出目录
     #[arg(short, long)]

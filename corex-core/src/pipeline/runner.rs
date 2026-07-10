@@ -7,10 +7,8 @@ use crate::runtime::{self, merge_variables};
 use super::config::{
     PipelineArgs, PipelineConfig, ValidateReport, find_config_path, load_config, validate_config,
 };
-use super::context::PipelineContext;
-use super::orchestrator::run_pipeline as orchestrate;
-use super::report::write_report;
 use super::step_params::redact_sensitive_params;
+use super::trigger::{self, label};
 
 /// `corex pipeline` 命令处理
 pub fn run(args: &PipelineArgs) -> Result<()> {
@@ -63,28 +61,17 @@ pub fn run(args: &PipelineArgs) -> Result<()> {
         return Ok(());
     }
 
-    let mut ctx = PipelineContext::with_variables(config.variables.clone());
-    let report = orchestrate(pipeline, &mut ctx)?;
-
-    if runtime::is_json_output() {
-        runtime::state().emitter.json(&report)?;
+    if runtime::is_json_output() && !args.once && pipeline.triggers().any() {
+        anyhow::bail!("守护模式不支持 --format json，请使用 --once");
     }
 
-    if let Some(ref path) = args.report_file {
-        write_report(path, &report)?;
-    }
-
-    if report.status == super::report::RunStatus::Failed {
-        anyhow::bail!("Pipeline 执行失败");
-    }
-
-    Ok(())
+    trigger::run(pipeline, &config, &config_path, args)
 }
 
-pub fn run_pipeline(pipeline: &PipelineConfig, ctx: &mut PipelineContext) -> Result<()> {
-    let report = orchestrate(pipeline, ctx)?;
+pub fn run_pipeline(pipeline: &PipelineConfig, ctx: &mut super::context::PipelineContext) -> Result<()> {
+    let report = super::orchestrator::run_pipeline(pipeline, ctx)?;
     if report.status == super::report::RunStatus::Failed {
-        anyhow::bail!("Pipeline 执行失败");
+        return Err(report.into_err());
     }
     Ok(())
 }
@@ -108,7 +95,12 @@ fn select_pipeline<'a>(
         .iter()
         .map(|p| {
             let desc = p.description.as_deref().unwrap_or(&p.id);
-            format!("▶ {desc} ({} 步)", p.steps.len())
+            let badge = label(p);
+            if badge.is_empty() {
+                format!("▶ {desc} ({} 步)", p.steps.len())
+            } else {
+                format!("▶ {desc} ({badge} · {} 步)", p.steps.len())
+            }
         })
         .collect();
     let idx = dialoguer::Select::with_theme(&ColorfulTheme::default())
@@ -132,8 +124,19 @@ fn dry_run_pipeline(pipeline: &PipelineConfig) {
             .unwrap_or(&pipeline.id)
             .bold()
     );
+    let badge = label(pipeline);
+    if !badge.is_empty() {
+        println!("  触发器: {badge}");
+    }
     if let Some(ref sched) = pipeline.schedule {
         println!("  定时调度: {sched}");
+    }
+    if let Some(ref watch) = pipeline.watch {
+        println!(
+            "  文件监听: {} (debounce {}ms)",
+            watch.paths.join(", "),
+            watch.debounce_ms
+        );
     }
     println!("  步骤数: {}\n", pipeline.steps.len());
     for (i, step) in pipeline.steps.iter().enumerate() {

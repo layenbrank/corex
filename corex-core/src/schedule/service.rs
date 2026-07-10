@@ -12,6 +12,7 @@ use crate::pipeline::config::{
     validate_config,
 };
 use crate::pipeline::context::PipelineContext;
+use crate::pipeline::guard::{self, RunningSet};
 use crate::pipeline::runner::run_pipeline;
 use crate::schedule::schema::Args;
 
@@ -20,12 +21,211 @@ pub fn run(args: &Args) -> Result<()> {
     match args {
         Args::Run => run_interactive(),
         Args::Generate => generate_config_template(),
-        Args::Cron { config } => run_cron(config.as_deref()),
+        Args::Cron { config, pipeline } => run_cron(config.as_deref(), pipeline),
+    }
+}
+
+struct Scheduled {
+    pipeline: PipelineConfig,
+    sched: CronSchedule,
+}
+
+/// 是否存在可调度的 pipeline
+pub fn has_cron(config: &PipelinesConfig, ids: Option<&[String]>) -> bool {
+    !scheduled(config, ids).is_empty()
+}
+
+/// 校验 cron 表达式；有 schedule 字段但解析失败则报错
+pub fn check_cron(config: &PipelinesConfig, ids: Option<&[String]>) -> Result<()> {
+    use std::collections::HashSet;
+    use std::str::FromStr;
+
+    let filter: HashSet<&str> = ids
+        .filter(|ids| !ids.is_empty())
+        .map(|ids| ids.iter().map(String::as_str).collect())
+        .unwrap_or_default();
+
+    let mut matched = false;
+    for pipeline in &config.pipelines {
+        if !filter.is_empty() && !filter.contains(pipeline.id.as_str()) {
+            continue;
+        }
+        let Some(expr) = pipeline.schedule.as_deref() else {
+            continue;
+        };
+        matched = true;
+        CronSchedule::from_str(expr).map_err(|e| {
+            anyhow::anyhow!(
+                "Pipeline '{}' cron 表达式无效 ({}): {}",
+                pipeline.id,
+                expr,
+                e
+            )
+        })?;
+    }
+
+    if !matched {
+        anyhow::bail!(
+            "配置文件中没有任何 Pipeline 设置了 schedule 字段\n\
+             提示: 在 pipeline 配置中添加 `schedule: \"*/5 * * * *\"` 即可定时执行"
+        );
+    }
+
+    Ok(())
+}
+
+/// 解析带 schedule 的 pipeline；`ids` 为 None 或空时取全部
+fn scheduled(config: &PipelinesConfig, ids: Option<&[String]>) -> Vec<Scheduled> {
+    use std::collections::HashSet;
+
+    let filter: HashSet<&str> = ids
+        .filter(|ids| !ids.is_empty())
+        .map(|ids| ids.iter().map(String::as_str).collect())
+        .unwrap_or_default();
+
+    config
+        .pipelines
+        .iter()
+        .filter(|p| filter.is_empty() || filter.contains(p.id.as_str()))
+        .filter_map(|p| {
+            p.schedule.as_ref().and_then(|expr| match CronSchedule::from_str(expr) {
+                Ok(sched) => Some(Scheduled {
+                    pipeline: p.clone(),
+                    sched,
+                }),
+                Err(e) => {
+                    eprintln!(
+                        "  {} Pipeline '{}' cron 表达式无效 ({}): {}",
+                        "×".red(),
+                        p.id,
+                        expr,
+                        e
+                    );
+                    None
+                }
+            })
+        })
+        .collect()
+}
+
+/// 常驻 cron 循环
+pub fn serve(config: &PipelinesConfig, ids: Option<&[String]>) -> Result<()> {
+    check_cron(config, ids)?;
+    let items = scheduled(config, ids);
+
+    if items.is_empty() {
+        anyhow::bail!(
+            "配置文件中没有任何 Pipeline 设置了 schedule 字段\n\
+             提示: 在 pipeline 配置中添加 `schedule: \"*/5 * * * *\"` 即可定时执行"
+        );
+    }
+
+    print_banner("Corex · 定时调度器");
+
+    println!(
+        "  {} 已加载 {} 条定时 Pipeline（共 {} 条）\n",
+        "✓".green().bold(),
+        items.len(),
+        config.pipelines.len()
+    );
+
+    for item in &items {
+        let next = item.sched.upcoming(Local).next();
+        let next_str = next
+            .map(|t| t.format("%Y-%m-%d %H:%M:%S").to_string())
+            .unwrap_or_else(|| "无".to_string());
+        println!(
+            "  {} {} — schedule: {:?} — 下次执行: {}",
+            "▸".cyan(),
+            item.pipeline
+                .description
+                .as_deref()
+                .unwrap_or(&item.pipeline.id)
+                .bold(),
+            item.pipeline.schedule.as_deref().unwrap_or(""),
+            next_str.dim()
+        );
+    }
+    println!();
+    println!("  {} 等待定时任务触发...（Ctrl+C 退出）\n", "⏳".yellow());
+
+    serve_loop(config, items, guard::new_set())
+}
+
+/// cron 主循环（无 banner，供 trigger 并行模式使用）
+pub(crate) fn loop_for(
+    config: &PipelinesConfig,
+    ids: &[String],
+    running: RunningSet,
+) -> Result<()> {
+    let items = scheduled(config, Some(ids));
+    if items.is_empty() {
+        anyhow::bail!("未找到有效的 schedule 配置");
+    }
+    serve_loop(config, items, running)
+}
+
+/// cron 主循环（无 banner）
+fn serve_loop(
+    config: &PipelinesConfig,
+    items: Vec<Scheduled>,
+    running: RunningSet,
+) -> Result<()> {
+    let mut next_runs: std::collections::HashMap<String, chrono::DateTime<Local>> =
+        std::collections::HashMap::new();
+
+    for item in &items {
+        if let Some(next) = item.sched.upcoming(Local).next() {
+            next_runs.insert(item.pipeline.id.clone(), next);
+        }
+    }
+
+    loop {
+        let now = Local::now();
+
+        for item in &items {
+            let should_run = next_runs
+                .get(&item.pipeline.id)
+                .map(|&next| now >= next)
+                .unwrap_or(false);
+
+            if should_run {
+                println!(
+                    "\n  {} [{}] 定时触发: {}",
+                    "⏰".yellow().bold(),
+                    Local::now().format("%H:%M:%S").to_string().bold(),
+                    item.pipeline
+                        .description
+                        .as_deref()
+                        .unwrap_or(&item.pipeline.id)
+                        .bold()
+                );
+
+                guard::run_sync(
+                    &running,
+                    &item.pipeline,
+                    &config.variables,
+                    "定时",
+                );
+
+                if let Some(next) = item.sched.upcoming(Local).next() {
+                    next_runs.insert(item.pipeline.id.clone(), next);
+                    println!(
+                        "  {} 下次执行: {}",
+                        "⏳".yellow(),
+                        next.format("%Y-%m-%d %H:%M:%S").to_string().dim()
+                    );
+                }
+                println!();
+            }
+        }
+
+        std::thread::sleep(std::time::Duration::from_secs(1));
     }
 }
 
 /// 以守护进程模式运行，按 cron 表达式定时执行 Pipeline
-fn run_cron(config_path: Option<&str>) -> Result<()> {
+fn run_cron(config_path: Option<&str>, pipeline: &[String]) -> Result<()> {
     let config_path = config_path
         .map(std::path::PathBuf::from)
         .unwrap_or_else(find_config_path);
@@ -40,109 +240,12 @@ fn run_cron(config_path: Option<&str>) -> Result<()> {
     let config = load_config(&config_path)?;
     validate_config(&config)?;
 
-    let scheduled: Vec<(&PipelineConfig, CronSchedule)> = config
-        .pipelines
-        .iter()
-        .filter_map(|p| {
-            p.schedule
-                .as_ref()
-                .and_then(|expr| match CronSchedule::from_str(expr) {
-                    Ok(sched) => Some((p, sched)),
-                    Err(e) => {
-                        eprintln!(
-                            "  {} Pipeline '{}' cron 表达式无效 ({}): {}",
-                            "×".red(),
-                            p.id,
-                            expr,
-                            e
-                        );
-                        None
-                    }
-                })
-        })
-        .collect();
-
-    if scheduled.is_empty() {
-        anyhow::bail!(
-            "配置文件中没有任何 Pipeline 设置了 schedule 字段\n\
-             提示: 在 pipeline 配置中添加 `schedule: \"*/5 * * * *\"` 即可定时执行"
-        );
-    }
-
-    print_banner("Corex · 定时调度器");
-
-    println!(
-        "  {} 已加载 {} 条定时 Pipeline（共 {} 条）\n",
-        "✓".green().bold(),
-        scheduled.len(),
-        config.pipelines.len()
-    );
-
-    for (p, sched) in &scheduled {
-        let next = sched.upcoming(Local).next();
-        let next_str = next
-            .map(|t| t.format("%Y-%m-%d %H:%M:%S").to_string())
-            .unwrap_or_else(|| "无".to_string());
-        println!(
-            "  {} {} — schedule: {:?} — 下次执行: {}",
-            "▸".cyan(),
-            p.description.as_deref().unwrap_or(&p.id).bold(),
-            p.schedule.as_deref().unwrap_or(""),
-            next_str.dim()
-        );
-    }
-    println!();
-    println!("  {} 等待定时任务触发...（Ctrl+C 退出）\n", "⏳".yellow());
-
-    let mut next_runs: std::collections::HashMap<String, chrono::DateTime<Local>> =
-        std::collections::HashMap::new();
-
-    for (pipeline, sched) in &scheduled {
-        if let Some(next) = sched.upcoming(Local).next() {
-            next_runs.insert(pipeline.id.clone(), next);
-        }
-    }
-
-    loop {
-        let now = Local::now();
-
-        for (pipeline, sched) in &scheduled {
-            let should_run = next_runs
-                .get(&pipeline.id)
-                .map(|&next| now >= next)
-                .unwrap_or(false);
-
-            if should_run {
-                println!(
-                    "\n  {} [{}] 定时触发: {}",
-                    "⏰".yellow().bold(),
-                    Local::now().format("%H:%M:%S").to_string().bold(),
-                    pipeline
-                        .description
-                        .as_deref()
-                        .unwrap_or(&pipeline.id)
-                        .bold()
-                );
-
-                let mut ctx = PipelineContext::with_variables(config.variables.clone());
-                if let Err(e) = run_pipeline(pipeline, &mut ctx) {
-                    eprintln!("  {} Pipeline '{}' 执行失败: {}", "×".red(), pipeline.id, e);
-                }
-
-                if let Some(next) = sched.upcoming(Local).next() {
-                    next_runs.insert(pipeline.id.clone(), next);
-                    println!(
-                        "  {} 下次执行: {}",
-                        "⏳".yellow(),
-                        next.format("%Y-%m-%d %H:%M:%S").to_string().dim()
-                    );
-                }
-                println!();
-            }
-        }
-
-        std::thread::sleep(std::time::Duration::from_secs(1));
-    }
+    let ids = if pipeline.is_empty() {
+        None
+    } else {
+        Some(pipeline)
+    };
+    serve(&config, ids)
 }
 
 fn run_interactive() -> Result<()> {
@@ -527,4 +630,65 @@ fn print_banner(title: &str) {
     );
     println!("{}", format!("╰{}╯", "─".repeat(width)).cyan().bold());
     println!();
+}
+
+#[cfg(test)]
+mod filter_tests {
+    use super::*;
+    use crate::pipeline::config::{PipelineConfig, PipelinesConfig};
+
+    fn config_with_schedules() -> PipelinesConfig {
+        PipelinesConfig {
+            version: 3,
+            variables: Default::default(),
+            pipelines: vec![
+                PipelineConfig {
+                    id: "a".into(),
+                    description: None,
+                    schedule: Some("0 * * * * *".into()),
+                    watch: None,
+                    steps: vec![],
+                },
+                PipelineConfig {
+                    id: "b".into(),
+                    description: None,
+                    schedule: Some("0 0 9 * * *".into()),
+                    watch: None,
+                    steps: vec![],
+                },
+            ],
+        }
+    }
+
+    #[test]
+    fn has_cron_all_when_ids_none() {
+        let cfg = config_with_schedules();
+        assert!(has_cron(&cfg, None));
+    }
+
+    #[test]
+    fn has_cron_filters_by_id() {
+        let cfg = config_with_schedules();
+        assert!(has_cron(&cfg, Some(&["a".into()])));
+        assert!(!has_cron(&cfg, Some(&["missing".into()])));
+    }
+
+    #[test]
+    fn check_cron_rejects_invalid_expression() {
+        let cfg = PipelinesConfig {
+            version: 3,
+            variables: Default::default(),
+            pipelines: vec![PipelineConfig {
+                id: "bad".into(),
+                description: None,
+                schedule: Some("not a cron".into()),
+                watch: None,
+                steps: vec![],
+            }],
+        };
+        let err = check_cron(&cfg, Some(&["bad".into()]))
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("cron 表达式无效"));
+    }
 }

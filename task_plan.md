@@ -15,6 +15,7 @@
 | 5 | ExitStatus 精细映射 | complete |
 | 6 | 契约测试 + 文档 | complete |
 | 7 | watch 模块 + utils/filter 重命名 | complete |
+| 8 | 触发集成：命名优化、guard 锁、文档同步 | complete |
 
 ## 模块契约
 - `execute()` → `Output` → `Artifact`
@@ -24,4 +25,11 @@
 ## watch 模块（Phase 7）
 - `utils/ignore.rs` → `utils/filter.rs`（includes/excludes）
 - `PipelineConfig.watch: Option<WatchConfig>`
-- `corex watch start` — debounce 后重跑 Pipeline
+- `corex watch run` — debounce 后重跑 Pipeline
+
+## 触发集成（Phase 8）
+- `pipeline/trigger.rs` — `run_mode` / `check` / `serve_dual`
+- `pipeline/guard.rs` — `new_set` / `spawn` / `run_sync` 共享 `RunningSet`
+- `watch::resolve` / `run_loop`；`schedule::check_cron` / `loop_for`
+- `report::into_err` / `message`；`runtime::parse_fail`
+- `corex pipeline --once` 强制单次；yaml 有 watch/schedule 时自动守护
