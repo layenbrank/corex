@@ -1,12 +1,12 @@
 [workspace]
-members = ["corex", "corex-core", "corex-capture", "corex-serve"]
+members  = ["corex", "corex-core", "corex-capture", "corex-serve"]
 resolver = "2"
 
 [workspace.package]
-version = "2.0.0"
-edition = "2024"
+version     = "2.0.2"
+edition     = "2024"
 description = "corex-cli"
-authors = ["layen"]
+authors     = ["layen"]
 
 [workspace.dependencies]
 anyhow = "1.0.103"
@@ -68,9 +68,9 @@ tempfile = "3.27.0"
 
 
 [profile.release]
-opt-level = 3
-lto = true
+opt-level     = 3
+lto           = true
 codegen-units = 1
-incremental = false
-panic = "abort"
-strip = "symbols"
+incremental   = false
+panic         = "abort"
+strip         = "symbols"
