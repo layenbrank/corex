@@ -13,6 +13,7 @@ permissions:
 
 env:
   CARGO_TERM_COLOR: always
+  RUSTC_WRAPPER: ""
   TARGET_DIR: target/x86_64-pc-windows-msvc/release
   BINARY_NAME: corex.exe
 
