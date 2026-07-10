@@ -10,13 +10,11 @@ target = "x86_64-pc-windows-msvc"
 [target.x86_64-pc-windows-msvc]
 # 使用MSVC链接器（需安装Visual Studio构建工具）
 linker = "link.exe"
+# 勿在此处设置 opt-level / target-cpu=native：会作用于 debug/test，
+# 且 CI 缓存 target/ 时可能在不同 CPU 的 runner 间复用不兼容的目标文件（0xC000001D）。
+# Release 优化见 workspace Cargo.toml [profile.release]；
+# 本地 release 可按需：$env:RUSTFLAGS='-C target-cpu=native'
 rustflags = [
-  "-C",
-  "opt-level=3",                 #
-  "-C",
-  "codegen-units=16",            # 单一代码生成单元以提升优化效果
-  "-C",
-  "target-cpu=native",           # CPU指令集优化
   "-C",
   "target-feature=+crt-static",  # 静态链接MSVC运行时
   "-C",

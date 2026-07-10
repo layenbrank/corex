@@ -85,7 +85,7 @@ pub(crate) fn resolve(
 }
 
 /// 常驻文件监听；`targets` 已解析时跳过 resolve
-pub fn serve(
+pub(crate) fn serve(
     config: &PipelinesConfig,
     _config_path: &Path,
     ids: &[String],

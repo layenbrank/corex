@@ -47,7 +47,7 @@ base64 = "0.22"
 md-5 = "0.11"
 sysinfo = "0.39.6"
 arboard = "3.4"
-lopdf = "0.42.0"
+lopdf = "0.44.0"
 docx-rs = "0.4"
 rust_xlsxwriter = "0.96.0"
 pdfium-render = { version = "0.9.1", features = [
