@@ -1,61 +1,42 @@
-# Task Plan: Corex 全阶段详细文档
+# Task Plan: 文档与 Rust 代码同步
 
 ## Goal
 
-生成完整中文技术文档体系（主文档 + 三份专题文档），覆盖架构重构阶段 1–4、CLI/Daemon 用法、IPC 协议与 Tauri 接入，并修复缺失的 `ipc` example。
+对照实际 Rust 源码修正 `docs/` 与 `README.md` 中的不准确描述，使文档与 `serve/pipe`、`schema`、CLI 子命令一致。
 
 ## Current Phase
 
-Phase 5 — Delivery
+Phase 4 — Verification
 
 ## Phases
 
-### Phase 1: Requirements & Discovery
-- [x] 阅读计划与源码（serve、command、Cargo.toml、examples/tauri）
-- [x] 记录调研结论到 findings.md
+### Phase 1: 代码审计
+- [x] 对照 pipe/windows.rs、各 schema.rs、command/mod.rs
+- [x] 记录差异到 findings.md
 - **Status:** complete
 
-### Phase 2: Planning Files
-- [x] 创建 task_plan.md / findings.md / progress.md
-- **Status:** complete
-
-### Phase 3: 主文档与专题文档
-- [x] docs/architecture-and-tauri-integration.md
-- [x] docs/architecture.md
+### Phase 2: IPC / 架构文档修正
 - [x] docs/ipc-protocol.md
-- [x] docs/tauri-integration.md
+- [x] docs/architecture.md
+- [x] docs/architecture-and-tauri-integration.md
 - **Status:** complete
 
-### Phase 4: 配套修复与索引
-- [x] 恢复 corex-core/examples/ipc.rs
-- [x] 更新 examples/tauri/README.md 交叉链接
-- [x] 更新 README.md 文档索引
+### Phase 3: README 修正
+- [x] shade、compression 子命令、binary 表
 - **Status:** complete
 
-### Phase 5: Delivery
-- [x] 验收文档链接与 example 可编译
+### Phase 4: 验证
+- [x] cargo test / check
 - **Status:** complete
 
-## Key Questions
+## Key Corrections
 
-1. 文档组织方式？→ 主文档 + 三份专题文档（用户已确认）
-2. ipc example 是否缺失？→ 是，需恢复
-
-## Decisions Made
-
-| Decision | Rationale |
-|----------|-----------|
-| 主文档作入口，细节下沉专题 | 避免重复，便于维护 |
-| 不修改 plan 文件本身 | 用户明确要求 |
-| 恢复 ipc.rs 而非仅文档引用 | Cargo.toml 已声明 example |
+1. `handle_client` 同连接可多行 Invoke（非单次即断）
+2. generate Path/File、bootstrap unit enum args 示例
+3. README compression 改为 zip/unzip 子命令
 
 ## Errors Encountered
 
 | Error | Attempt | Resolution |
 |-------|---------|------------|
-| corex-core/examples/ipc.rs 不存在 | 1 | 按计划恢复文件 |
-
-## Notes
-
-- 阶段 4 Tauri 集成：示例代码已提供，实际 Tauri 项目集成由用户自行完成
-- 阶段 5 基准测试：文档中标注为待办，不在本次范围
+| （无） | — | — |

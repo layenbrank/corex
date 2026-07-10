@@ -6,6 +6,8 @@
 
 Corex 从 Tauri 项目中独立拆分，重依赖（xcap、image、tokio 等）保留在本仓库。Tauri 作为瘦客户端，通过 Named Pipe 调用 `corex-serve` Daemon，**不**链回 `corex-core` 库。
 
+**Workspace：** `corex-core`（库 `cx`）、`corex`（完整 CLI）、`corex-serve`（Daemon）、`corex-shot`（轻量截图）。
+
 | 文档 | 说明 |
 |------|------|
 | [docs/architecture-and-tauri-integration.md](docs/architecture-and-tauri-integration.md) | 架构总览、四阶段改动、快速开始 |
@@ -58,11 +60,26 @@ corex schedule cron
 | `corex generate path`               | 扫描目录并生成路径列表    |
 | `corex generate uuid`               | 生成 UUID                 |
 | `corex generate file`               | 基于模板生成文件          |
-| `corex compression`                 | 将目录打包为 ZIP/WGT      |
+| `corex compression zip`             | 将目录打包为 ZIP/WGT      |
+| `corex compression unzip`           | 解压 ZIP 文件             |
 | `corex screenshot`                  | 截图                      |
+| `corex shade`                       | 图片格式转换 / 压缩       |
 | `corex bootstrap env/inspect/force` | 环境初始化与检查          |
 | `corex pipeline`                    | 执行 YAML 定义的 Pipeline |
 | `corex schedule run/generate/cron`  | 任务调度器                |
+
+### 独立 Binary
+
+| Binary        | 说明                                      |
+| ------------- | ----------------------------------------- |
+| `corex`       | 完整 CLI（`features = all`）              |
+| `corex-serve` | Named Pipe Daemon，供 Tauri sidecar 使用  |
+| `corex-shot`  | 仅截图，无完整 corex 依赖                 |
+
+```powershell
+cargo build -p corex-serve --release
+cargo run -p corex-shot -- --to C:\Temp\screenshots
+```
 
 ---
 
@@ -272,19 +289,48 @@ corex generate uuid --count 5 --uppercase
 
 ## 压缩打包 (compression)
 
-将目录中所有文件打包为 ZIP 文件（适用于 H5+ `.wgt` 构建产物）。
+将目录打包为 ZIP 或解压 ZIP 文件（适用于 H5+ `.wgt` 构建产物）。
 
-### 参数
+### 子命令
+
+| 子命令 | 说明         |
+| ------ | ------------ |
+| `zip`  | 压缩打包     |
+| `unzip`| 解压 ZIP     |
+
+### 参数（zip / unzip 共用）
 
 | 参数     | 缩写 | 必填 | 说明               |
 | -------- | ---- | ---- | ------------------ |
-| `--from` | `-f` | ✓    | 源目录路径         |
-| `--to`   | `-t` | ✓    | 输出压缩包文件路径 |
+| `--from` | `-f` | ✓    | 源目录或 ZIP 路径  |
+| `--to`   | `-t` | ✓    | 输出路径           |
 
 ### 使用示例
 
 ```powershell
-corex compression -f C:\app\dist -t C:\app\release\app.wgt
+corex compression zip -f C:\app\dist -t C:\app\release\app.wgt
+corex compression unzip -f C:\app\release\app.wgt -t C:\app\extracted
+```
+
+---
+
+## 图片处理 (shade)
+
+图片格式转换或压缩（png / jpg / webp / bmp）。
+
+### 参数
+
+| 参数       | 缩写 | 必填 | 默认值 | 说明                          |
+| ---------- | ---- | ---- | ------ | ----------------------------- |
+| `--from`   | `-f` | ✓    | -      | 输入图片或目录                |
+| `--to`     | `-t` | ✓    | -      | 输出路径                      |
+| `--format` | `-o` | ✗    | -      | 输出格式（留空按扩展名推断）  |
+| `--quality`| `-q` | ✗    | `100`  | 质量 1–100（仅 jpg 有效）     |
+
+### 使用示例
+
+```powershell
+corex shade -f C:\images\photo.png -t C:\out\photo.webp -o webp
 ```
 
 ---

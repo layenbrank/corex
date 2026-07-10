@@ -236,26 +236,34 @@ Tauri shortcut
 
 ```
 Tauri shortcut / tray / hotkey
-└── corex_ipc::screenshot()               [<1ms IPC]
-    └── Named Pipe \\.\pipe\corex
-        └── serve::handle_client
-            └── dispatch::handle_invoke
-                └── screenshot::capture(args, cached_monitors)
-                    └── capture_image → save
+└── corex_ipc::screenshot() / cx::serve::request()
+    └── pipe::send_request()
+        └── open_pipe_file → write JSON → read_line
+            └── [Named Pipe] corex-serve (已运行)
+                └── handle_client (private)
+                    └── dispatch::handle_invoke
+                        └── screenshot::capture(args, cached_monitors)
+                            └── capture_image → save
 ```
 
 ### serve 模块 callee 图
 
 ```
-serve::run
-├── DaemonState::init()          → Monitor::all() 一次
-└── pipe::run_server()
-    └── handle_client()
-        ├── protocol::parse_request()
-        ├── dispatch::handle_invoke()
-        │   └── dispatch() → {copy|scrub|shade|...}::run
-        │                  → screenshot::capture(cached)
-        └── Response JSON
+corex-serve main
+└── cx::serve::run
+    ├── DaemonState::init()          → Monitor::all() 一次
+    └── pipe::run_server()
+        └── handle_client (private)
+            ├── protocol::parse_request()
+            ├── dispatch::handle_invoke()
+            │   └── dispatch() → {copy|scrub|shade|...}::run
+            │                  → screenshot::capture(cached)
+            └── write_response()
+
+客户端（Tauri / ipc example）
+└── corex_ipc::invoke / serve::request
+    └── pipe::send_request()
+        └── open_pipe_file → write → read_line
 ```
 
 ```mermaid

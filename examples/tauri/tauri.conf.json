@@ -1,0 +1,33 @@
+{
+	"$schema": "https://schema.tauri.app/config/2",
+	"app": {
+		"security": {
+			"csp": null
+		},
+		"windows": [
+			{
+				"height": 600,
+				"label": "main",
+				"title": "MyApp",
+				"visible": false,
+				"width": 800
+			}
+		]
+	},
+	"build": {
+		"beforeBuildCommand": "node scripts/copy-corex-serve.mjs",
+		"beforeDevCommand": "",
+		"devUrl": "http://localhost:1420",
+		"frontendDist": "../dist"
+	},
+	"bundle": {
+		"active": true,
+		"externalBin": ["binaries/corex-serve"],
+		"resources": [],
+		"targets": "all"
+	},
+	"identifier": "com.example.myapp",
+	"plugins": {},
+	"productName": "MyApp",
+	"version": "0.1.0"
+}

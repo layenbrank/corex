@@ -52,3 +52,24 @@ serve → daemon → [cli + 业务模块，无 pipeline/schedule]
 - `docs/corex.task.schema.README.md` — JSON Schema
 - `docs/worktree.md` — Git worktree
 - `examples/tauri/README.md` — Tauri 集成速查
+
+## 代码-文档差异审计（2026-07-10）
+
+| 项 | 文档原描述 | 源码实际 |
+|----|-----------|----------|
+| IPC 连接 | 单连接单次请求-响应 | `handle_client` loop 支持同连接多行 Invoke |
+| Shutdown | （未说明） | 不写响应，直接退出 Daemon |
+| 解析失败 | id 与请求一致 | `Response::failure(0, ...)` |
+| generate Path | 仅 from/to | 必填还有 transform、separator |
+| generate File | 字段 `from` | 实际为 template / fragment |
+| bootstrap | `"Env": {}` | unit enum 为 `{"Env": null}` |
+| README compression | `corex compression -f` | 子命令 `zip` / `unzip` |
+| README shade | 缺失 | CLI 已有 shade 命令 |
+
+## serve 模块流程（更正）
+
+1. `serve::run` → `DaemonState::init()`
+2. `pipe::run_server` → CreateNamedPipe → `handle_client`（loop 读行）
+3. 每行 Invoke → `handle_invoke` → 写响应；Shutdown → 退出
+4. 连接结束 → `disconnect_pipe_file`
+

@@ -186,20 +186,18 @@ pub fn shutdown(pipe_name: &str) -> anyhow::Result<()>;
 ```mermaid
 stateDiagram-v2
     [*] --> Init: serve::run
-    Init --> Listen: DaemonState.init Monitor cache
+    Init --> Listen: DaemonState.init
     Listen --> HandleClient: client connects
-    HandleClient --> Invoke: parse_request Invoke
-    HandleClient --> Shutdown: parse_request Shutdown
-    Invoke --> Listen: response sent disconnect
-    Shutdown --> [*]: exit loop
-    Listen --> Listen: wait next client
+    HandleClient --> HandleClient: Invoke 写响应后继续读
+    HandleClient --> Listen: disconnect_pipe_file
+    HandleClient --> [*]: Shutdown
 ```
 
 1. **启动**：`DaemonState::init()` 调用 `Monitor::all()` 并缓存
 2. **监听**：`CreateNamedPipeW` 循环等待连接
-3. **处理**：读一行 JSON → `parse_request` → invoke 或 shutdown
-4. **响应**：写入 JSON + `\n`，断开连接
-5. **退出**：收到 Shutdown 或 Ctrl+C
+3. **处理**：`handle_client` loop 读行 JSON → invoke 或 shutdown
+4. **响应**：每行 Invoke 写入 JSON + `\n`；连接结束才 `disconnect_pipe_file`
+5. **退出**：收到 Shutdown（无响应）或 Ctrl+C
 
 ### Monitor 缓存
 
@@ -255,11 +253,11 @@ CLI 路径调用 `capture(args, None)`；Daemon 路径传入 `state.monitors.as_
 |-----------|------|
 | `MAX_LINE_BYTES` | 64KB 请求行上限 |
 | `run_server` | 服务端主循环 |
-| `handle_client` | 单连接请求-响应 |
-| `send_request` | 库内 IPC 客户端 |
+| `handle_client` | 单连接多行协议（loop 读 Invoke，Shutdown 退出） |
+| `send_request` | 库内 IPC 客户端（每请求新连接） |
 | `send_shutdown` | 发送 shutdown 请求 |
 
-非 Windows 平台：`pipe/mod.rs` 直接 `bail!("仅支持 Windows")`。
+非 Windows 平台：`pipe/mod.rs` 返回 `bail!("corex serve 当前仅支持 Windows Named Pipe")`。
 
 协议详情见 [ipc-protocol.md](./ipc-protocol.md)。
 

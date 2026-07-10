@@ -16,9 +16,9 @@
 | 编码 | UTF-8 JSON |
 | 帧格式 | 单行 JSON + `\n`（LF）换行 |
 | 请求行上限 | 64 KB（`MAX_LINE_BYTES`） |
-| 连接模式 | 单连接单次请求-响应，处理后断开 |
+| 连接模式 | 服务端同连接可多行 Invoke；官方客户端每请求新建连接 |
 
-非 Windows 平台：`serve::run` 与 Pipe 客户端均不可用。
+非 Windows 平台：`serve::run` 与 Pipe 客户端均不可用（`pipe/mod.rs` 返回 bail）。
 
 ---
 
@@ -61,7 +61,7 @@
 {"cmd":"shutdown"}
 ```
 
-收到 Shutdown 后，Daemon 处理完当前连接即退出主循环。
+收到 Shutdown 后，Daemon **不**返回响应，处理完当前连接后退出主循环。
 
 ---
 
@@ -149,12 +149,13 @@ args 字段与各模块 `schema::Args` 的 serde 结构一致，可直接对照 
   "args": {
     "from": "C:/images",
     "to": "C:/output",
-    "format": "webp"
+    "format": "webp",
+    "quality": 100
   }
 }
 ```
 
-字段以 `shade/schema.rs` 为准。
+`quality` 默认 100，仅对 jpg 有效。完整字段见 `shade/schema.rs`。
 
 ### compression
 
@@ -198,11 +199,19 @@ args 为 tagged enum，与 CLI 子命令对应：
   "args": {
     "Path": {
       "from": "C:/scan",
-      "to": "C:/paths.txt"
+      "to": "C:/paths.txt",
+      "transform": "{path}",
+      "separator": "/",
+      "index": 0,
+      "pad": false,
+      "includes": [],
+      "excludes": []
     }
   }
 }
 ```
+
+`transform` 与 `separator` 为必填字段。
 
 **Uuid：**
 
@@ -225,12 +234,16 @@ args 为 tagged enum，与 CLI 子命令对应：
   "module": "generate",
   "args": {
     "File": {
-      "from": "C:/template.hbs",
-      "to": "C:/out/file.txt"
+      "to": "C:/out/file.txt",
+      "template": "C:/template.hbs",
+      "fragment": null,
+      "variable": []
     }
   }
 }
 ```
+
+使用 `template`（模板文件）或 `fragment`（直接内容）之一，无 `from` 字段。
 
 Uuid 成功时 `path` 为 null。
 
@@ -239,23 +252,24 @@ Uuid 成功时 `path` 为 null。
 ```json
 {
   "module": "bootstrap",
-  "args": {
-    "Env": {}
-  }
+  "args": { "Env": null }
 }
 ```
 
-子命令结构见 `bootstrap/schema.rs`（Env / Inspect / Force）。
+可选值：`Env`、`Inspect`、`Force`（unit variant，见 `bootstrap/schema.rs`）。
 
 ---
 
 ## 并发与错误语义
 
-- Daemon **串行**处理连接：一个 Pipe 连接处理完再接受下一个
-- 单连接内只处理**第一行** JSON 请求，然后返回响应并断开
-- 空行或非法 JSON：返回错误响应或跳过（见 `handle_client` 实现）
+- Daemon **串行**接受连接：`run_server` 循环中一次处理一个 Pipe 连接
+- **同连接多请求**：`handle_client` 内 loop 持续读行；每行 Invoke 写一行响应后**继续读**，直到 Shutdown、EOF 或读错误
+- **官方客户端**：`send_request` / `corex_ipc` 每次新建连接、发送一行、读一行响应后关闭（推荐用法）
+- 请求行超过 64KB：读失败，连接断开
+- 空行或非法 JSON：返回 `{"id":0,"ok":false,...}` 错误响应（id 固定为 0）
 - 未知 module：返回 `ok: false`，error 含 `"未知或未启用的模块"`
 - args 解析失败：返回 `ok: false`，error 含 serde 上下文
+- Shutdown：Daemon **不**写响应，直接退出
 
 ---
 
@@ -311,7 +325,7 @@ cargo run -p corex-core --example ipc --features serve -- C:\Temp\screenshots
 未来可能扩展：
 
 - Unix Domain Socket（非 Windows）
-- 长连接复用（当前每请求新连接）
+- 客户端长连接复用（服务端已支持同连接多请求）
 - pipeline/schedule 模块（当前仅 CLI）
 
 ---
