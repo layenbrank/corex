@@ -176,4 +176,4 @@ let resp = corex_ipc::invoke("screenshot", serde_json::json!({ "Windows": null }
 let windows = resp.data.unwrap();
 ```
 
-> `morph` 依赖系统 Pdfium 动态库，与 i-thinking 相同约束。详见 [ipc-protocol.md](../../docs/ipc-protocol.md)。
+> `morph` 依赖与 sidecar 同目录的 `pdfium.dll`（`copy-corex-serve.mjs` 会自动复制）。详见 [ipc-protocol.md](../../docs/ipc-protocol.md)。

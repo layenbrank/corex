@@ -192,7 +192,7 @@ args 为三层 enum：操作 → 算法 → 参数。算法名必填，不可省
 
 ### morph
 
-PDF 操作需系统安装 Pdfium 动态库。args 为 tagged enum，与 CLI 子命令对应。
+PDF 操作依赖与 `corex.exe` 同目录的 `pdfium.dll`（发布 zip 已包含）。args 为 tagged enum，与 CLI 子命令对应。
 
 **Meta：**
 

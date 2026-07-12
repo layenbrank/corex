@@ -1,3 +1,6 @@
 /target
 /cache
+/assets/pdfium/**/*.dll
+NUL
+NUL.*
 # examples/

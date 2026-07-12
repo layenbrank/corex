@@ -4,6 +4,7 @@ version.workspace = true
 edition.workspace = true
 description       = "Corex daemon for Tauri IPC via Named Pipe"
 authors.workspace = true
+build             = "build.rs"
 
 [[bin]]
 name = "corex-serve"

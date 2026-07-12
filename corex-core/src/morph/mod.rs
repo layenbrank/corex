@@ -1,5 +1,6 @@
 pub mod parse;
 pub mod schema;
+mod pdfium;
 mod search;
 pub mod service;
 

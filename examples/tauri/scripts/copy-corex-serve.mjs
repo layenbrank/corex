@@ -41,3 +41,20 @@ if (!fs.existsSync(src)) {
 fs.mkdirSync(outDir, { recursive: true })
 fs.copyFileSync(src, dest)
 console.log(`[copy-corex-serve] ${src} -> ${dest}`)
+
+const pdfiumCandidates = [
+	process.env.COREX_PDFIUM_DIR
+		? path.join(process.env.COREX_PDFIUM_DIR, 'pdfium.dll')
+		: null,
+	path.resolve(tauriDir, '..', '..', 'corex', 'assets', 'pdfium', targetTriple, 'pdfium.dll'),
+	path.resolve(tauriDir, '..', '..', 'assets', 'pdfium', targetTriple, 'pdfium.dll'),
+].filter(Boolean)
+
+const pdfiumSrc = pdfiumCandidates.find((p) => p && fs.existsSync(p))
+if (pdfiumSrc) {
+	const pdfiumDest = path.join(outDir, 'pdfium.dll')
+	fs.copyFileSync(pdfiumSrc, pdfiumDest)
+	console.log(`[copy-corex-serve] ${pdfiumSrc} -> ${pdfiumDest}`)
+} else {
+	console.warn('[copy-corex-serve] 未找到 pdfium.dll，morph 模块将无法使用（可运行 scripts/download-pdfium.ps1）')
+}

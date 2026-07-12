@@ -73,9 +73,7 @@ fn ensure_page_count(page_count: usize, op: &str) -> Result<()> {
 fn load_pdfium() -> Result<std::sync::MutexGuard<'static, Pdfium>> {
     PDFIUM
         .get_or_init(|| {
-            Pdfium::bind_to_system_library()
-                .map(|b| Mutex::new(Pdfium::new(b)))
-                .map_err(|e| format!("pdfium library not found: {e}"))
+            super::pdfium::load().map(|b| Mutex::new(Pdfium::new(b)))
         })
         .as_ref()
         .map_err(|e| anyhow::anyhow!(e.clone()))?

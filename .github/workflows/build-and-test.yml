@@ -1,4 +1,4 @@
-name: Corex CI
+name: Build and Test
 
 on:
   push:
@@ -9,9 +9,11 @@ on:
 env:
   CARGO_TERM_COLOR: always
   RUSTC_WRAPPER: ""
+  CARGO_INCREMENTAL: "0"
 
 jobs:
-  build-windows:
+  windows:
+    name: windows
     runs-on: windows-latest
 
     steps:
@@ -29,11 +31,12 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
           key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
-      - name: Update dependencies
-        run: cargo update
 
-      - name: Build on Windows
-        run: cargo build --verbose
+      - name: Download native dependencies
+        run: pwsh -File scripts/download-pdfium.ps1
 
-      - name: Run tests on Windows
-        run: cargo test --verbose
+      - name: Build workspace (debug)
+        run: cargo build --workspace --locked --verbose
+
+      - name: Test workspace (debug)
+        run: cargo test --workspace --locked --verbose

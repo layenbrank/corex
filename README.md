@@ -394,7 +394,7 @@ Pipeline / IPC：`{"Os":{}}`。结果写入 `TaskOutput.metadata["data"]` 或响
 
 ## PDF 处理 (morph)
 
-PDF 元数据、渲染、搜索、合并、拆分、导出图片/Office 等 10 个子命令。**需要本机 Pdfium 动态库**。
+PDF 元数据、渲染、搜索、合并、拆分、导出图片/Office 等 10 个子命令。发布包内已捆绑 `pdfium.dll`，需与 `corex.exe` 同目录；开发环境请先运行 `scripts/download-pdfium.ps1`。
 
 ```powershell
 corex morph meta --path ./doc.pdf
@@ -475,7 +475,7 @@ corex pipeline --id build-h5 --once
 | `screenshot` | `Capture` / `Crop` / …（enum JSON） |
 | `codec` | `Encode` / `Decode` / `Hash` |
 | `scan` | `Os: {}` |
-| `morph` | `Meta` / `Merge` / …（需 Pdfium） |
+| `morph` | `Meta` / `Merge` / …（捆绑 `pdfium.dll`） |
 
 步骤仅含 `module` + `params`（= IPC args）。变量：`${var.*}`、`${step.output}`、`${env.*}`（密码）。
 

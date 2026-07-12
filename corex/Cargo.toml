@@ -4,6 +4,7 @@ version.workspace = true
 edition.workspace = true
 description       = "Corex CLI binary"
 authors.workspace = true
+build             = "build.rs"
 
 [[bin]]
 name = "corex"
@@ -22,3 +23,7 @@ tempfile   = { workspace = true }
 [[test]]
 name = "cli_contract"
 path = "tests/cli_contract.rs"
+
+[[test]]
+name = "pdfium_bundle"
+path = "tests/pdfium_bundle.rs"
