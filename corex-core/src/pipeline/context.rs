@@ -28,14 +28,23 @@ impl PipelineContext {
         self.step_artifacts.insert(step_id, artifact);
     }
 
-    /// 解析字符串中的 `${var.*}` / `${steps.*}` 占位符。
+    /// 解析字符串中的 `${var.*}` / `${steps.*}` 占位符（支持变量嵌套引用）。
     pub fn parse(&self, input: &str) -> String {
         let re = Regex::new(r"\$\{([^}]+)\}").unwrap();
-        re.replace_all(input, |caps: &regex::Captures| {
-            self.parse_reference(&caps[1])
-                .unwrap_or_else(|| caps[0].to_string())
-        })
-        .to_string()
+        let mut result = input.to_string();
+        for _ in 0..32 {
+            let next = re
+                .replace_all(&result, |caps: &regex::Captures| {
+                    self.parse_reference(&caps[1])
+                        .unwrap_or_else(|| caps[0].to_string())
+                })
+                .to_string();
+            if next == result {
+                break;
+            }
+            result = next;
+        }
+        result
     }
 
     fn parse_reference(&self, reference: &str) -> Option<String> {
@@ -88,5 +97,30 @@ fn value_to_string(v: &Value) -> String {
     match v {
         Value::String(s) => s.clone(),
         other => other.to_string(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::collections::HashMap;
+
+    #[test]
+    fn parse_resolves_nested_variables() {
+        let mut variables = HashMap::new();
+        variables.insert("base".into(), "C:\\root".into());
+        variables.insert(
+            "project".into(),
+            "${var.base}\\Vue2\\front\\master".into(),
+        );
+        let ctx = PipelineContext::with_variables(variables);
+        assert_eq!(
+            ctx.parse("${var.project}"),
+            "C:\\root\\Vue2\\front\\master"
+        );
+        assert_eq!(
+            ctx.parse("${var.project}\\version.json"),
+            "C:\\root\\Vue2\\front\\master\\version.json"
+        );
     }
 }
