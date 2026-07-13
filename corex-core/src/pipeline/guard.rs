@@ -1,5 +1,6 @@
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
 
 use crossterm::style::Stylize;
 
@@ -10,8 +11,30 @@ use crate::pipeline::runner::run_pipeline;
 /// 正在执行的 pipeline id 集合（watch / cron 共享）
 pub type RunningSet = Arc<Mutex<HashSet<String>>>;
 
+/// 最近一次 pipeline 执行完成时间（watch 冷却抑制）
+pub type LastFinished = Arc<Mutex<Option<Instant>>>;
+
 pub fn new_set() -> RunningSet {
     Arc::new(Mutex::new(HashSet::new()))
+}
+
+pub fn new_last_finished() -> LastFinished {
+    Arc::new(Mutex::new(None))
+}
+
+pub fn mark_finished(last_finished: &LastFinished) {
+    *last_finished
+        .lock()
+        .expect("last_finished lock poisoned") = Some(Instant::now());
+}
+
+/// 是否仍处于 post-run 冷却窗口内
+pub fn is_in_cooldown(last_finished: &LastFinished, cooldown: Duration) -> bool {
+    let guard = last_finished
+        .lock()
+        .expect("last_finished lock poisoned");
+    guard
+        .is_some_and(|finished| finished.elapsed() < cooldown)
 }
 
 pub fn try_acquire(running: &RunningSet, pipeline_id: &str) -> bool {
@@ -37,6 +60,7 @@ pub fn spawn(
     pipeline: &PipelineConfig,
     variables: &HashMap<String, String>,
     reason: &str,
+    last_finished: Option<LastFinished>,
 ) {
     let pipeline_id = pipeline.id.clone();
     if !try_acquire(&running, &pipeline_id) {
@@ -69,6 +93,9 @@ pub fn spawn(
         let mut ctx = PipelineContext::with_variables(variables);
         let result = run_pipeline(&pipeline, &mut ctx);
         release(&running, &pipeline_id);
+        if let Some(last_finished) = last_finished {
+            mark_finished(&last_finished);
+        }
 
         match result {
             Ok(()) => println!("  {} Pipeline '{}' 执行完成\n", "✓".green(), pipeline_id),
@@ -134,5 +161,13 @@ mod tests {
         assert!(try_acquire(&running, "demo"));
         release(&running, "demo");
         assert!(try_acquire(&running, "demo"));
+    }
+
+    #[test]
+    fn is_in_cooldown_after_mark_finished() {
+        let last = new_last_finished();
+        assert!(!is_in_cooldown(&last, Duration::from_millis(1000)));
+        mark_finished(&last);
+        assert!(is_in_cooldown(&last, Duration::from_millis(1000)));
     }
 }

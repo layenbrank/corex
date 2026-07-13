@@ -81,6 +81,9 @@ pub struct WatchConfig {
     /// debounce 毫秒，默认 300
     #[serde(default = "default_debounce_ms")]
     pub debounce_ms: u64,
+    /// 执行完成后的冷却毫秒；未设置时取 `max(debounce_ms * 2, 1000)`
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cooldown_ms: Option<u64>,
 }
 
 fn default_watch_excludes() -> Vec<String> {
@@ -246,6 +249,7 @@ pipelines:
                     includes: vec![],
                     excludes: vec![],
                     debounce_ms: 300,
+                    cooldown_ms: None,
                 }),
                 steps: vec![StepConfig {
                     id: "s".into(),

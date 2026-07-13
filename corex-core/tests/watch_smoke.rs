@@ -20,6 +20,7 @@ fn watch_pipeline_passes_validation() {
                 includes: vec!["**/*.rs".into()],
                 excludes: vec!["**/.git/**".into()],
                 debounce_ms: 200,
+                cooldown_ms: None,
             }),
             steps: vec![StepConfig {
                 id: "scan_os".into(),

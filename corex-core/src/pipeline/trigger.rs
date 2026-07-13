@@ -214,9 +214,10 @@ fn serve_dual(
             .collect::<Vec<_>>()
             .join(", ");
         println!(
-            "  {} watch — debounce: {}ms — {}",
+            "  {} watch — debounce: {}ms — cooldown: {}ms — {}",
             "▸".cyan(),
             target.debounce_ms,
+            target.cooldown_ms,
             paths.dim()
         );
     }
@@ -262,6 +263,7 @@ mod tests {
                 includes: vec![],
                 excludes: vec![],
                 debounce_ms: 300,
+                cooldown_ms: None,
             }),
             steps: vec![],
         }
@@ -317,6 +319,7 @@ mod tests {
                     includes: vec![],
                     excludes: vec![],
                     debounce_ms: 300,
+                    cooldown_ms: None,
                 }),
                 steps: vec![],
             }],

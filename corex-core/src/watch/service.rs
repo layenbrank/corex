@@ -5,7 +5,9 @@ use std::time::Duration;
 
 use anyhow::{Context, Result};
 use crossterm::style::Stylize;
-use notify_debouncer_full::{DebounceEventResult, new_debouncer, notify::RecursiveMode};
+use notify_debouncer_full::{
+    DebounceEventResult, new_debouncer, notify::EventKind, notify::RecursiveMode,
+};
 
 use crate::pipeline::config::{
     PipelineConfig, PipelinesConfig, WatchConfig, find_config_path, load_config, validate_config,
@@ -21,6 +23,7 @@ pub(crate) struct WatchTarget {
     pub(crate) paths: Vec<PathBuf>,
     pub(crate) filter: Filter,
     pub(crate) debounce_ms: u64,
+    pub(crate) cooldown_ms: u64,
 }
 
 /// watch 守护选项
@@ -120,10 +123,11 @@ pub(crate) fn serve(
             .as_deref()
             .unwrap_or(&target.pipeline.id);
         println!(
-            "  {} {} — debounce: {}ms — 路径: {}",
+            "  {} {} — debounce: {}ms — cooldown: {}ms — 路径: {}",
             "▸".cyan(),
             desc.bold(),
             target.debounce_ms,
+            target.cooldown_ms,
             target
                 .paths
                 .iter()
@@ -144,22 +148,11 @@ pub(crate) fn run_loop(
     targets: Vec<WatchTarget>,
     opts: &WatchOpts,
 ) -> Result<()> {
-    let running = opts
-        .running
-        .clone()
-        .unwrap_or_else(guard::new_set);
+    let running = opts.running.clone().unwrap_or_else(guard::new_set);
     let variables = config.variables.clone();
 
     if opts.immediate {
         println!("  {} 启动时执行 Pipeline...\n", "▶".yellow().bold());
-        for target in &targets {
-            guard::spawn(
-                Arc::clone(&running),
-                &target.pipeline,
-                &variables,
-                "启动",
-            );
-        }
     }
 
     let mut debouncers = Vec::new();
@@ -171,11 +164,27 @@ pub(crate) fn run_loop(
         let variables = variables.clone();
         let pipeline_id = pipeline.id.clone();
         let debounce_ms = target.debounce_ms;
+        let cooldown = Duration::from_millis(target.cooldown_ms);
+        let last_finished = guard::new_last_finished();
 
+        if opts.immediate {
+            guard::spawn(
+                Arc::clone(&running),
+                &pipeline,
+                &variables,
+                "启动",
+                Some(Arc::clone(&last_finished)),
+            );
+        }
+
+        let last_finished_for_callback = Arc::clone(&last_finished);
         let mut debouncer = new_debouncer(
             Duration::from_millis(debounce_ms),
             None,
             move |result: DebounceEventResult| {
+                if guard::is_in_cooldown(&last_finished_for_callback, cooldown) {
+                    return;
+                }
                 if !should_trigger(&result, &filter) {
                     return;
                 }
@@ -184,6 +193,7 @@ pub(crate) fn run_loop(
                     &pipeline,
                     &variables,
                     "变更",
+                    Some(Arc::clone(&last_finished_for_callback)),
                 );
             },
         )
@@ -220,9 +230,28 @@ fn should_trigger(result: &DebounceEventResult, filter: &Filter) -> bool {
 
     let paths: Vec<PathBuf> = events
         .iter()
+        .filter(|event| is_actionable_kind(&event.kind))
         .flat_map(|event| event.paths.clone())
         .collect();
+
+    if paths.is_empty() {
+        return false;
+    }
+
     paths_should_trigger(&paths, filter)
+}
+
+fn is_actionable_kind(kind: &EventKind) -> bool {
+    matches!(
+        kind,
+        EventKind::Create(_) | EventKind::Modify(_) | EventKind::Remove(_)
+    )
+}
+
+fn resolve_cooldown_ms(watch: &WatchConfig, debounce_ms: u64) -> u64 {
+    watch
+        .cooldown_ms
+        .unwrap_or_else(|| debounce_ms.saturating_mul(2).max(1000))
 }
 
 fn paths_should_trigger(paths: &[PathBuf], filter: &Filter) -> bool {
@@ -253,12 +282,14 @@ fn collect_targets(
         let paths = resolve_watch_paths(&parse_ctx, watch, &pipeline.id)?;
         let filter = build_filter(watch, cli_includes, cli_excludes);
         let debounce_ms = debounce_override.unwrap_or(watch.debounce_ms);
+        let cooldown_ms = resolve_cooldown_ms(watch, debounce_ms);
 
         targets.push(WatchTarget {
             pipeline: pipeline.clone(),
             paths,
             filter,
             debounce_ms,
+            cooldown_ms,
         });
     }
 
@@ -319,7 +350,12 @@ fn print_banner(title: &str) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use notify_debouncer_full::DebouncedEvent;
+    use notify_debouncer_full::notify::Event;
+    use notify_debouncer_full::notify::EventKind;
+    use notify_debouncer_full::notify::event::{AccessKind, ModifyKind};
     use std::path::Path;
+    use std::time::Instant;
 
     #[test]
     fn build_filter_merges_cli_patterns() {
@@ -328,6 +364,7 @@ mod tests {
             includes: vec!["**/*.rs".into()],
             excludes: vec!["**/.git/**".into()],
             debounce_ms: 300,
+            cooldown_ms: None,
         };
         let filter = build_filter(&watch, &["**/*.toml".into()], &["**/*.tmp".into()]);
         assert!(!filter.is_filtered(Path::new("main.rs")));
@@ -340,5 +377,78 @@ mod tests {
         let filter = Filter::new(&[], &["**/*.tmp".into()]);
         assert!(!paths_should_trigger(&[PathBuf::from("foo.tmp")], &filter));
         assert!(paths_should_trigger(&[PathBuf::from("foo.rs")], &filter));
+    }
+
+    #[test]
+    fn version_json_exclude_prevents_trigger() {
+        let filter = Filter::new(&[], &["**/version.json".into()]);
+        assert!(!paths_should_trigger(
+            &[PathBuf::from("app/version.json")],
+            &filter
+        ));
+        assert!(paths_should_trigger(&[PathBuf::from("app/main.js")], &filter));
+    }
+
+    #[test]
+    fn resolve_cooldown_ms_defaults_to_max_debounce_times_two_and_1000() {
+        let watch = WatchConfig {
+            paths: vec![],
+            includes: vec![],
+            excludes: vec![],
+            debounce_ms: 600,
+            cooldown_ms: None,
+        };
+        assert_eq!(resolve_cooldown_ms(&watch, 600), 1200);
+
+        let small = WatchConfig {
+            paths: vec![],
+            includes: vec![],
+            excludes: vec![],
+            debounce_ms: 200,
+            cooldown_ms: None,
+        };
+        assert_eq!(resolve_cooldown_ms(&small, 200), 1000);
+    }
+
+    #[test]
+    fn resolve_cooldown_ms_honors_explicit_value() {
+        let watch = WatchConfig {
+            paths: vec![],
+            includes: vec![],
+            excludes: vec![],
+            debounce_ms: 600,
+            cooldown_ms: Some(2500),
+        };
+        assert_eq!(resolve_cooldown_ms(&watch, 600), 2500);
+    }
+
+    #[test]
+    fn access_event_does_not_trigger() {
+        let event = Event {
+            kind: EventKind::Access(AccessKind::Read),
+            paths: vec![PathBuf::from("foo.js")],
+            attrs: Default::default(),
+        };
+        let debounced = vec![DebouncedEvent::new(event, Instant::now())];
+        let filter = Filter::default();
+        assert!(!should_trigger(&Ok(debounced), &filter));
+    }
+
+    #[test]
+    fn modify_event_triggers_when_not_filtered() {
+        let event = Event {
+            kind: EventKind::Modify(ModifyKind::Any),
+            paths: vec![PathBuf::from("foo.js")],
+            attrs: Default::default(),
+        };
+        let debounced = vec![DebouncedEvent::new(event, Instant::now())];
+        let filter = Filter::default();
+        assert!(should_trigger(&Ok(debounced), &filter));
+    }
+
+    #[test]
+    fn is_actionable_kind_filters_access_only() {
+        assert!(!is_actionable_kind(&EventKind::Access(AccessKind::Read)));
+        assert!(is_actionable_kind(&EventKind::Modify(ModifyKind::Any)));
     }
 }

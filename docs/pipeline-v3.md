@@ -77,7 +77,7 @@ pipelines:
   watch:
     paths: ['${var.base}/src', '${var.base}/templates']
     includes: []                              # 空 = paths 下全部变更
-    excludes: ['**/node_modules/**', '**/.git/**']
+    excludes: ['**/node_modules/**', '**/.git/**', '**/version.json']
     debounce_ms: 300
   steps: [...]
 ```
@@ -88,8 +88,28 @@ pipelines:
 | `includes` | glob 白名单；非空时仅匹配项触发 |
 | `excludes` | glob 黑名单；默认 `**/.git/**`、`**/node_modules/**` |
 | `debounce_ms` | 防抖毫秒，默认 300 |
+| `cooldown_ms` | 执行完成后的冷却毫秒；未设置时取 `max(debounce_ms * 2, 1000)` |
 
 过滤逻辑复用 `utils/filter.rs`（与 copy / generate 的 `includes` / `excludes` 语义一致）。CLI 可追加 `--includes` / `--excludes` / `--debounce-ms` 覆盖。
+
+### 避免自触发循环
+
+Pipeline 运行期间可能向监听目录写入产物（例如 copy 步骤同步 `app/version.json`）。若这些写入未被排除，debounce 结束后会再次触发整条 Pipeline，形成循环。
+
+建议：
+
+1. **不要监听 Pipeline 会写入的路径**，或将其加入 `excludes`（如 `**/version.json`）
+2. 依赖内置 **post-run 冷却**（`cooldown_ms`）：执行完成后冷却窗口内忽略新触发
+3. 开发时优先监听源码目录（如 `src/`），而非打包产物目录（如 `app/`）
+
+```yaml
+# 示例：H5+ 监听 app/，但排除 copy 步骤写入的 version.json
+watch:
+  paths: ['${var.h5_master}/app']
+  excludes: ['**/node_modules/**', '**/.git/**', '**/version.json']
+  debounce_ms: 600
+  cooldown_ms: 1200   # 可选；默认 max(debounce_ms * 2, 1000)
+```
 
 ```powershell
 corex watch run
