@@ -366,25 +366,34 @@ Pipeline 密码推荐 `${env.COREX_ARCHIVE_PASSWORD}`，勿在 YAML 写明文。
 }
 ```
 
-**File：**
+Uuid 成功时 `path` 为 null。
+
+### exec
+
+运行外部脚本（`.ps1` / `.bat` / `.exe`），解析 stdout **最后一行 JSON**（须含 `path` + `data`）：
 
 ```json
 {
-  "module": "generate",
+  "module": "exec",
   "args": {
-    "File": {
-      "to": "C:/out/file.txt",
-      "template": "C:/template.hbs",
-      "fragment": null,
-      "variable": []
+    "Run": {
+      "script": "C:/Users/me/.corex/scripts/generate-version.ps1",
+      "args": ["-ProjectRoot", "C:/proj/master"],
+      "cwd": "C:/proj/master",
+      "capture": "json"
     }
   }
 }
 ```
 
-使用 `template`（模板文件）或 `fragment`（直接内容）之一，无 `from` 字段。
+脚本 stdout 最后一行示例：
 
-Uuid 成功时 `path` 为 null。
+```json
+{"path":"C:/proj/master/version.json","data":{"version":"20260713"}}
+```
+
+- `path` → 响应 `path` / `${steps.*.artifact.path}`
+- `data` 内部结构由脚本自定 → `${steps.*.artifact.data.<key>}`
 
 ### bootstrap
 

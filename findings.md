@@ -50,3 +50,9 @@
 ## Binary 重命名
 - `corex-shot` → `corex-capture`（对齐 `screenshot capture` 子命令）
 - `screenshot` feature 含 `cli`；`parse` 模块仅在 `invoke` feature 下编译
+
+## exec 模块（Phase 9）
+- stdout 最后一行 JSON，**必填** `path`（string）+ `data`（object）；`data` 结构脚本自定
+- v1 无 `env` / `timeout_secs`：子进程继承环境；无限等待
+- shell：`.ps1` → powershell -File；`.bat`/`.cmd` → cmd /C
+- H5+：`generate-version.ps1` 一次写 version.json + version.js，copy 步骤复用 artifact.path

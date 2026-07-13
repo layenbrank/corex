@@ -1,5 +1,5 @@
 use std::{
-    fs::{self, File, OpenOptions},
+    fs::{File, OpenOptions},
     io::{BufWriter, Write},
     path::Path,
 };
@@ -8,8 +8,7 @@ use anyhow::{Context, Result};
 use uuid::Uuid;
 use walkdir::{DirEntry, WalkDir};
 
-use crate::generate::schema::{Args, FileArgs, PathArgs, UuidArgs};
-use crate::generate::template::engine;
+use crate::generate::schema::{Args, PathArgs, UuidArgs};
 use crate::utils::{notify, verifier, Filter};
 
 #[derive(Debug, Clone)]
@@ -24,18 +23,13 @@ pub fn run(args: &Args) -> Result<()> {
             uuid_task(uuid_args);
             Ok(())
         }
-        _ => match execute(args) {
+        Args::Path(_) => match execute(args) {
             Ok(_) => {
-                let msg = match args {
-                    Args::Path(_) => "路径生成成功",
-                    Args::File(_) => "文件生成成功",
-                    Args::Uuid(_) => unreachable!(),
-                };
-                let _ = notify::success(msg, "操作已成功完成");
+                let _ = notify::success("路径生成成功", "操作已成功完成");
                 Ok(())
             }
             Err(e) => {
-                let _ = notify::error("文件生成失败", &format!("生成过程中发生错误: {}", e));
+                let _ = notify::error("路径生成失败", &format!("生成过程中发生错误: {e}"));
                 Err(e)
             }
         },
@@ -58,40 +52,7 @@ pub fn execute(args: &Args) -> Result<Output> {
                 items: uuid_args.count as u64,
             })
         }
-        Args::File(file_args) => {
-            file_task(file_args)?;
-            Ok(Output {
-                path: Some(std::path::PathBuf::from(&file_args.to)),
-                items: 1,
-            })
-        }
     }
-}
-
-pub fn file_task(args: &FileArgs) -> Result<()> {
-    let hb = engine()?;
-
-    // 构建模板数据
-    let mut data = serde_json::Map::new();
-    for (k, v) in &args.variable {
-        data.insert(k.clone(), serde_json::Value::String(v.clone()));
-    }
-
-    let rendered = if let Some(tpl_path) = &args.template {
-        let template_content = fs::read_to_string(tpl_path)?;
-        hb.render_template(&template_content, &data)?
-    } else if let Some(fragment) = &args.fragment {
-        hb.render_template(fragment, &data)?
-    } else {
-        anyhow::bail!("必须指定 --template 或 --fragment");
-    };
-
-    if let Some(parent) = std::path::Path::new(&args.to).parent() {
-        fs::create_dir_all(parent)?;
-    }
-    fs::write(&args.to, rendered)?;
-
-    Ok(())
 }
 
 pub fn uuid_task(args: &UuidArgs) {
@@ -111,7 +72,7 @@ pub fn path_task(args: &PathArgs) -> Result<()> {
             let _ = notify::success("路径生成成功", "路径生成操作已成功完成");
         }
         Err(e) => {
-            let _ = notify::error("文件生成失败", &format!("生成过程中发生错误: {e}"));
+            let _ = notify::error("路径生成失败", &format!("生成过程中发生错误: {e}"));
             return Err(e);
         }
     }
@@ -281,5 +242,3 @@ pub fn path_transform_line(
 
     Ok(out)
 }
-
-// legacy path_task body removed — see path_task_streaming

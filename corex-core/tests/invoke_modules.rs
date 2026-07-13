@@ -38,6 +38,48 @@ fn invoke_copy_returns_artifact_path() {
 }
 
 #[test]
+fn invoke_exec_ps1_json_artifact() {
+    let dir = tempfile::tempdir().unwrap();
+    let artifact_path = dir.path().join("out.json");
+    let artifact_display = artifact_path.display().to_string();
+
+    let script_path = dir.path().join("emit.ps1");
+    let ps1 = format!(
+        r#"$result = @{{
+    path = '{artifact_display}'
+    data = @{{ version = '20260713' }}
+}}
+Write-Output ($result | ConvertTo-Json -Compress)"#
+    );
+    std::fs::write(&script_path, ps1).unwrap();
+
+    let ctx = InvokeContext::empty();
+    let result = invoke(
+        "exec",
+        json!({
+            "Run": {
+                "script": script_path.display().to_string(),
+                "args": [],
+                "capture": "json"
+            }
+        }),
+        &ctx,
+    )
+    .expect("invoke exec");
+
+    assert_eq!(
+        result.path_string().as_deref(),
+        Some(artifact_path.to_str().unwrap())
+    );
+    let version = result
+        .data
+        .as_ref()
+        .and_then(|d| d.get("version"))
+        .and_then(|v| v.as_str());
+    assert_eq!(version, Some("20260713"));
+}
+
+#[test]
 fn invoke_copy_file_into_dir_returns_actual_path() {
     let dir = tempfile::tempdir().unwrap();
     let src = dir.path().join("src.txt");

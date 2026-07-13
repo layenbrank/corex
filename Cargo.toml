@@ -41,7 +41,6 @@ sevenz-rust2 = { version = "0.21", default-features = false, features = [
 ] }
 image = "0.25.10"
 xcap = "0.9.6"
-handlebars = "6.4.2"
 rand = "0.10.2"
 base64 = "0.22"
 md-5 = "0.11"

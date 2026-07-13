@@ -31,6 +31,8 @@ pub fn invoke(module: &str, args: Value, ctx: &InvokeContext<'_>) -> Result<Invo
         "morph" => invoke_morph(args, ctx),
         #[cfg(feature = "bootstrap")]
         "bootstrap" => invoke_bootstrap(args, ctx),
+        #[cfg(feature = "exec")]
+        "exec" => invoke_exec(args, ctx),
         _ => anyhow::bail!("未知或未启用的模块: {module}"),
     }
 }
@@ -58,6 +60,8 @@ pub fn known_modules() -> &'static [&'static str] {
         "morph",
         #[cfg(feature = "bootstrap")]
         "bootstrap",
+        #[cfg(feature = "exec")]
+        "exec",
     ]
 }
 
@@ -154,6 +158,13 @@ fn invoke_bootstrap(args: Value, _ctx: &InvokeContext<'_>) -> Result<InvokeResul
     let raw: crate::bootstrap::schema::Args = decode_json(args, "bootstrap")?;
     crate::bootstrap::service::execute(&raw)?;
     Ok(InvokeResult::default())
+}
+
+#[cfg(feature = "exec")]
+fn invoke_exec(args: Value, ctx: &InvokeContext<'_>) -> Result<InvokeResult> {
+    let raw: crate::exec::schema::Args = decode_json(args, "exec")?;
+    let args = crate::exec::parse_args(raw, ctx);
+    Ok(crate::exec::service::execute(&args)?.into_invoke_result())
 }
 
 /// 将 InvokeResult 转为 IPC data 字段（scan/codec/morph 等）

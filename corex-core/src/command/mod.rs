@@ -11,6 +11,8 @@ use crate::codec;
 use crate::compression;
 #[cfg(feature = "copy")]
 use crate::copy;
+#[cfg(feature = "exec")]
+use crate::exec;
 #[cfg(feature = "generate")]
 use crate::generate;
 #[cfg(feature = "morph")]
@@ -68,6 +70,10 @@ pub enum Commands {
     #[cfg(feature = "generate")]
     #[command(subcommand)]
     Generate(generate::schema::Args),
+    /// 运行外部脚本
+    #[cfg(feature = "exec")]
+    #[command(subcommand)]
+    Exec(exec::schema::Args),
     /// 环境初始化与检查
     #[cfg(feature = "bootstrap")]
     #[command(subcommand)]
@@ -117,6 +123,8 @@ pub fn dispatch(args: Args) -> Result<()> {
         Commands::Watch(a) => watch::run(&a),
         #[cfg(feature = "generate")]
         Commands::Generate(a) => generate::run(&a),
+        #[cfg(feature = "exec")]
+        Commands::Exec(a) => exec::run(&a),
         #[cfg(feature = "bootstrap")]
         Commands::Bootstrap(a) => bootstrap::run(&a),
         #[cfg(feature = "screenshot")]

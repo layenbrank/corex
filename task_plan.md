@@ -16,8 +16,13 @@
 | 6 | 契约测试 + 文档 | complete |
 | 7 | watch 模块 + utils/filter 重命名 | complete |
 | 8 | 触发集成：命名优化、guard 锁、文档同步 | complete |
+| 9 | exec 模块：外部脚本 + stdout JSON artifact | complete |
 
-## 模块契约
+## exec 模块（Phase 9）
+- `corex-core/src/exec/` — Run 子命令、.ps1/.bat 分发、path+data JSON 解析
+- invoke/registry + CLI `corex exec run`
+- H5+：`.corex/pipelines.yaml` 合并 generate_version_json/js → exec
+- 脚本：`.corex/scripts/generate-version.ps1`
 - `execute()` → `Output` → `Artifact`
 - `run()` → execute + CLI 输出
 - `invoke()` → resolve → execute → InvokeResult

@@ -1,5 +1,34 @@
 # Progress Log
 
+### 验证命令
+```powershell
+cargo test -p corex-core --features invoke,pipeline
+```
+
+## 2026-07-13 — Code Review 修复（exec + generate File 移除）
+
+### 完成项
+- P1：`generate-version.ps1` 改用 UTF-8 无 BOM 写入
+- P2：移除 corex-core `handlebars` 依赖；`template.rs` / `tasks/mod.rs` 已不在仓库
+- 文档：breaking-changes、ipc-protocol（exec + 去重 Path）、architecture IPC 表
+- 测试：`data` 非 object、`.bat` smoke、orchestrator exec E2E
+
+## 2026-07-13 — exec 模块
+
+### 完成项
+- 新增 `exec` Invoke 模块（Run 子命令、JSON stdout → Artifact）
+- 注册 feature / CLI / registry / known_modules
+- 测试：service 单元测试、exec_smoke、invoke_modules
+- 文档：pipeline-v3.md、architecture.md
+- H5+ 迁移：`.corex/pipelines.yaml` + `generate-version.ps1`
+
+### 验证命令
+```powershell
+cargo test -p corex-core --features invoke
+cargo test -p corex-core --test exec_smoke --test invoke_modules
+cargo build -p corex-core --features exec
+```
+
 ## 2026-07-11 — 触发模块命名与文档同步
 
 ### 完成项

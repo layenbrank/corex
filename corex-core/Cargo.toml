@@ -30,6 +30,7 @@ command = [
   "generate",
   "bootstrap",
   "screenshot",
+  "exec",
   "pipeline",
   "schedule",
   "watch",
@@ -50,6 +51,7 @@ invoke = [
   "generate",
   "bootstrap",
   "screenshot",
+  "exec",
 ]
 
 daemon = [
@@ -66,6 +68,7 @@ daemon = [
   "generate",
   "bootstrap",
   "screenshot",
+  "exec",
 ]
 
 serve = ["daemon"]
@@ -95,16 +98,14 @@ compression = [
   "progress",
 ]
 generate = [
-  "dep:handlebars",
   "dep:walkdir",
   "dep:uuid",
-  "dep:rand",
-  "dep:chrono",
   "glob",
   "notify",
   "runtime",
 ]
 bootstrap = []
+exec = []
 screenshot = ["dep:xcap", "dep:image", "dep:base64", "dep:arboard", "cli"]
 
 pipeline = [
@@ -145,7 +146,6 @@ docx-rs = { workspace = true, optional = true }
 figment = { workspace = true, optional = true }
 futures = { workspace = true, optional = true }
 glob = { workspace = true, optional = true }
-handlebars = { workspace = true, optional = true }
 image = { workspace = true, optional = true }
 indicatif = { workspace = true, optional = true }
 lopdf = { workspace = true, optional = true }
@@ -203,7 +203,7 @@ path = "tests/path_stream.rs"
 
 [[test]]
 name = "invoke_modules"
-required-features = ["invoke", "copy"]
+required-features = ["invoke", "copy", "exec"]
 path = "tests/invoke_modules.rs"
 
 [[test]]
@@ -220,6 +220,16 @@ path = "tests/invoke_parse.rs"
 name = "orchestrator_parallel"
 required-features = ["pipeline", "generate"]
 path = "tests/orchestrator_parallel.rs"
+
+[[test]]
+name = "exec_smoke"
+required-features = ["invoke", "exec"]
+path = "tests/exec_smoke.rs"
+
+[[test]]
+name = "orchestrator_exec"
+required-features = ["pipeline", "exec"]
+path = "tests/orchestrator_exec.rs"
 
 [[test]]
 name = "watch_smoke"

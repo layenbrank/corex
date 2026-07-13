@@ -125,7 +125,33 @@ corex watch run --debounce-ms 500 --excludes '**/*.tmp'
 |------|-------------|------|
 | Batch | copy, compression, scrub, shade, morph, screenshot | 1 artifact in → 1 out |
 | Stream | generate `Path` | walkdir → transform line → sink file |
-| Signal | scan, codec, bootstrap | 0/1 in → metadata out |
+| Signal | scan, codec, bootstrap, exec | 0/1 in → metadata out（exec 可选 path） |
+
+### exec 模块（外部脚本）
+
+调用 `.ps1` / `.bat` / `.exe`，解析 stdout **最后一行 JSON** 为 artifact：
+
+```yaml
+- id: generate_version
+  module: exec
+  params:
+    Run:
+      script: '${var.scripts}/generate-version.ps1'
+      args: ['-ProjectRoot', '${var.h5_master}']
+      cwd: '${var.h5_master}'
+      capture: json
+```
+
+脚本输出契约（固定顶层字段）：
+
+```json
+{ "path": "C:/proj/version.json", "data": { "version": "20260713" } }
+```
+
+- `path` → `${steps.generate_version.artifact.path}`
+- `data` 内部结构由脚本自定 → `${steps.generate_version.artifact.data.<key>}`
+
+子进程继承 corex 环境变量（PowerShell `$env:*`、批处理 `%VAR%`），无需 yaml `env` 块。
 
 ## CLI
 

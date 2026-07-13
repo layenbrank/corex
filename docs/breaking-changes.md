@@ -59,6 +59,46 @@
 
 详见 [pipeline-v3.md](./pipeline-v3.md#watch-字段文件监听)。
 
+## generate 模块（v2.2+）
+
+| 变更 | 旧 | 新 |
+|------|----|----|
+| CLI 子命令 | `generate path` / `generate uuid` / **`generate file`** | 仅 `path` / `uuid` |
+| Pipeline params | `File: { to, template, ... }` | **已移除**；模板文件生成改用 **`exec`** |
+| 依赖 | handlebars | 已移除 |
+
+**迁移示例（version 文件生成）：**
+
+```yaml
+# 旧
+- id: gen_json
+  module: generate
+  params:
+    File:
+      to: '${var.base}/version.json'
+      template: '${var.templates}/version.json.hbs'
+
+# 新
+- id: gen_version
+  module: exec
+  params:
+    Run:
+      script: '${var.scripts}/generate-version.ps1'
+      args: ['-ProjectRoot', '${var.base}']
+      cwd: '${var.base}'
+      capture: json
+```
+
+脚本须在 stdout 最后一行输出 `{"path":"...","data":{...}}`。详见 [pipeline-v3.md](./pipeline-v3.md#exec-模块外部脚本)。
+
+## exec 模块（v2.2+，新增）
+
+| 项 | 说明 |
+|----|------|
+| CLI | `corex exec run --script ...` |
+| Pipeline / IPC | `params.Run` / `args.Run` |
+| 返回值 | stdout 最后一行 JSON：`path`（string）+ `data`（object） |
+
 ## 迁移示例
 
 ```json

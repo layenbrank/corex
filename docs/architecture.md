@@ -30,6 +30,7 @@ module/
 | shade | `shade::run` | `shade/service.rs` |
 | compression | `compression::run` | `compression/service.rs` |
 | generate | `generate::run` | `generate/service.rs` |
+| exec | `exec::run` | `exec/service.rs` |
 | bootstrap | `bootstrap::run` | `bootstrap/service.rs` |
 | screenshot | `screenshot::run` | `screenshot/service.rs` |
 | codec | `codec::run` | `codec/service.rs` |
@@ -67,11 +68,11 @@ pub fn dispatch(args: Args) -> Result<()> {
 | `service.rs::run` | CLI 包装 | execute + 人类输出 |
 | `invoke/registry` | 薄路由 | `decode_json` → `parse_args` → `execute` → `InvokeResult` |
 
-已实现 execute 的模块：compression、codec、scan、morph、screenshot、copy、scrub、shade、generate、bootstrap。
+已实现 execute 的模块：compression、codec、scan、morph、screenshot、copy、scrub、shade、generate、bootstrap、exec。
 
 ### Invoke 模块 vs 非 Invoke 模块
 
-**Invoke 模块**（可被 Pipeline step / IPC `invoke` 调用）：copy、scrub、shade、compression、generate、screenshot、codec、scan、morph、bootstrap。
+**Invoke 模块**（可被 Pipeline step / IPC `invoke` 调用）：copy、scrub、shade、compression、generate、exec、screenshot、codec、scan、morph、bootstrap。
 
 **非 Invoke 模块**（仅 CLI 入口，不在 `invoke/registry` 中注册）：
 
@@ -307,7 +308,8 @@ CLI 路径调用 `capture(args, None)`；Daemon 路径传入 `state.monitors.as_
 | scrub | `scrub::run(&args)` | `args.target` | — |
 | shade | `shade::run(&args)` | `args.to` | — |
 | compression | `compression::run(&args)` | zip/unzip 的 `to` | — |
-| generate | `generate::run(&args)` | path/file 的 `to` | uuid 无 path |
+| generate | `generate::execute` | Path 的 `to` | Uuid 无 path |
+| exec | `exec::execute` | 脚本 JSON `path` | 脚本 JSON `data` |
 | bootstrap | `bootstrap::run(&args)` | None | — |
 | codec | `codec::execute` | 可选 output 文件 | text 等 |
 | scan | `scan::execute` | None | OsContext JSON |
