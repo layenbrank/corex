@@ -1,6 +1,8 @@
 use std::collections::HashMap;
+use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::process::{Command, Stdio};
+use std::thread;
 
 use anyhow::{Context, Result, bail};
 use serde::Deserialize;
@@ -76,13 +78,36 @@ fn run_script(args: &RunArgs) -> Result<Output> {
         cmd.current_dir(cwd);
     }
 
-    let output = cmd
-        .output()
+    let live = !crate::runtime::is_quiet() && !crate::runtime::is_json_output();
+    cmd.stdout(Stdio::piped()).stderr(Stdio::piped());
+
+    let mut child = cmd
+        .spawn()
         .with_context(|| format!("启动脚本失败: {}", args.script))?;
 
-    let exit_code = output.status.code().unwrap_or(-1);
-    let stdout = String::from_utf8_lossy(&output.stdout).into_owned();
-    let stderr = String::from_utf8_lossy(&output.stderr).into_owned();
+    let stdout_pipe = child
+        .stdout
+        .take()
+        .context("无法捕获脚本 stdout")?;
+    let stderr_pipe = child
+        .stderr
+        .take()
+        .context("无法捕获脚本 stderr")?;
+
+    let stdout_thread = thread::spawn(move || stream_pipe(stdout_pipe, live, false));
+    let stderr_thread = thread::spawn(move || stream_pipe(stderr_pipe, live, true));
+
+    let status = child
+        .wait()
+        .with_context(|| format!("等待脚本结束失败: {}", args.script))?;
+    let exit_code = status.code().unwrap_or(-1);
+
+    let stdout = stdout_thread
+        .join()
+        .unwrap_or_else(|_| String::new());
+    let stderr = stderr_thread
+        .join()
+        .unwrap_or_else(|_| String::new());
 
     if exit_code != 0 {
         let tail = truncate_tail(&stderr, STDERR_TAIL_MAX);
@@ -112,6 +137,33 @@ fn run_script(args: &RunArgs) -> Result<Output> {
             exit_code,
         }),
     }
+}
+
+/// 边读边回显，同时收集完整输出供 capture 解析。
+fn stream_pipe(mut pipe: impl Read, live: bool, is_stderr: bool) -> String {
+    let mut bytes = Vec::new();
+    let mut chunk = [0u8; 4096];
+    loop {
+        match pipe.read(&mut chunk) {
+            Ok(0) => break,
+            Ok(n) => {
+                let piece = &chunk[..n];
+                bytes.extend_from_slice(piece);
+                if live {
+                    let text = String::from_utf8_lossy(piece);
+                    if is_stderr {
+                        eprint!("{text}");
+                        let _ = std::io::stderr().flush();
+                    } else {
+                        print!("{text}");
+                        let _ = std::io::stdout().flush();
+                    }
+                }
+            }
+            Err(_) => break,
+        }
+    }
+    String::from_utf8_lossy(&bytes).into_owned()
 }
 
 fn build_command(script: &Path, args: &[String]) -> Result<Command> {
