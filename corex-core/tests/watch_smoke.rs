@@ -25,11 +25,9 @@ fn watch_pipeline_passes_validation() {
             steps: vec![StepConfig {
                 id: "scan_os".into(),
                 module: "scan".into(),
-                description: None,
-                depends_on: vec![],
-                when: None,
-                retry: None,
-                params: json!({"Os": {}}),
+                action: Some("os".into()),
+                params: json!({}),
+                ..Default::default()
             }],
         }],
     };

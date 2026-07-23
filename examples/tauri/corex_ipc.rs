@@ -54,7 +54,7 @@
 //!
 //! ## 协议（与 corex-serve 一致）
 //!
-//! 请求：`{"type":"invoke","id":1,"module":"screenshot","args":{"Capture":{"to":"C:/out"}}}\n`
+//! 请求：`{"type":"invoke","id":1,"module":"screenshot","action":"capture","args":{"to":"C:/out"}}\n`
 //! 响应：`{"id":1,"ok":true,"path":"...","ms":87}\n`
 //! 关闭：`{"type":"shutdown"}\n`
 
@@ -108,15 +108,30 @@ pub fn spawn_daemon(exe: impl AsRef<Path>) -> Result<Child, String> {
         .map_err(|e| format!("启动 corex-serve 失败: {e}"))
 }
 
-/// 调用任意 corex 模块
-pub fn invoke(module: &str, args: Value) -> Result<Response, String> {
+/// 调用任意 corex 模块（线格式：可选 action / format / algorithm + 扁平 args）
+pub fn invoke(
+    module: &str,
+    action: Option<&str>,
+    format: Option<&str>,
+    algorithm: Option<&str>,
+    args: Value,
+) -> Result<Response, String> {
     let id = REQUEST_ID.fetch_add(1, Ordering::Relaxed);
-    let payload = json!({
+    let mut payload = json!({
         "type": "invoke",
         "id": id,
         "module": module,
         "args": args,
     });
+    if let Some(action) = action {
+        payload["action"] = json!(action);
+    }
+    if let Some(format) = format {
+        payload["format"] = json!(format);
+    }
+    if let Some(algorithm) = algorithm {
+        payload["algorithm"] = json!(algorithm);
+    }
     exchange(&payload.to_string())
 }
 
@@ -124,7 +139,10 @@ pub fn invoke(module: &str, args: Value) -> Result<Response, String> {
 pub fn screenshot(to: impl AsRef<str>) -> Result<String, String> {
     let resp = invoke(
         "screenshot",
-        json!({ "Capture": { "to": to.as_ref() } }),
+        Some("capture"),
+        None,
+        None,
+        json!({ "to": to.as_ref() }),
     )?;
     if resp.ok {
         resp.path.ok_or_else(|| "screenshot 成功但未返回 path".to_string())

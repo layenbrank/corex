@@ -16,7 +16,7 @@ pub fn run_server(
 pub fn send_request(
     _pipe_name: &str,
     _module: &str,
-    _args: serde_json::Value,
+    _wire: crate::invoke::WireArgs,
     _id: u64,
 ) -> anyhow::Result<crate::serve::protocol::Response> {
     anyhow::bail!("corex serve 当前仅支持 Windows Named Pipe")

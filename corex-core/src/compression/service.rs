@@ -4,7 +4,7 @@ use crate::compression::formats::{
     compress_seven_z, compress_tar_gz, compress_zip, decompress_seven_z, decompress_tar_gz,
     decompress_zip,
 };
-use crate::compression::schema::{Args, CompressScheme, DecompressScheme};
+use crate::compression::schema::{Args, CompressFormat, DecompressFormat};
 use crate::utils::notify;
 
 #[derive(Debug, Clone)]
@@ -30,40 +30,40 @@ pub fn run(args: &Args) -> Result<()> {
 
 pub fn execute(args: &Args) -> Result<Output> {
     match args {
-        Args::Compress(a) => match &a.scheme {
-            CompressScheme::Zip(z) => {
+        Args::Compress(a) => match &a.format {
+            CompressFormat::Zip(z) => {
                 compress_zip(z)?;
                 Ok(Output {
                     path: Some(z.to.clone()),
                 })
             }
-            CompressScheme::TarGz(t) => {
+            CompressFormat::TarGz(t) => {
                 compress_tar_gz(t)?;
                 Ok(Output {
                     path: Some(t.to.clone()),
                 })
             }
-            CompressScheme::SevenZ(s) => {
+            CompressFormat::SevenZ(s) => {
                 compress_seven_z(s)?;
                 Ok(Output {
                     path: Some(s.to.clone()),
                 })
             }
         },
-        Args::Decompress(a) => match &a.scheme {
-            DecompressScheme::Zip(z) => {
+        Args::Decompress(a) => match &a.format {
+            DecompressFormat::Zip(z) => {
                 decompress_zip(z)?;
                 Ok(Output {
                     path: Some(z.to.clone()),
                 })
             }
-            DecompressScheme::TarGz(t) => {
+            DecompressFormat::TarGz(t) => {
                 decompress_tar_gz(t)?;
                 Ok(Output {
                     path: Some(t.to.clone()),
                 })
             }
-            DecompressScheme::SevenZ(s) => {
+            DecompressFormat::SevenZ(s) => {
                 decompress_seven_z(s)?;
                 Ok(Output {
                     path: Some(s.to.clone()),

@@ -384,12 +384,13 @@ cargo run -p corex-capture -- --to C:\Temp
 ### 库内 IPC 调用
 
 ```rust
+use cx::invoke::WireArgs;
 use cx::serve;
 
 let resp = serve::request(
     r"\\.\pipe\corex",
     "screenshot",
-    serde_json::json!({ "Capture": { "to": "C:/out" } }),
+    WireArgs::action("capture", serde_json::json!({ "to": "C:/out" })),
 )?;
 
 if resp.ok {

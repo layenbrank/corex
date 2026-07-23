@@ -28,11 +28,11 @@ pub fn run(options: ServeOptions) -> anyhow::Result<()> {
 pub fn request(
     pipe_name: &str,
     module: &str,
-    args: serde_json::Value,
+    wire: crate::invoke::WireArgs,
 ) -> anyhow::Result<protocol::Response> {
     static NEXT_ID: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
     let id = NEXT_ID.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-    pipe::send_request(pipe_name, module, args, id)
+    pipe::send_request(pipe_name, module, wire, id)
 }
 
 /// IPC 客户端：请求 Daemon 退出

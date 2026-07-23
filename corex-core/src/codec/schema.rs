@@ -18,11 +18,12 @@ pub enum Args {
 #[derive(Debug, Parser, Clone, Serialize, Deserialize)]
 pub struct EncodeArgs {
     #[command(subcommand)]
-    pub scheme: EncodeScheme,
+    #[serde(flatten)]
+    pub algorithm: EncodeAlgorithm,
 }
 
 #[derive(Debug, Subcommand, Clone, Serialize, Deserialize)]
-pub enum EncodeScheme {
+pub enum EncodeAlgorithm {
     Base64(Base64Args),
 }
 
@@ -30,11 +31,12 @@ pub enum EncodeScheme {
 #[derive(Debug, Parser, Clone, Serialize, Deserialize)]
 pub struct DecodeArgs {
     #[command(subcommand)]
-    pub scheme: DecodeScheme,
+    #[serde(flatten)]
+    pub algorithm: DecodeAlgorithm,
 }
 
 #[derive(Debug, Subcommand, Clone, Serialize, Deserialize)]
-pub enum DecodeScheme {
+pub enum DecodeAlgorithm {
     Base64(Base64Args),
 }
 
@@ -42,11 +44,12 @@ pub enum DecodeScheme {
 #[derive(Debug, Parser, Clone, Serialize, Deserialize)]
 pub struct HashArgs {
     #[command(subcommand)]
-    pub scheme: HashScheme,
+    #[serde(flatten)]
+    pub algorithm: HashAlgorithm,
 }
 
 #[derive(Debug, Subcommand, Clone, Serialize, Deserialize)]
-pub enum HashScheme {
+pub enum HashAlgorithm {
     Md5(Md5Args),
 }
 

@@ -225,7 +225,7 @@ corex generate uuid --count 5 --uppercase
 
 ## 压缩打包 (compression)
 
-支持 **Zip**（含 H5+ `.wgt`）、**tar.gz**、**7z**。CLI 与 Pipeline/IPC 同构：`Compress/Decompress` + `scheme.{Zip|TarGz|SevenZ}`。
+支持 **Zip**（含 H5+ `.wgt`）、**tar.gz**、**7z**。Pipeline/IPC：`action` + `format`（`zip` / `tar-gz` / `7z`）+ 扁平 `params`/`args`。
 
 ### CLI
 
@@ -253,13 +253,13 @@ tar.gz **不支持** password。详见 [docs/ipc-protocol.md](docs/ipc-protocol.
 ### Pipeline 示例
 
 ```yaml
+module: compression
+action: compress
+format: zip
 params:
-  Compress:
-    scheme:
-      Zip:
-        from: '${copy_cache.output}'
-        to: '${var.base}\\app.wgt'
-        level: 6
+  from: '${steps.copy_cache.artifact.path}'
+  to: '${var.base}\\app.wgt'
+  level: 6
 ```
 
 ---
@@ -300,7 +300,7 @@ corex codec decode base64 --input aGVsbG8=
 corex codec hash md5 --file ./README.md
 ```
 
-IPC 示例：`{"Hash":{"scheme":{"Md5":{"file":"C:/README.md"}}}}` — 见 [docs/ipc-protocol.md](docs/ipc-protocol.md)。
+IPC 示例：`{"type":"invoke","module":"codec","action":"hash","algorithm":"md5","args":{"file":"C:/README.md"}}` — 见 [docs/ipc-protocol.md](docs/ipc-protocol.md)。
 
 ---
 
@@ -312,7 +312,7 @@ IPC 示例：`{"Hash":{"scheme":{"Md5":{"file":"C:/README.md"}}}}` — 见 [docs
 corex scan os
 ```
 
-Pipeline / IPC：`{"Os":{}}`。结果写入 `TaskOutput.metadata["data"]` 或响应 `data` 字段。
+Pipeline / IPC：`action: os` + `params: {}` / `args: {}`。结果写入响应 `data` 字段。
 
 ---
 
@@ -326,7 +326,7 @@ corex morph merge --paths a.pdf,b.pdf --dest ./merged.pdf
 corex morph split --path ./doc.pdf --ranges 1-3,5-7 --dest-dir ./parts
 ```
 
-Pipeline / IPC：`{"Meta":{"path":"D:/doc.pdf"}}` 等，路径字段支持 `${var.*}` / `${step.output}` 变量解析。
+Pipeline / IPC：`action: meta` + `args: { "path": "D:/doc.pdf" }` 等；路径字段支持 `${var.*}` / `${steps.*.artifact.path}`。
 
 ---
 
@@ -345,7 +345,7 @@ corex screenshot capture --to C:\Screenshots
 corex screenshot crop --source C:\in.png --to C:\out --x 0 --y 0 --w 800 --h 600
 ```
 
-IPC Capture：`{"Capture":{"to":"C:/Screenshots"}}`。破坏性变更见 [docs/breaking-changes.md](docs/breaking-changes.md)。
+IPC Capture：`action:"capture"` + `args:{"to":"C:/Screenshots"}`。破坏性变更见 [docs/breaking-changes.md](docs/breaking-changes.md)。
 
 ---
 
@@ -392,24 +392,24 @@ corex pipeline --id build-h5 --once
 | ------ | ----------- |
 | `copy` | `from` / `to` |
 | `scrub` | `source` / `target` |
-| `shade` | `from` / `to` |
-| `compression` | `Compress` / `Decompress` + `scheme.{Zip\|TarGz\|SevenZ}` |
-| `generate` | `Path` / `Uuid` |
-| `exec` | `Run`（外部脚本，stdout JSON → artifact） |
-| `bootstrap` | `Env` / `Inspect` / `Force` |
-| `screenshot` | `Capture` / `Crop` / …（enum JSON） |
-| `codec` | `Encode` / `Decode` / `Hash` |
-| `scan` | `Os: {}` |
-| `morph` | `Meta` / `Merge` / …（捆绑 `pdfium.dll`） |
+| `shade` | （无 action）扁平 `from` / `to` |
+| `compression` | `action` + `format` + 扁平 params |
+| `generate` | `action: path\|uuid` + 扁平 params |
+| `exec` | `action: run` + 扁平 params |
+| `bootstrap` | `action: env\|inspect\|force` |
+| `screenshot` | `action: capture\|crop\|…` |
+| `codec` | `action` + `algorithm` + 扁平 params |
+| `scan` | `action: os` |
+| `morph` | `action: meta\|merge\|…` |
 
-步骤仅含 `module` + `params`（= IPC args）。变量：`${var.*}`、`${step.output}`、`${env.*}`（密码）。
+步骤：`module` + 可选路由字段 + `params`（= IPC args，仅 flags）。变量：`${var.*}`、`${steps.*.artifact.*}`、`${env.*}`。
 
 ```yaml
 - id: capture_screen
   module: screenshot
+  action: capture
   params:
-    Capture:
-      to: '${var.base}\\screenshots'
+    to: '${var.base}\\screenshots'
 ```
 
 完整 smoke test 见根目录 [`pipelines.yaml`](pipelines.yaml) 中的 `dev-tools` pipeline（含 `watch` 配置示例）。
@@ -444,31 +444,30 @@ pipelines:
 
       - id: step_generate
         module: generate
+        action: path
         description: 生成路径列表
         depends_on: [step_copy]
         params:
-          Path:
-            from: '${steps.step_copy.artifact.path}'
-            to: './output/path.txt'
-            transform: '{{fullpath}}'
-            index: 1
-            separator: '/'
-            pad: false
-            includes: ['*.js', '*.css']
-            excludes: []
-            uppercase: []
+          from: '${steps.step_copy.artifact.path}'
+          to: './output/path.txt'
+          transform: '{{fullpath}}'
+          index: 1
+          separator: '/'
+          pad: false
+          includes: ['*.js', '*.css']
+          excludes: []
+          uppercase: []
 
       - id: step_compress
         module: compression
+        action: compress
+        format: zip
         description: 打包
         depends_on: [step_copy]
         params:
-          Compress:
-            scheme:
-              Zip:
-                from: '${var.dist_dir}'
-                to: './release/app.wgt'
-                level: 6
+          from: '${var.dist_dir}'
+          to: './release/app.wgt'
+          level: 6
 ```
 
 ### 执行模式（v3 DAG）

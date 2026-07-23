@@ -110,15 +110,15 @@ pub fn execute(args: &Args) -> Result<Output> {
 
 1. **必须**同时 derive `clap::Parser` 与 `serde::{Serialize, Deserialize}`，以便 CLI 与 JSON IPC 共用。
 2. 有子命令时用 `enum Args` + `#[command(subcommand)]`（参考 `codec`、`screenshot`）。
-3. IPC args 使用 **typed 格式**，与 clap 结构一致：
+3. IPC args 使用**线格式**（小写路由 + 扁平 flags）：
 
 ```json
-{"Os": {}}
-{"Capture": {"to": "C:/out"}}
-{"Encode": {"scheme": {"Base64": {"input": "aGVsbG8="}}}}
+{"module":"scan","action":"os","args":{}}
+{"module":"screenshot","action":"capture","args":{"to":"C:/out"}}
+{"module":"codec","action":"encode","algorithm":"base64","args":{"input":"aGVsbG8="}}
 ```
 
-**禁止** legacy 扁平格式（如 `{"to":"..."}` 无 variant 名）。
+**禁止**在 args 内嵌套 PascalCase 子命令或 `scheme`。
 
 4. 路径参数优先用 `crate::utils::paths` 中的校验（`validate_read_file`、`validate_write_path`）。
 

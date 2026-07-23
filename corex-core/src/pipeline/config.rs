@@ -99,6 +99,15 @@ fn default_debounce_ms() -> u64 {
 pub struct StepConfig {
     pub id: String,
     pub module: String,
+    /// CLI 第一级子命令（kebab-case）；单操作模块省略
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub action: Option<String>,
+    /// 归档格式（仅 compression）：zip / tar-gz / 7z
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub format: Option<String>,
+    /// 算法（仅 codec）：base64 / md5
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub algorithm: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub description: Option<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -107,6 +116,7 @@ pub struct StepConfig {
     pub when: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub retry: Option<RetryConfig>,
+    /// 仅 flags（与 CLI `--flag` 对应），不含子命令嵌套
     #[serde(default)]
     pub params: Value,
 }
@@ -176,6 +186,21 @@ pub fn validate_config(config: &PipelinesConfig) -> anyhow::Result<()> {
                     step.module
                 );
             }
+            // 预检线格式路由 +（无占位符时）params 结构
+            let wire = crate::invoke::WireArgs {
+                action: step.action.clone(),
+                format: step.format.clone(),
+                algorithm: step.algorithm.clone(),
+                flags: step.params.clone(),
+            };
+            crate::invoke::validate_wire(&step.module, &wire).map_err(|e| {
+                anyhow::anyhow!(
+                    "Pipeline '{}' 步骤 '{}' 线格式无效: {}",
+                    pipeline.id,
+                    step.id,
+                    e
+                )
+            })?;
         }
         StageGraph::from_pipeline(pipeline)?.validate()?;
         if let Some(watch) = &pipeline.watch {
@@ -224,8 +249,8 @@ pipelines:
     steps:
       - id: scan_os
         module: scan
-        params:
-          Os: {}
+        action: os
+        params: {}
 "#;
         let config: PipelinesConfig = serde_yml::from_str(yaml).unwrap();
         let watch = config.pipelines[0].watch.as_ref().unwrap();
@@ -254,11 +279,9 @@ pipelines:
                 steps: vec![StepConfig {
                     id: "s".into(),
                     module: "scan".into(),
-                    description: None,
-                    depends_on: vec![],
-                    when: None,
-                    retry: None,
-                    params: serde_json::json!({"Os": {}}),
+                    action: Some("os".into()),
+                    params: serde_json::json!({}),
+                    ..Default::default()
                 }],
             }],
         };

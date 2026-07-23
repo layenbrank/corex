@@ -9,6 +9,13 @@ pub enum Request {
     Invoke {
         id: u64,
         module: String,
+        #[serde(default)]
+        action: Option<String>,
+        #[serde(default)]
+        format: Option<String>,
+        #[serde(default)]
+        algorithm: Option<String>,
+        #[serde(default)]
         args: Value,
     },
     /// 关闭 Daemon
@@ -69,13 +76,18 @@ mod tests {
 
     #[test]
     fn parse_typed_invoke() {
-        let line =
-            r#"{"type":"invoke","id":1,"module":"screenshot","args":{"Capture":{"to":"/tmp"}}}"#;
+        let line = r#"{"type":"invoke","id":1,"module":"screenshot","action":"capture","args":{"to":"/tmp"}}"#;
         let req = parse_request(line).unwrap();
         match req {
-            Request::Invoke { id, module, .. } => {
+            Request::Invoke {
+                id,
+                module,
+                action,
+                ..
+            } => {
                 assert_eq!(id, 1);
                 assert_eq!(module, "screenshot");
+                assert_eq!(action.as_deref(), Some("capture"));
             }
             _ => panic!("expected invoke"),
         }

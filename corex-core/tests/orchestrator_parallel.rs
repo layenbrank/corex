@@ -6,8 +6,15 @@ use cx::pipeline::orchestrator::run_pipeline;
 use cx::pipeline::report::{RunStatus, StepStatus};
 use serde_json::json;
 
-fn uuid_params() -> serde_json::Value {
-    json!({ "Uuid": { "count": 1, "uppercase": false } })
+fn uuid_step(id: &str, deps: Vec<&str>) -> StepConfig {
+    StepConfig {
+        id: id.into(),
+        module: "generate".into(),
+        action: Some("uuid".into()),
+        depends_on: deps.into_iter().map(str::to_string).collect(),
+        params: json!({ "count": 1, "uppercase": false }),
+        ..Default::default()
+    }
 }
 
 #[test]
@@ -18,33 +25,9 @@ fn parallel_layer_merges_artifacts_into_context() {
         schedule: None,
         watch: None,
         steps: vec![
-            StepConfig {
-                id: "root".into(),
-                module: "generate".into(),
-                description: None,
-                depends_on: vec![],
-                when: None,
-                retry: None,
-                params: uuid_params(),
-            },
-            StepConfig {
-                id: "left".into(),
-                module: "generate".into(),
-                description: None,
-                depends_on: vec!["root".into()],
-                when: None,
-                retry: None,
-                params: uuid_params(),
-            },
-            StepConfig {
-                id: "right".into(),
-                module: "generate".into(),
-                description: None,
-                depends_on: vec!["root".into()],
-                when: None,
-                retry: None,
-                params: uuid_params(),
-            },
+            uuid_step("root", vec![]),
+            uuid_step("left", vec!["root"]),
+            uuid_step("right", vec!["root"]),
         ],
     };
 

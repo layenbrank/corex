@@ -301,11 +301,17 @@ fn new_step(
     id: String,
     module: &str,
     description: Option<String>,
+    action: Option<&str>,
+    format: Option<&str>,
+    algorithm: Option<&str>,
     params: serde_json::Value,
 ) -> StepConfig {
     StepConfig {
         id,
         module: module.to_string(),
+        action: action.map(str::to_string),
+        format: format.map(str::to_string),
+        algorithm: algorithm.map(str::to_string),
         description,
         depends_on: vec![],
         when: None,
@@ -395,6 +401,9 @@ fn generate_config_template() -> Result<()> {
                     step_id,
                     "copy",
                     Some("复制任务".to_string()),
+                    None,
+                    None,
+                    None,
                     serde_json::json!({ "from": from, "to": to, "empty": false, "includes": [], "excludes": [] }),
                 )
             }
@@ -413,12 +422,13 @@ fn generate_config_template() -> Result<()> {
                     step_id,
                     "generate",
                     Some("路径生成任务".to_string()),
+                    Some("path"),
+                    None,
+                    None,
                     serde_json::json!({
-                        "Path": {
-                            "from": from, "to": to, "transform": transform,
-                            "index": 0, "separator": "/", "pad": false,
-                            "includes": [], "excludes": [], "uppercase": []
-                        }
+                        "from": from, "to": to, "transform": transform,
+                        "index": 0, "separator": "/", "pad": false,
+                        "includes": [], "excludes": [], "uppercase": []
                     }),
                 )
             }
@@ -432,7 +442,10 @@ fn generate_config_template() -> Result<()> {
                     step_id,
                     "generate",
                     Some("UUID 生成任务".to_string()),
-                    serde_json::json!({ "Uuid": { "count": count, "uppercase": false } }),
+                    Some("uuid"),
+                    None,
+                    None,
+                    serde_json::json!({ "count": count, "uppercase": false }),
                 )
             }
             3 => {
@@ -447,13 +460,10 @@ fn generate_config_template() -> Result<()> {
                     step_id,
                     "compression",
                     Some("压缩任务".to_string()),
-                    serde_json::json!({
-                        "Compress": {
-                            "scheme": {
-                                "Zip": { "from": from, "to": to, "level": 6, "method": "deflated" }
-                            }
-                        }
-                    }),
+                    Some("compress"),
+                    Some("zip"),
+                    None,
+                    serde_json::json!({ "from": from, "to": to, "level": 6, "method": "deflated" }),
                 )
             }
             4 => {
@@ -468,13 +478,10 @@ fn generate_config_template() -> Result<()> {
                     step_id,
                     "compression",
                     Some("解压缩任务".to_string()),
-                    serde_json::json!({
-                        "Decompress": {
-                            "scheme": {
-                                "Zip": { "from": from, "to": to }
-                            }
-                        }
-                    }),
+                    Some("decompress"),
+                    Some("zip"),
+                    None,
+                    serde_json::json!({ "from": from, "to": to }),
                 )
             }
             5 => {
@@ -502,6 +509,9 @@ fn generate_config_template() -> Result<()> {
                     step_id,
                     "shade",
                     Some("图片处理任务".to_string()),
+                    None,
+                    None,
+                    None,
                     serde_json::json!({
                         "from": from, "to": to, "format": format_val, "quality": quality
                     }),
@@ -524,6 +534,9 @@ fn generate_config_template() -> Result<()> {
                     step_id,
                     "scrub",
                     Some("清理任务".to_string()),
+                    None,
+                    None,
+                    None,
                     serde_json::json!({
                         "source": source, "target": target, "recursive": recursive
                     }),
@@ -538,7 +551,10 @@ fn generate_config_template() -> Result<()> {
                     step_id,
                     "screenshot",
                     Some("截图任务".to_string()),
-                    serde_json::json!({ "Capture": { "to": to } }),
+                    Some("capture"),
+                    None,
+                    None,
+                    serde_json::json!({ "to": to }),
                 )
             }
             8 => {
@@ -552,16 +568,19 @@ fn generate_config_template() -> Result<()> {
                     ])
                     .default(1)
                     .interact()?;
-                let variant = match action_idx {
-                    0 => "Env",
-                    2 => "Force",
-                    _ => "Inspect",
+                let action = match action_idx {
+                    0 => "env",
+                    2 => "force",
+                    _ => "inspect",
                 };
                 new_step(
                     step_id,
                     "bootstrap",
                     Some("环境初始化".to_string()),
-                    serde_json::json!({ variant: serde_json::Value::Object(Default::default()) }),
+                    Some(action),
+                    None,
+                    None,
+                    serde_json::json!({}),
                 )
             }
             _ => continue,

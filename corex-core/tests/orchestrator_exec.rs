@@ -43,17 +43,13 @@ Write-Output ($result | ConvertTo-Json -Compress)
         steps: vec![StepConfig {
             id: "run_script".into(),
             module: "exec".into(),
-            description: None,
-            depends_on: vec![],
-            when: None,
-            retry: None,
+            action: Some("run".into()),
             params: json!({
-                "Run": {
-                    "script": script.display().to_string(),
-                    "args": [],
-                    "capture": "json"
-                }
+                "script": script.display().to_string(),
+                "args": [],
+                "capture": "json"
             }),
+            ..Default::default()
         }],
     };
 

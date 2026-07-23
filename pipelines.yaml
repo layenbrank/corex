@@ -7,6 +7,9 @@
 #   paths: 监听路径（文件或目录，支持 ${var.*}）
 #   includes / excludes: glob 白名单 / 黑名单（与 copy/generate 一致）
 #   debounce_ms: 防抖毫秒，默认 300
+#
+# 线格式：module + action? + format|algorithm? + params{flags}
+#   词表与 CLI 一致（kebab-case）：corex <module> [<action>] [<format|algorithm>] [--flags]
 
 version: 3
 
@@ -30,32 +33,31 @@ pipelines:
 
       - id: gen_path
         module: generate
+        action: path
         description: 生成路径列表
         depends_on: [copy_cache]
         params:
-          Path:
-            from: '${steps.copy_cache.artifact.path}'
-            to: '${var.base}\\path.txt'
-            transform: '<include name="IDR_ITAB_{{extension}}_{{index}}" file="{{fullpath}}" type="BINDATA" />'
-            index: 1
-            separator: "\\"
-            pad: true
-            includes: []
-            excludes: ['example.js', '*.git', 'node_modules']
-            uppercase: ['extension']
+          from: '${steps.copy_cache.artifact.path}'
+          to: '${var.base}\\path.txt'
+          transform: '<include name="IDR_ITAB_{{extension}}_{{index}}" file="{{fullpath}}" type="BINDATA" />'
+          index: 1
+          separator: "\\"
+          pad: true
+          includes: []
+          excludes: ['example.js', '*.git', 'node_modules']
+          uppercase: ['extension']
 
       - id: compress_wgt
         module: compression
+        action: compress
+        format: zip
         description: 打包 wgt（Zip 容器）
         depends_on: [copy_cache]
         params:
-          Compress:
-            scheme:
-              Zip:
-                from: '${steps.copy_cache.artifact.path}'
-                to: '${var.base}\\H58991839.wgt'
-                level: 6
-                method: deflated
+          from: '${steps.copy_cache.artifact.path}'
+          to: '${var.base}\\H58991839.wgt'
+          level: 6
+          method: deflated
 
   - id: batch-copy
     description: 批量复制流水线
@@ -72,19 +74,19 @@ pipelines:
 
       - id: gen_path_list
         module: generate
+        action: path
         description: 生成路径文件
         depends_on: [copy_modules]
         params:
-          Path:
-            from: '${var.base}\\copies'
-            to: '${var.base}\\path.txt'
-            transform: '<include name="IDR_ITAB_{{extension}}_{{index}}" file="{{fullpath}}" type="BINDATA" />'
-            index: 1
-            separator: "\\"
-            pad: true
-            includes: []
-            excludes: ['example.js', '*.git', 'node_modules']
-            uppercase: ['extension']
+          from: '${var.base}\\copies'
+          to: '${var.base}\\path.txt'
+          transform: '<include name="IDR_ITAB_{{extension}}_{{index}}" file="{{fullpath}}" type="BINDATA" />'
+          index: 1
+          separator: "\\"
+          pad: true
+          includes: []
+          excludes: ['example.js', '*.git', 'node_modules']
+          uppercase: ['extension']
 
   - id: dev-tools
     description: 新模块 smoke test（含 watch 示例，见 corex watch run -p dev-tools）
@@ -96,21 +98,20 @@ pipelines:
     steps:
       - id: scan_os
         module: scan
-        params:
-          Os: {}
+        action: os
+        params: {}
 
       - id: hash_readme
         module: codec
+        action: hash
+        algorithm: md5
         depends_on: [scan_os]
         params:
-          Hash:
-            scheme:
-              Md5:
-                file: '${var.base}\\README.md'
+          file: '${var.base}\\README.md'
 
       - id: capture_screen
         module: screenshot
+        action: capture
         depends_on: [hash_readme]
         params:
-          Capture:
-            to: '${var.base}\\screenshots'
+          to: '${var.base}\\screenshots'

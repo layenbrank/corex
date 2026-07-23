@@ -2,6 +2,49 @@
 
 > **Pipeline v3** 为破坏性重构，请参阅 [v3-migration.md](./v3-migration.md) 与 [pipeline-v3.md](./pipeline-v3.md)。下文保留 IPC / 模块级历史变更。
 
+## 线格式：小写路由 + 扁平 params（当前）
+
+Pipeline step 与 IPC invoke **不再**在 `params`/`args` 内嵌套 PascalCase 子命令或 `scheme`。
+
+| 字段 | 说明 |
+|------|------|
+| `module` | 能力域 |
+| `action` | CLI 子命令（kebab-case）；单操作模块省略 |
+| `format` | 仅 compression：`zip` / `tar-gz` / `7z` |
+| `algorithm` | 仅 codec：`base64` / `md5` |
+| `params` / `args` | 仅 flags |
+
+**Pipeline 迁移：**
+
+```yaml
+# 旧
+module: compression
+params:
+  Compress:
+    scheme:
+      Zip: { from: '...', to: '...' }
+
+# 新
+module: compression
+action: compress
+format: zip
+params:
+  from: '...'
+  to: '...'
+```
+
+**IPC 迁移：**
+
+```json
+// 旧
+{"type":"invoke","id":1,"module":"codec","args":{"Hash":{"scheme":{"Md5":{"file":"a.txt"}}}}}
+
+// 新
+{"type":"invoke","id":1,"module":"codec","action":"hash","algorithm":"md5","args":{"file":"a.txt"}}
+```
+
+不保留旧 PascalCase / `scheme` 双读。
+
 ## IPC 协议
 
 | 变更 | 旧格式 | 新格式 |
@@ -9,6 +52,7 @@
 | Invoke 信封 | `{"id":1,"module":"...","args":{}}` | `{"type":"invoke","id":1,"module":"...","args":{}}` |
 | Shutdown | `{"cmd":"shutdown"}` | `{"type":"shutdown"}` |
 | 响应 data | 无 | 可选 `data` 字段（codec/scan/morph 等） |
+| args 形态 | PascalCase 嵌套 / `scheme` | 扁平 flags + 顶层 `action`/`format`/`algorithm` |
 
 ## screenshot 模块
 
@@ -16,33 +60,18 @@
 |------|----|----|
 | 轻量 binary | `corex-capture` | 等价 `corex screenshot capture --to` |
 | CLI | `corex screenshot --to DIR` | `corex screenshot capture --to DIR` |
-| IPC Capture | `{"to":"DIR"}` | `{"Capture":{"to":"DIR"}}` |
+| IPC Capture | `{"Capture":{"to":"DIR"}}` | `action:"capture"` + `args:{"to":"DIR"}` |
 | Crop 输出 | 文档误写为文件路径 | `to` 为**输出目录**（与 Capture 一致，自动生成文件名） |
 | Crop 大图 IPC | `final_image_base64` | 推荐 `image_file`（避免 64KB 行限） |
 
-## compression 模块（v2.1+）
+## compression 模块（v2.1+ → 线格式）
 
 | 变更 | 旧 | 新 |
 |------|----|----|
-| IPC / Pipeline | `{"Zip":{...}}` / `{"Unzip":{...}}` | `{"Compress":{"scheme":{"Zip":{...}}}}` / `Decompress` |
-| Pipeline step | `action: zip` / `action: unzip` + 扁平 params | `params.Compress.scheme.Zip` 等 |
-| CLI | `corex compression zip` | `corex compression compress zip` |
-| 格式 | 仅 ZIP | Zip / TarGz / SevenZ |
-| 密码 | 无 | `password` + `${env.VAR}`；tar.gz **不支持** password |
-
-**迁移示例：**
-
-```json
-// 旧
-{"Zip":{"from":"C:/src","to":"C:/out.wgt"}}
-
-// 新
-{"Compress":{"scheme":{"Zip":{"from":"C:/src","to":"C:/out.wgt","level":6,"encryption":"aes256","password":"${env.COREX_ARCHIVE_PASSWORD}"}}}}
-```
-
-## Pipeline step.action
-
-`generate` / `compression` / `bootstrap` 不再支持 `step.action`。请改用 params 外层 enum（`Path` / `Compress` / `Env` 等）。
+| IPC / Pipeline | `{"Compress":{"scheme":{"Zip":{...}}}}` | `action:compress` + `format:zip` + 扁平 args |
+| CLI | `corex compression compress zip` | 不变 |
+| 格式 | Zip / TarGz / SevenZ | 线格式键：`zip` / `tar-gz` / `7z` |
+| 密码 | `password` + `${env.VAR}` | 不变；tar.gz **不支持** password |
 
 ## utils 内部命名
 
@@ -81,12 +110,12 @@
 # 新
 - id: gen_version
   module: exec
+  action: run
   params:
-    Run:
-      script: '${var.scripts}/generate-version.ps1'
-      args: ['-ProjectRoot', '${var.base}']
-      cwd: '${var.base}'
-      capture: json
+    script: '${var.scripts}/generate-version.ps1'
+    args: ['-ProjectRoot', '${var.base}']
+    cwd: '${var.base}'
+    capture: json
 ```
 
 脚本须在 stdout 最后一行输出 `{"path":"...","data":{...}}`。详见 [pipeline-v3.md](./pipeline-v3.md#exec-模块外部脚本)。
@@ -96,17 +125,17 @@
 | 项 | 说明 |
 |----|------|
 | CLI | `corex exec run --script ...` |
-| Pipeline / IPC | `params.Run` / `args.Run` |
+| Pipeline / IPC | `action: run` + 扁平 `params` / `args` |
 | 返回值 | stdout 最后一行 JSON：`path`（string）+ `data`（object） |
 
 ## 迁移示例
 
 ```json
-// 旧
-{"id":1,"module":"screenshot","args":{"to":"C:/out"}}
-
-// 新
+// 旧（PascalCase 嵌套）
 {"type":"invoke","id":1,"module":"screenshot","args":{"Capture":{"to":"C:/out"}}}
+
+// 新（小写路由 + 扁平 args）
+{"type":"invoke","id":1,"module":"screenshot","action":"capture","args":{"to":"C:/out"}}
 ```
 
 ## i-thinking 集成

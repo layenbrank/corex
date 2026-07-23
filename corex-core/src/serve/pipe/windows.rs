@@ -89,8 +89,16 @@ fn handle_client(handle: HANDLE, state: &mut DaemonState) -> anyhow::Result<bool
                     result = Ok(false);
                     break;
                 }
-                Ok(Request::Invoke { id, module, args }) => {
-                    let response = handle_invoke(state, id, &module, &args);
+                Ok(Request::Invoke {
+                    id,
+                    module,
+                    action,
+                    format,
+                    algorithm,
+                    args,
+                }) => {
+                    let response =
+                        handle_invoke(state, id, &module, action, format, algorithm, args);
                     write_response(reader.get_mut(), &response)?;
                 }
                 Err(err) => {
@@ -188,17 +196,26 @@ fn open_pipe_file(pipe_name: &str) -> anyhow::Result<File> {
 pub fn send_request(
     pipe_name: &str,
     module: &str,
-    args: serde_json::Value,
+    wire: crate::invoke::WireArgs,
     id: u64,
 ) -> anyhow::Result<protocol::Response> {
     let mut file = open_pipe_file(pipe_name)?;
 
-    let request = serde_json::json!({
+    let mut request = serde_json::json!({
         "type": "invoke",
         "id": id,
         "module": module,
-        "args": args,
+        "args": wire.flags,
     });
+    if let Some(action) = wire.action {
+        request["action"] = serde_json::Value::String(action);
+    }
+    if let Some(format) = wire.format {
+        request["format"] = serde_json::Value::String(format);
+    }
+    if let Some(algorithm) = wire.algorithm {
+        request["algorithm"] = serde_json::Value::String(algorithm);
+    }
     let payload = serde_json::to_string(&request)?;
     file.write_all(payload.as_bytes())?;
     file.write_all(b"\n")?;

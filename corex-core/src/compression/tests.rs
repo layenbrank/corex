@@ -4,16 +4,14 @@ mod tests {
 
     use tempfile::tempdir;
 
-    use crate::compression::schema::{Args, CompressScheme, ZipEncryption, ZipFormatArgs};
+    use crate::compression::schema::{Args, CompressFormat, ZipEncryption, ZipFormatArgs};
     use crate::compression::service::execute;
 
     #[test]
-    fn compress_ipc_roundtrip() {
+    fn compress_serde_flat_format() {
         let v = serde_json::json!({
             "Compress": {
-                "scheme": {
-                    "Zip": { "from": "a", "to": "b.zip" }
-                }
+                "Zip": { "from": "a", "to": "b.zip" }
             }
         });
         let args: Args = serde_json::from_value(v).unwrap();
@@ -30,7 +28,7 @@ mod tests {
         let extract = dir.path().join("extract");
 
         let args = Args::Compress(crate::compression::schema::CompressArgs {
-            scheme: CompressScheme::Zip(ZipFormatArgs {
+            format: CompressFormat::Zip(ZipFormatArgs {
                 from: src.to_string_lossy().into_owned(),
                 to: archive.to_string_lossy().into_owned(),
                 level: 6,
@@ -45,7 +43,7 @@ mod tests {
         assert!(archive.is_file());
 
         let decompress = Args::Decompress(crate::compression::schema::DecompressArgs {
-            scheme: crate::compression::schema::DecompressScheme::Zip(
+            format: crate::compression::schema::DecompressFormat::Zip(
                 crate::compression::schema::ZipDecompressArgs {
                     from: archive.to_string_lossy().into_owned(),
                     to: extract.to_string_lossy().into_owned(),
@@ -72,7 +70,7 @@ mod tests {
         io.password = Some("test-password".to_string());
 
         let args = Args::Compress(crate::compression::schema::CompressArgs {
-            scheme: CompressScheme::Zip(ZipFormatArgs {
+            format: CompressFormat::Zip(ZipFormatArgs {
                 from: src.to_string_lossy().into_owned(),
                 to: archive.to_string_lossy().into_owned(),
                 level: 6,
@@ -86,7 +84,7 @@ mod tests {
         execute(&args).unwrap();
 
         let decompress = Args::Decompress(crate::compression::schema::DecompressArgs {
-            scheme: crate::compression::schema::DecompressScheme::Zip(
+            format: crate::compression::schema::DecompressFormat::Zip(
                 crate::compression::schema::ZipDecompressArgs {
                     from: archive.to_string_lossy().into_owned(),
                     to: extract.to_string_lossy().into_owned(),
@@ -112,7 +110,7 @@ mod tests {
         io.password = Some("nope".to_string());
 
         let args = Args::Compress(crate::compression::schema::CompressArgs {
-            scheme: CompressScheme::TarGz(crate::compression::schema::TarGzFormatArgs {
+            format: CompressFormat::TarGz(crate::compression::schema::TarGzFormatArgs {
                 from: src.to_string_lossy().into_owned(),
                 to: dir.path().join("out.tar.gz").to_string_lossy().into_owned(),
                 level: 6,

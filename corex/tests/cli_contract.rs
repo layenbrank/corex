@@ -129,8 +129,8 @@ pipelines:
     steps:
       - id: scan_os
         module: scan
-        params:
-          Os: {}
+        action: os
+        params: {}
 "#,
     )
     .unwrap();
@@ -156,8 +156,8 @@ pipelines:
     steps:
       - id: scan_os
         module: scan
-        params:
-          Os: {}
+        action: os
+        params: {}
 "#,
     )
     .unwrap();

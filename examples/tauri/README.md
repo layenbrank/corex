@@ -139,40 +139,40 @@ pnpm tauri dev
 
 ## 9. 通用 IPC 调用（codec / scan / morph / screenshot）
 
-`corex_ipc::invoke` 发送与 CLI 同构的 JSON args；结构化结果在响应 `data` 字段，文件路径在 `path` 字段。
+`corex_ipc::invoke(module, action, format, algorithm, args)`：路由字段 + 扁平 flags；结构化结果在 `data`，文件路径在 `path`。
 
 ```rust
 use crate::corex_ipc;
 
 // 系统信息
-let resp = corex_ipc::invoke("scan", serde_json::json!({ "Os": {} }))?;
+let resp = corex_ipc::invoke("scan", Some("os"), None, None, serde_json::json!({}))?;
 let os_ctx = resp.data.unwrap();
 
 // Base64 编码
 let resp = corex_ipc::invoke(
     "codec",
-    serde_json::json!({
-        "Encode": {
-            "scheme": { "Base64": { "input": "hello" } }
-        }
-    }),
+    Some("encode"),
+    None,
+    Some("base64"),
+    serde_json::json!({ "input": "hello" }),
 )?;
 let text = resp.data.unwrap()["text"].as_str().unwrap();
 
 // PDF 合并
 let resp = corex_ipc::invoke(
     "morph",
+    Some("merge"),
+    None,
+    None,
     serde_json::json!({
-        "Merge": {
-            "paths": ["C:/a.pdf", "C:/b.pdf"],
-            "dest": "C:/out.pdf"
-        }
+        "paths": ["C:/a.pdf", "C:/b.pdf"],
+        "dest": "C:/out.pdf"
     }),
 )?;
 let merged = resp.path.unwrap();
 
 // 枚举窗口
-let resp = corex_ipc::invoke("screenshot", serde_json::json!({ "Windows": null }))?;
+let resp = corex_ipc::invoke("screenshot", Some("windows"), None, None, serde_json::json!({}))?;
 let windows = resp.data.unwrap();
 ```
 

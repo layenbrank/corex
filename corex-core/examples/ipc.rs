@@ -10,6 +10,8 @@
 
 use std::env;
 
+use cx::invoke::WireArgs;
+
 fn main() -> anyhow::Result<()> {
     let to = env::args()
         .nth(1)
@@ -18,7 +20,7 @@ fn main() -> anyhow::Result<()> {
     let resp = cx::serve::request(
         r"\\.\pipe\corex",
         "screenshot",
-        serde_json::json!({ "Capture": { "to": to } }),
+        WireArgs::action("capture", serde_json::json!({ "to": to })),
     )?;
 
     if resp.ok {

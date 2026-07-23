@@ -1,7 +1,7 @@
 //! compression 参数占位符解析
 
 use crate::compression::schema::{
-    ArchiveIoArgs, Args, CompressScheme, DecompressScheme, SevenZDecompressArgs, SevenZFormatArgs,
+    ArchiveIoArgs, Args, CompressFormat, DecompressFormat, SevenZDecompressArgs, SevenZFormatArgs,
     TarGzDecompressArgs, TarGzFormatArgs, ZipDecompressArgs, ZipFormatArgs,
 };
 use crate::invoke::InvokeContext;
@@ -10,20 +10,20 @@ use crate::invoke::InvokeContext;
 pub fn parse_args(args: Args, ctx: &InvokeContext<'_>) -> Args {
     match args {
         Args::Compress(c) => Args::Compress(crate::compression::schema::CompressArgs {
-            scheme: match c.scheme {
-                CompressScheme::Zip(z) => CompressScheme::Zip(parse_zip_compress(z, ctx)),
-                CompressScheme::TarGz(t) => CompressScheme::TarGz(parse_tar_gz_compress(t, ctx)),
-                CompressScheme::SevenZ(s) => CompressScheme::SevenZ(parse_seven_z_compress(s, ctx)),
+            format: match c.format {
+                CompressFormat::Zip(z) => CompressFormat::Zip(parse_zip_compress(z, ctx)),
+                CompressFormat::TarGz(t) => CompressFormat::TarGz(parse_tar_gz_compress(t, ctx)),
+                CompressFormat::SevenZ(s) => CompressFormat::SevenZ(parse_seven_z_compress(s, ctx)),
             },
         }),
         Args::Decompress(d) => Args::Decompress(crate::compression::schema::DecompressArgs {
-            scheme: match d.scheme {
-                DecompressScheme::Zip(z) => DecompressScheme::Zip(parse_zip_decompress(z, ctx)),
-                DecompressScheme::TarGz(t) => {
-                    DecompressScheme::TarGz(parse_tar_gz_decompress(t, ctx))
+            format: match d.format {
+                DecompressFormat::Zip(z) => DecompressFormat::Zip(parse_zip_decompress(z, ctx)),
+                DecompressFormat::TarGz(t) => {
+                    DecompressFormat::TarGz(parse_tar_gz_decompress(t, ctx))
                 }
-                DecompressScheme::SevenZ(s) => {
-                    DecompressScheme::SevenZ(parse_seven_z_decompress(s, ctx))
+                DecompressFormat::SevenZ(s) => {
+                    DecompressFormat::SevenZ(parse_seven_z_decompress(s, ctx))
                 }
             },
         }),

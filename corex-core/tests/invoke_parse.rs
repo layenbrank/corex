@@ -2,7 +2,7 @@
 
 use std::collections::HashMap;
 
-use cx::invoke::{InvokeContext, invoke, ipc_data};
+use cx::invoke::{InvokeContext, WireArgs, invoke, ipc_data};
 use cx::pipeline::context::PipelineContext;
 use serde_json::json;
 
@@ -17,16 +17,14 @@ fn invoke_codec_parse_output_placeholder() {
     let ctx = InvokeContext::pipeline(&pipeline_ctx);
     invoke(
         "codec",
-        json!({
-            "Hash": {
-                "scheme": {
-                    "Md5": {
-                        "input": "hello",
-                        "output": "${var.out}"
-                    }
-                }
-            }
-        }),
+        WireArgs::codec(
+            "hash",
+            "md5",
+            json!({
+                "input": "hello",
+                "output": "${var.out}"
+            }),
+        ),
         &ctx,
     )
     .expect("invoke codec");
@@ -52,16 +50,14 @@ fn invoke_compression_parse_path_placeholders() {
     let ctx = InvokeContext::pipeline(&pipeline_ctx);
     invoke(
         "compression",
-        json!({
-            "Compress": {
-                "scheme": {
-                    "Zip": {
-                        "from": "${var.src}",
-                        "to": "${var.dst}"
-                    }
-                }
-            }
-        }),
+        WireArgs::compression(
+            "compress",
+            "zip",
+            json!({
+                "from": "${var.src}",
+                "to": "${var.dst}"
+            }),
+        ),
         &ctx,
     )
     .expect("invoke compression");
@@ -73,7 +69,12 @@ fn invoke_compression_parse_path_placeholders() {
 #[test]
 fn invoke_screenshot_monitors_returns_data() {
     let ctx = InvokeContext::empty();
-    let result = invoke("screenshot", json!({"Monitors": null}), &ctx).expect("monitors");
+    let result = invoke(
+        "screenshot",
+        WireArgs::action("monitors", json!({})),
+        &ctx,
+    )
+    .expect("monitors");
 
     let data = ipc_data(&result).or(result.data).expect("data field");
     assert!(data.is_array());
@@ -83,7 +84,12 @@ fn invoke_screenshot_monitors_returns_data() {
 #[test]
 fn invoke_screenshot_windows_returns_data() {
     let ctx = InvokeContext::empty();
-    let result = invoke("screenshot", json!({"Windows": null}), &ctx).expect("windows");
+    let result = invoke(
+        "screenshot",
+        WireArgs::action("windows", json!({})),
+        &ctx,
+    )
+    .expect("windows");
 
     let data = ipc_data(&result).or(result.data).expect("data field");
     assert!(data.is_array());

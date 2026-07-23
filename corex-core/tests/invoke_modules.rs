@@ -1,6 +1,6 @@
 //! invoke 层单元测试
 
-use cx::invoke::{InvokeContext, invoke};
+use cx::invoke::{InvokeContext, WireArgs, invoke};
 use cx::pipeline::context::PipelineContext;
 use serde_json::json;
 
@@ -8,7 +8,7 @@ use serde_json::json;
 fn invoke_unknown_module_fails() {
     let pipeline_ctx = PipelineContext::new();
     let ctx = InvokeContext::pipeline(&pipeline_ctx);
-    let err = invoke("not-a-module", json!({}), &ctx).unwrap_err();
+    let err = invoke("not-a-module", WireArgs::flags(json!({})), &ctx).unwrap_err();
     assert!(err.to_string().contains("未知或未启用的模块"));
 }
 
@@ -22,13 +22,13 @@ fn invoke_copy_returns_artifact_path() {
     let ctx = InvokeContext::empty();
     let result = invoke(
         "copy",
-        json!({
+        WireArgs::flags(json!({
             "from": src.display().to_string(),
             "to": dst.display().to_string(),
             "empty": false,
             "includes": [],
             "excludes": []
-        }),
+        })),
         &ctx,
     )
     .expect("invoke copy");
@@ -56,13 +56,14 @@ Write-Output ($result | ConvertTo-Json -Compress)"#
     let ctx = InvokeContext::empty();
     let result = invoke(
         "exec",
-        json!({
-            "Run": {
+        WireArgs::action(
+            "run",
+            json!({
                 "script": script_path.display().to_string(),
                 "args": [],
                 "capture": "json"
-            }
-        }),
+            }),
+        ),
         &ctx,
     )
     .expect("invoke exec");
@@ -90,13 +91,13 @@ fn invoke_copy_file_into_dir_returns_actual_path() {
     let ctx = InvokeContext::empty();
     let result = invoke(
         "copy",
-        json!({
+        WireArgs::flags(json!({
             "from": src.display().to_string(),
             "to": out_dir.display().to_string(),
             "empty": false,
             "includes": [],
             "excludes": []
-        }),
+        })),
         &ctx,
     )
     .expect("invoke copy into dir");

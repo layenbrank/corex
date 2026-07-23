@@ -7,7 +7,7 @@ use md5::{Digest, Md5};
 use serde_json::{Value, json};
 
 use crate::codec::schema::{
-    Args, DecodeArgs, DecodeScheme, EncodeArgs, EncodeScheme, HashArgs, HashScheme,
+    Args, DecodeAlgorithm, DecodeArgs, EncodeAlgorithm, EncodeArgs, HashAlgorithm, HashArgs,
 };
 use crate::utils::paths::{validate_read_file, validate_write_path};
 
@@ -58,8 +58,8 @@ pub fn execute(args: &Args) -> Result<Output> {
 }
 
 fn encode(args: &EncodeArgs) -> Result<Output> {
-    match &args.scheme {
-        EncodeScheme::Base64(a) => {
+    match &args.algorithm {
+        EncodeAlgorithm::Base64(a) => {
             let bytes = read_bytes(a.input.as_deref(), a.file.as_deref())?;
             let text = STANDARD.encode(&bytes);
             if let Some(path) = a.output.as_deref() {
@@ -75,8 +75,8 @@ fn encode(args: &EncodeArgs) -> Result<Output> {
 }
 
 fn decode(args: &DecodeArgs) -> Result<Output> {
-    match &args.scheme {
-        DecodeScheme::Base64(a) => {
+    match &args.algorithm {
+        DecodeAlgorithm::Base64(a) => {
             let input = read_text(a.input.as_deref(), a.file.as_deref())?;
             let bytes = STANDARD.decode(input.trim()).context("base64 解码失败")?;
             if let Some(path) = a.output.as_deref() {
@@ -97,8 +97,8 @@ fn decode(args: &DecodeArgs) -> Result<Output> {
 }
 
 fn hash(args: &HashArgs) -> Result<Output> {
-    match &args.scheme {
-        HashScheme::Md5(a) => {
+    match &args.algorithm {
+        HashAlgorithm::Md5(a) => {
             let bytes = read_bytes(a.input.as_deref(), a.file.as_deref())?;
             let digest = Md5::digest(&bytes);
             let text = digest

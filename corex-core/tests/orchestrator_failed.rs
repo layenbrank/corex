@@ -16,10 +16,6 @@ fn failed_pipeline_returns_run_report() {
         steps: vec![StepConfig {
             id: "bad".into(),
             module: "copy".into(),
-            description: None,
-            depends_on: vec![],
-            when: None,
-            retry: None,
             params: json!({
                 "from": "/nonexistent/path/xyz",
                 "to": "/also/nonexistent/xyz",
@@ -27,6 +23,7 @@ fn failed_pipeline_returns_run_report() {
                 "includes": [],
                 "excludes": []
             }),
+            ..Default::default()
         }],
     };
 

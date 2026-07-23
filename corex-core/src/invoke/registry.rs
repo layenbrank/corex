@@ -5,11 +5,14 @@ use serde::de::DeserializeOwned;
 use serde_json::Value;
 
 use super::artifact::Artifact;
+use super::assemble::assemble_typed;
 use super::context::InvokeContext;
 use super::result::InvokeResult;
+use super::wire::WireArgs;
 
 /// 按 module 名调用业务模块（CLI / Pipeline / IPC 共用）
-pub fn invoke(module: &str, args: Value, ctx: &InvokeContext<'_>) -> Result<InvokeResult> {
+pub fn invoke(module: &str, wire: WireArgs, ctx: &InvokeContext<'_>) -> Result<InvokeResult> {
+    let args = assemble_typed(module, &wire)?;
     match module {
         #[cfg(feature = "copy")]
         "copy" => invoke_copy(args, ctx),

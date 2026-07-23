@@ -4,7 +4,7 @@ use std::time::Instant;
 use anyhow::Result;
 use serde_json::Value;
 
-use crate::invoke::{InvokeContext, invoke, ipc_data};
+use crate::invoke::{InvokeContext, WireArgs, invoke, ipc_data};
 use crate::serve::state::DaemonState;
 
 /// 模块 dispatch 结果
@@ -14,23 +14,23 @@ pub struct DispatchResult {
 }
 
 /// 按 module 名分发（统一 invoke 层）
-pub fn dispatch(state: &mut DaemonState, module: &str, args: &Value) -> Result<DispatchResult> {
+pub fn dispatch(
+    state: &mut DaemonState,
+    module: &str,
+    wire: WireArgs,
+) -> Result<DispatchResult> {
     #[cfg(feature = "screenshot")]
     if module == "screenshot" {
-        if let Ok(parsed) = serde_json::from_value::<crate::screenshot::schema::Args>(args.clone())
-        {
-            if matches!(
-                parsed,
-                crate::screenshot::schema::Args::Capture(_)
-                    | crate::screenshot::schema::Args::Monitors
-            ) {
-                let _ = state.refresh_monitors();
-            }
+        if matches!(
+            wire.action.as_deref(),
+            Some("capture") | Some("monitors")
+        ) {
+            let _ = state.refresh_monitors();
         }
     }
 
     let ctx = InvokeContext::daemon(state);
-    let result = invoke(module, args.clone(), &ctx)?;
+    let result = invoke(module, wire, &ctx)?;
     Ok(DispatchResult {
         path: result.artifact.as_ref().and_then(|a| a.path.clone()),
         data: ipc_data(&result).or(result.data),
@@ -42,10 +42,19 @@ pub fn handle_invoke(
     state: &mut DaemonState,
     id: u64,
     module: &str,
-    args: &Value,
+    action: Option<String>,
+    format: Option<String>,
+    algorithm: Option<String>,
+    args: Value,
 ) -> crate::serve::protocol::Response {
     let start = Instant::now();
-    match dispatch(state, module, args) {
+    let wire = WireArgs {
+        action,
+        format,
+        algorithm,
+        flags: args,
+    };
+    match dispatch(state, module, wire) {
         Ok(result) => crate::serve::protocol::Response::success(
             id,
             result.path.map(|p| p.to_string_lossy().into_owned()),

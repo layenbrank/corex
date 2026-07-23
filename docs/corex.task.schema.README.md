@@ -8,28 +8,30 @@ corex.task.schema.json
 - 提供一个可验证的示例配置 (`corex.task.example.json`)。
 - 给出在 Windows PowerShell 下使用 ajv-cli 进行验证的示例命令。
 
-Pipeline YAML（`pipelines.yaml`）中各 step 的 `params` 与 IPC `args` 同构，详见 [ipc-protocol.md](./ipc-protocol.md)。
+Pipeline YAML（`pipelines.yaml`）使用**小写路由 + 扁平 params**，与 IPC 同构，详见 [pipeline-v3.md](./pipeline-v3.md) 与 [ipc-protocol.md](./ipc-protocol.md)。
 
 ## Pipeline 支持的 module
 
-| module | params 形态 | 说明 |
-| ------ | ----------- | ---- |
-| `copy` | `{ from, to, ... }` | 扁平对象 |
-| `generate` | `{ Path: { from, to, ... } }` 等 | 无 step.action |
-| `compression` | `{ Compress: { scheme: { Zip: {...} } } }` | Zip / TarGz / SevenZ |
-| `screenshot` | `{ Capture: { to } }` 等 | serde enum 外层键 |
-| `codec` | `{ Hash: { scheme: { Md5: { file } } } }` | 三层 scheme |
-| `scan` | `{ Os: {} }` | 无额外字段 |
-| `morph` | `{ Meta: { path } }` 等 | 捆绑 `pdfium.dll` |
+| module | 路由 | params（flags） |
+| ------ | ---- | --------------- |
+| `copy` | （无 action） | `{ from, to, ... }` |
+| `generate` | `action: path\|uuid` | 对应 flags |
+| `compression` | `action` + `format` | `{ from, to, ... }` |
+| `screenshot` | `action: capture\|…` | `{ to, ... }` |
+| `codec` | `action` + `algorithm` | `{ file, input, ... }` |
+| `scan` | `action: os` | `{}` |
+| `morph` | `action: meta\|…` | 对应 flags |
+| `exec` | `action: run` | `{ script, args, ... }` |
 
 compression 密码请用 `${env.COREX_ARCHIVE_PASSWORD}`，勿写明文 YAML。
 
 screenshot Capture 示例：
 
 ```yaml
+module: screenshot
+action: capture
 params:
-  Capture:
-    to: '${var.base}\\screenshots'
+  to: '${var.base}\\screenshots'
 ```
 
 Crop 使用 `source`（输入图）与 `to`（输出目录），与 Capture 命名一致。详见 [breaking-changes.md](./breaking-changes.md)。

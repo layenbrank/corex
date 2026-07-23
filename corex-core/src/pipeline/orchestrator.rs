@@ -2,7 +2,6 @@ use std::time::Instant;
 
 use anyhow::{Context, Result};
 use crossterm::style::Stylize;
-use serde_json::Value;
 use tokio::task::JoinSet;
 use tracing::info_span;
 
@@ -231,11 +230,13 @@ fn execute_step_blocking(step: &StepConfig, ctx: &mut PipelineContext) -> Result
         );
     }
 
-    let (artifact, items) = if step.module == "generate" && is_path_params(&step.params) {
-        let path_args = parse_path_args(&step.params, ctx)?;
+    let (artifact, items) = if step.module == "generate"
+        && step.action.as_deref() == Some("path")
+    {
+        let path_args = parse_path_args(step, ctx)?;
         run_path_stream_blocking(&path_args)?
     } else {
-        run_batch_stage(&step.module, &step.params, ctx)?
+        run_batch_stage(step, ctx)?
     };
 
     Ok((
@@ -247,18 +248,21 @@ fn execute_step_blocking(step: &StepConfig, ctx: &mut PipelineContext) -> Result
     ))
 }
 
-fn is_path_params(params: &Value) -> bool {
-    params.get("Path").is_some()
-}
-
 fn parse_path_args(
-    params: &Value,
+    step: &StepConfig,
     ctx: &PipelineContext,
 ) -> Result<crate::generate::schema::PathArgs> {
-    let parsed = ctx.parse_value(params);
-    let args: crate::generate::schema::Args = serde_json::from_value(parsed)?;
+    let parsed = ctx.parse_value(&step.params);
+    let wire = crate::invoke::WireArgs {
+        action: step.action.clone(),
+        format: step.format.clone(),
+        algorithm: step.algorithm.clone(),
+        flags: parsed,
+    };
+    let typed = crate::invoke::assemble_typed(&step.module, &wire)?;
+    let args: crate::generate::schema::Args = serde_json::from_value(typed)?;
     match args {
         crate::generate::schema::Args::Path(p) => Ok(p),
-        _ => anyhow::bail!("generate 流式 stage 需要 Path params"),
+        _ => anyhow::bail!("generate 流式 stage 需要 action: path"),
     }
 }

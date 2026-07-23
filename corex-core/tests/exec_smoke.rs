@@ -1,6 +1,6 @@
 //! exec 模块集成测试
 
-use cx::invoke::{InvokeContext, invoke};
+use cx::invoke::{InvokeContext, WireArgs, invoke};
 use serde_json::json;
 use std::fs;
 use std::path::PathBuf;
@@ -36,20 +36,23 @@ Write-Output ($result | ConvertTo-Json -Compress)
     let ctx = InvokeContext::empty();
     let result = invoke(
         "exec",
-        json!({
-            "Run": {
+        WireArgs::action(
+            "run",
+            json!({
                 "script": script.display().to_string(),
                 "args": [],
                 "capture": "json"
-            }
-        }),
+            }),
+        ),
         &ctx,
     )
     .expect("invoke exec");
 
     assert!(out_file.exists());
     let expected = out_file.canonicalize().unwrap();
-    let actual = PathBuf::from(result.path_string().unwrap()).canonicalize().unwrap();
+    let actual = PathBuf::from(result.path_string().unwrap())
+        .canonicalize()
+        .unwrap();
     assert_eq!(actual, expected);
     let version = result
         .artifact
@@ -71,13 +74,14 @@ fn invoke_exec_fails_on_nonzero_exit() {
     let ctx = InvokeContext::empty();
     let err = invoke(
         "exec",
-        json!({
-            "Run": {
+        WireArgs::action(
+            "run",
+            json!({
                 "script": script.display().to_string(),
                 "args": [],
                 "capture": "json"
-            }
-        }),
+            }),
+        ),
         &ctx,
     )
     .unwrap_err();
@@ -101,13 +105,14 @@ fn invoke_exec_bat_returns_artifact() {
     let ctx = cx::invoke::InvokeContext::empty();
     let result = invoke(
         "exec",
-        json!({
-            "Run": {
+        WireArgs::action(
+            "run",
+            json!({
                 "script": bat.display().to_string(),
                 "args": [],
                 "capture": "json"
-            }
-        }),
+            }),
+        ),
         &ctx,
     )
     .expect("invoke exec bat");

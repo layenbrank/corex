@@ -12,31 +12,35 @@ pub enum Args {
     Decompress(DecompressArgs),
 }
 
-/// 压缩：先选格式 scheme
+/// 压缩：先选归档格式
 #[derive(Debug, Parser, Clone, Serialize, Deserialize)]
 pub struct CompressArgs {
     #[command(subcommand)]
-    pub scheme: CompressScheme,
+    #[serde(flatten)]
+    pub format: CompressFormat,
 }
 
 #[derive(Debug, Subcommand, Clone, Serialize, Deserialize)]
-pub enum CompressScheme {
+pub enum CompressFormat {
     Zip(ZipFormatArgs),
     TarGz(TarGzFormatArgs),
+    #[command(name = "7z")]
     SevenZ(SevenZFormatArgs),
 }
 
-/// 解压：先选格式 scheme
+/// 解压：先选归档格式
 #[derive(Debug, Parser, Clone, Serialize, Deserialize)]
 pub struct DecompressArgs {
     #[command(subcommand)]
-    pub scheme: DecompressScheme,
+    #[serde(flatten)]
+    pub format: DecompressFormat,
 }
 
 #[derive(Debug, Subcommand, Clone, Serialize, Deserialize)]
-pub enum DecompressScheme {
+pub enum DecompressFormat {
     Zip(ZipDecompressArgs),
     TarGz(TarGzDecompressArgs),
+    #[command(name = "7z")]
     SevenZ(SevenZDecompressArgs),
 }
 
@@ -225,15 +229,15 @@ impl Args {
     /// 输出路径（Pipeline / IPC path 字段）
     pub fn output_path(&self) -> Option<String> {
         match self {
-            Args::Compress(a) => Some(match &a.scheme {
-                CompressScheme::Zip(z) => z.to.clone(),
-                CompressScheme::TarGz(t) => t.to.clone(),
-                CompressScheme::SevenZ(s) => s.to.clone(),
+            Args::Compress(a) => Some(match &a.format {
+                CompressFormat::Zip(z) => z.to.clone(),
+                CompressFormat::TarGz(t) => t.to.clone(),
+                CompressFormat::SevenZ(s) => s.to.clone(),
             }),
-            Args::Decompress(a) => Some(match &a.scheme {
-                DecompressScheme::Zip(z) => z.to.clone(),
-                DecompressScheme::TarGz(t) => t.to.clone(),
-                DecompressScheme::SevenZ(s) => s.to.clone(),
+            Args::Decompress(a) => Some(match &a.format {
+                DecompressFormat::Zip(z) => z.to.clone(),
+                DecompressFormat::TarGz(t) => t.to.clone(),
+                DecompressFormat::SevenZ(s) => s.to.clone(),
             }),
         }
     }
