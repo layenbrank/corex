@@ -1,8 +1,14 @@
-# Progress
+# Progress Log
 
-## Session
-- 实现 Pipeline/IPC 小写路由 + 扁平 params（完成）
-- 代码审查修复：文档、assemble feature 门控、UNIT flags、shade 文案、validate_wire、单测
+## Session: 2026-07-26
 
-## Status
-审查修复 todo 全部完成。
+### All phases complete
+- README：命令表、cvid 节、engine 节、Pipeline 表
+- docs：schema.README、pipeline-v3、breaking-changes、architecture-and-tauri-integration
+
+## 5-Question Reboot Check
+| Question | Answer |
+|----------|--------|
+| Where am I? | Done |
+| What's the goal? | 文档补齐 engine / cvid |
+| What have I done? | See above |

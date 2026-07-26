@@ -20,5 +20,6 @@ pub fn parse_args(args: Args, ctx: &InvokeContext<'_>) -> Args {
             description: a.description,
         }),
         Args::Uuid(a) => Args::Uuid(a),
+        Args::Cvid(a) => Args::Cvid(a),
     }
 }

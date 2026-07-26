@@ -15,7 +15,12 @@ pub struct GenerateSchedule {
 pub enum Args {
     Path(PathArgs),
     Uuid(UuidArgs),
+    /// 生成安全 CVID（GUID v4 大写 hex）
+    Cvid(CvidArgs),
 }
+
+#[derive(Debug, Parser, Clone, Serialize, Deserialize, Default)]
+pub struct CvidArgs {}
 
 #[derive(Debug, Parser, Clone, Serialize, Deserialize)]
 pub struct UuidArgs {

@@ -81,6 +81,38 @@ Write-Output ($result | ConvertTo-Json -Compress)"#
 }
 
 #[test]
+fn invoke_generate_cvid_returns_value() {
+    let ctx = InvokeContext::empty();
+    let result = invoke("generate", WireArgs::action("cvid", json!({})), &ctx)
+        .expect("invoke generate cvid");
+
+    let value = result
+        .data
+        .as_ref()
+        .and_then(|d| d.get("value"))
+        .and_then(|v| v.as_str())
+        .expect("value");
+    assert_eq!(value.len(), 32);
+    assert!(result.path_string().is_none());
+}
+
+#[test]
+fn invoke_engine_suggestion_requires_fields() {
+    let ctx = InvokeContext::empty();
+    let err = invoke(
+        "engine",
+        WireArgs::action("suggestion", json!({"qry": "rust"})),
+        &ctx,
+    )
+    .unwrap_err()
+    .to_string();
+    assert!(
+        err.contains("engine") || err.contains("missing field") || err.contains("解析"),
+        "unexpected err: {err}"
+    );
+}
+
+#[test]
 fn invoke_copy_file_into_dir_returns_actual_path() {
     let dir = tempfile::tempdir().unwrap();
     let src = dir.path().join("src.txt");

@@ -31,6 +31,7 @@ command = [
   "bootstrap",
   "screenshot",
   "exec",
+  "engine",
   "pipeline",
   "schedule",
   "watch",
@@ -52,6 +53,7 @@ invoke = [
   "bootstrap",
   "screenshot",
   "exec",
+  "engine",
 ]
 
 daemon = [
@@ -69,6 +71,7 @@ daemon = [
   "bootstrap",
   "screenshot",
   "exec",
+  "engine",
 ]
 
 serve = ["daemon"]
@@ -100,10 +103,12 @@ compression = [
 generate = [
   "dep:walkdir",
   "dep:uuid",
+  "dep:rand",
   "glob",
   "notify",
   "runtime",
 ]
+engine = ["dep:reqwest", "generate"]
 bootstrap = []
 exec = []
 screenshot = ["dep:xcap", "dep:image", "dep:base64", "dep:arboard", "cli"]
@@ -157,6 +162,7 @@ pdfium-render = { workspace = true, optional = true }
 petgraph = { workspace = true, optional = true }
 rand = { workspace = true, optional = true }
 regex = { workspace = true, optional = true }
+reqwest = { workspace = true, optional = true }
 rust_xlsxwriter = { workspace = true, optional = true }
 serde_yml = { workspace = true, optional = true }
 sysinfo = { workspace = true, optional = true }
@@ -203,7 +209,7 @@ path = "tests/path_stream.rs"
 
 [[test]]
 name = "invoke_modules"
-required-features = ["invoke", "copy", "exec"]
+required-features = ["invoke", "copy", "exec", "generate", "engine"]
 path = "tests/invoke_modules.rs"
 
 [[test]]

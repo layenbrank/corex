@@ -47,6 +47,11 @@ pub fn assemble_typed(module: &str, wire: &WireArgs) -> Result<Value> {
             reject_action_module_routing("exec", wire)?;
             assemble_action_module("exec", wire)
         }
+        #[cfg(feature = "engine")]
+        "engine" => {
+            reject_action_module_routing("engine", wire)?;
+            assemble_action_module("engine", wire)
+        }
         #[cfg(feature = "compression")]
         "compression" => {
             if wire.algorithm.is_some() {
@@ -183,8 +188,9 @@ fn algorithm_to_pascal(action: &str, algorithm: &str) -> Result<&'static str> {
 
 fn validate_action(module: &str, action: &str) -> Result<()> {
     let allowed: &[&str] = match module {
-        "generate" => &["path", "uuid"],
+        "generate" => &["path", "uuid", "cvid"],
         "scan" => &["os"],
+        "engine" => &["suggestion"],
         "screenshot" => &["capture", "monitors", "windows", "crop", "clipboard"],
         "morph" => &[
             "meta",
@@ -289,6 +295,11 @@ fn decode_module_args(module: &str, typed: Value) -> Result<()> {
             let _: crate::exec::schema::Args = serde_json::from_value(typed)
                 .map_err(|e| anyhow::anyhow!("exec params 无效: {e}"))?;
         }
+        #[cfg(feature = "engine")]
+        "engine" => {
+            let _: crate::engine::schema::Args = serde_json::from_value(typed)
+                .map_err(|e| anyhow::anyhow!("engine params 无效: {e}"))?;
+        }
         #[cfg(feature = "compression")]
         "compression" => {
             let _: crate::compression::schema::Args = serde_json::from_value(typed)
@@ -334,6 +345,27 @@ mod tests {
         let wire = WireArgs::action("path", json!({"from": "a", "to": "b"}));
         let v = assemble_typed("generate", &wire).unwrap();
         assert_eq!(v, json!({"Path": {"from": "a", "to": "b"}}));
+    }
+
+    #[test]
+    fn assembles_generate_cvid() {
+        let wire = WireArgs::action("cvid", json!({}));
+        let v = assemble_typed("generate", &wire).unwrap();
+        assert_eq!(v, json!({"Cvid": {}}));
+    }
+
+    #[cfg(feature = "engine")]
+    #[test]
+    fn assembles_engine_suggestion() {
+        let wire = WireArgs::action(
+            "suggestion",
+            json!({"qry": "rust", "pt": "page.home", "cp": 4}),
+        );
+        let v = assemble_typed("engine", &wire).unwrap();
+        assert_eq!(
+            v,
+            json!({"Suggestion": {"qry": "rust", "pt": "page.home", "cp": 4}})
+        );
     }
 
     #[test]

@@ -31,6 +31,7 @@ module/
 | compression | `compression::run` | `compression/service.rs` |
 | generate | `generate::run` | `generate/service.rs` |
 | exec | `exec::run` | `exec/service.rs` |
+| engine | `engine::run` | `engine/service.rs` |
 | bootstrap | `bootstrap::run` | `bootstrap/service.rs` |
 | screenshot | `screenshot::run` | `screenshot/service.rs` |
 | codec | `codec::run` | `codec/service.rs` |
@@ -68,11 +69,11 @@ pub fn dispatch(args: Args) -> Result<()> {
 | `service.rs::run` | CLI 包装 | execute + 人类输出 |
 | `invoke/registry` | 薄路由 | `decode_json` → `parse_args` → `execute` → `InvokeResult` |
 
-已实现 execute 的模块：compression、codec、scan、morph、screenshot、copy、scrub、shade、generate、bootstrap、exec。
+已实现 execute 的模块：compression、codec、scan、morph、screenshot、copy、scrub、shade、generate、bootstrap、exec、engine。
 
 ### Invoke 模块 vs 非 Invoke 模块
 
-**Invoke 模块**（可被 Pipeline step / IPC `invoke` 调用）：copy、scrub、shade、compression、generate、exec、screenshot、codec、scan、morph、bootstrap。
+**Invoke 模块**（可被 Pipeline step / IPC `invoke` 调用）：copy、scrub、shade、compression、generate、exec、screenshot、codec、scan、morph、bootstrap、engine。
 
 **非 Invoke 模块**（仅 CLI 入口，不在 `invoke/registry` 中注册）：
 
@@ -140,14 +141,14 @@ glob 过滤工具：`utils/filter.rs`（原 `ignore.rs`，与 copy/generate 的 
 ```
 default = ["all"]
 all = ["command"]
-command = [cli, copy, scrub, shade, compression, generate, bootstrap, screenshot, codec, scan, morph, pipeline, schedule, watch]
+command = [cli, copy, scrub, shade, compression, generate, bootstrap, screenshot, codec, scan, morph, exec, engine, pipeline, schedule, watch]
 cli = [dep:clap]
-daemon = [cli, copy, scrub, shade, compression, generate, bootstrap, screenshot, codec, scan, morph]
+daemon = [cli, copy, scrub, shade, compression, generate, bootstrap, screenshot, codec, scan, morph, exec, engine]
 serve = [daemon]
 pipeline = [regex, serde_yml, dialoguer, crossterm, tokio, dirs, tasks]
 schedule = [pipeline, cron, chrono]
 watch = [pipeline, notify-fs, notify-debouncer-full, chrono, glob]
-tasks = [codec, scan, morph, copy, scrub, shade, compression, generate, bootstrap, screenshot]
+tasks = [codec, scan, morph, copy, scrub, shade, compression, generate, bootstrap, screenshot, exec, engine]
 ```
 
 各模块 feature 还引入工具性子 feature：
@@ -308,8 +309,9 @@ CLI 路径调用 `capture(args, None)`；Daemon 路径传入 `state.monitors.as_
 | scrub | `scrub::run(&args)` | `args.target` | — |
 | shade | `shade::run(&args)` | `args.to` | — |
 | compression | `compression::run(&args)` | zip/unzip 的 `to` | — |
-| generate | `generate::execute` | Path 的 `to` | Uuid 无 path |
+| generate | `generate::execute` | Path 的 `to` | Uuid 无 path；cvid 的 `value` |
 | exec | `exec::execute` | 脚本 JSON `path` | 脚本 JSON `data` |
+| engine | `engine::execute` | None | Suggestion JSON |
 | bootstrap | `bootstrap::run(&args)` | None | — |
 | codec | `codec::execute` | 可选 output 文件 | text 等 |
 | scan | `scan::execute` | None | OsContext JSON |

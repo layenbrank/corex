@@ -13,6 +13,8 @@ use crate::compression;
 use crate::copy;
 #[cfg(feature = "exec")]
 use crate::exec;
+#[cfg(feature = "engine")]
+use crate::engine;
 #[cfg(feature = "generate")]
 use crate::generate;
 #[cfg(feature = "morph")]
@@ -66,10 +68,14 @@ pub enum Commands {
     /// 清理指定名称的文件/目录
     #[cfg(feature = "scrub")]
     Scrub(scrub::schema::Args),
-    /// 生成路径列表或 UUID
+    /// 生成路径列表、UUID 或 CVID
     #[cfg(feature = "generate")]
     #[command(subcommand)]
     Generate(generate::schema::Args),
+    /// Bing 搜索建议
+    #[cfg(feature = "engine")]
+    #[command(subcommand)]
+    Engine(engine::schema::Args),
     /// 运行外部脚本
     #[cfg(feature = "exec")]
     #[command(subcommand)]
@@ -123,6 +129,8 @@ pub fn dispatch(args: Args) -> Result<()> {
         Commands::Watch(a) => watch::run(&a),
         #[cfg(feature = "generate")]
         Commands::Generate(a) => generate::run(&a),
+        #[cfg(feature = "engine")]
+        Commands::Engine(a) => engine::run(&a),
         #[cfg(feature = "exec")]
         Commands::Exec(a) => exec::run(&a),
         #[cfg(feature = "bootstrap")]

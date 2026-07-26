@@ -148,7 +148,7 @@ corex watch run --debounce-ms 500 --excludes '**/*.tmp'
 |------|-------------|------|
 | Batch | copy, compression, scrub, shade, morph, screenshot | 1 artifact in → 1 out |
 | Stream | generate `action: path` | walkdir → transform line → sink file |
-| Signal | scan, codec, bootstrap, exec | 0/1 in → metadata out（exec 可选 path） |
+| Signal | scan, codec, bootstrap, exec, engine, generate `action: cvid\|uuid` | 0/1 in → metadata out（exec 可选 path） |
 
 ### exec 模块（外部脚本）
 

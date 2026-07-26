@@ -36,6 +36,8 @@ pub fn invoke(module: &str, wire: WireArgs, ctx: &InvokeContext<'_>) -> Result<I
         "bootstrap" => invoke_bootstrap(args, ctx),
         #[cfg(feature = "exec")]
         "exec" => invoke_exec(args, ctx),
+        #[cfg(feature = "engine")]
+        "engine" => invoke_engine(args, ctx),
         _ => anyhow::bail!("未知或未启用的模块: {module}"),
     }
 }
@@ -65,6 +67,8 @@ pub fn known_modules() -> &'static [&'static str] {
         "bootstrap",
         #[cfg(feature = "exec")]
         "exec",
+        #[cfg(feature = "engine")]
+        "engine",
     ]
 }
 
@@ -124,7 +128,12 @@ fn invoke_generate(args: Value, ctx: &InvokeContext<'_>) -> Result<InvokeResult>
     let raw: crate::generate::schema::Args = decode_json(args, "generate")?;
     let args = crate::generate::parse_args(raw, ctx);
     let output = crate::generate::service::execute(&args)?;
-    Ok(optional_path_result(output.path))
+    let result = optional_path_result(output.path);
+    if let Some(value) = output.value {
+        Ok(result.with_ipc_data(Some(serde_json::json!({ "value": value }))))
+    } else {
+        Ok(result)
+    }
 }
 
 #[cfg(feature = "screenshot")]
@@ -168,6 +177,13 @@ fn invoke_exec(args: Value, ctx: &InvokeContext<'_>) -> Result<InvokeResult> {
     let raw: crate::exec::schema::Args = decode_json(args, "exec")?;
     let args = crate::exec::parse_args(raw, ctx);
     Ok(crate::exec::service::execute(&args)?.into_invoke_result())
+}
+
+#[cfg(feature = "engine")]
+fn invoke_engine(args: Value, ctx: &InvokeContext<'_>) -> Result<InvokeResult> {
+    let raw: crate::engine::schema::Args = decode_json(args, "engine")?;
+    let args = crate::engine::parse_args(raw, ctx);
+    Ok(crate::engine::service::execute(&args)?.into_invoke_result())
 }
 
 /// 将 InvokeResult 转为 IPC data 字段（scan/codec/morph 等）

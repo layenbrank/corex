@@ -15,11 +15,12 @@ Pipeline YAML（`pipelines.yaml`）使用**小写路由 + 扁平 params**，与 
 | module | 路由 | params（flags） |
 | ------ | ---- | --------------- |
 | `copy` | （无 action） | `{ from, to, ... }` |
-| `generate` | `action: path\|uuid` | 对应 flags |
+| `generate` | `action: path\|uuid\|cvid` | 对应 flags |
 | `compression` | `action` + `format` | `{ from, to, ... }` |
 | `screenshot` | `action: capture\|…` | `{ to, ... }` |
 | `codec` | `action` + `algorithm` | `{ file, input, ... }` |
 | `scan` | `action: os` | `{}` |
+| `engine` | `action: suggestion` | `{ pt, qry, cp, ... }` |
 | `morph` | `action: meta\|…` | 对应 flags |
 | `exec` | `action: run` | `{ script, args, ... }` |
 

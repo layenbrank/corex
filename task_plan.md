@@ -1,15 +1,23 @@
-# Task Plan: Pipeline 小写路由 + 扁平 params
+# Task Plan: 更新 README 与相关文档
 
 ## Goal
-破坏性重构线格式：`module` / `action` / `format`|`algorithm` + 扁平 `params`/`args`；组装层生成 clap Args；去掉 scheme 与 PascalCase 嵌套。
+把 engine suggestion 与 generate cvid 补进 README 及仍缺漏的相关文档。
+
+## Current Phase
+complete
 
 ## Phases
 
-| Phase | Task | Status |
-|-------|------|--------|
-| 1 | StepConfig + IPC 信封扩展 | complete |
-| 2 | invoke 组装层 | complete |
-| 3 | codec/compression scheme 重命名 | complete |
-| 4 | 迁移示例与测试 | complete |
-| 5 | 文档与 skill | complete |
-| 6 | cargo test 验证 | complete |
+### Phase 1: Planning files
+- **Status:** complete
+
+### Phase 2: README
+- **Status:** complete
+
+### Phase 3: Related docs
+- **Status:** complete
+
+## Decisions Made
+| Decision | Rationale |
+|----------|-----------|
+| 跳过 architecture.md / ipc-protocol.md | 已含 engine/cvid |

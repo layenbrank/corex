@@ -28,6 +28,8 @@ pub mod copy;
 pub mod generate;
 #[cfg(feature = "exec")]
 pub mod exec;
+#[cfg(feature = "engine")]
+pub mod engine;
 #[cfg(feature = "morph")]
 pub mod morph;
 #[cfg(feature = "scan")]

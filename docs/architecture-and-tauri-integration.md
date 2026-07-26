@@ -98,6 +98,7 @@ corex/                    # workspace 根
 | `utils/scan.rs` | `scan` | `corex scan os` | `scan` |
 | base64 / MD5 工具 | `codec` | `corex codec hash md5 --input hello` | `codec` |
 | `screenshot/service.rs`（可移植部分） | `screenshot` | `corex screenshot windows` | `screenshot` |
+| `services/engine`（Bing 建议） | `engine` | `corex engine suggestion --pt page.home --qry rust --cp 4` | `engine` |
 | copy / scrub / shade 等 | 已有 | `corex copy ...` | `copy` 等 |
 
 **不迁入 corex：** Tauri 窗口/托盘胶水、`countdown`、`through`、SeaORM 产品 CRUD。

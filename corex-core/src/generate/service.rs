@@ -5,6 +5,7 @@ use std::{
 };
 
 use anyhow::{Context, Result};
+use rand::RngExt;
 use uuid::Uuid;
 use walkdir::{DirEntry, WalkDir};
 
@@ -15,12 +16,39 @@ use crate::utils::{notify, verifier, Filter};
 pub struct Output {
     pub path: Option<std::path::PathBuf>,
     pub items: u64,
+    pub value: Option<String>,
+}
+
+/// 生成安全的 CVID (加密随机数，符合 GUID v4 标准)
+///
+/// - 生成 16 字节随机数组
+/// - 设置版本位（第 6 字节）：(byte6 & 0x0f) | 0x40
+/// - 设置变体位（第 8 字节）：(byte8 & 0x3f) | 0x80
+/// - 转换为十六进制字符串并大写
+pub fn generate_secure_cvid() -> String {
+    let mut array = [0u8; 16];
+    rand::rng().fill(&mut array);
+
+    array[6] = (array[6] & 0x0f) | 0x40;
+    array[8] = (array[8] & 0x3f) | 0x80;
+
+    array
+        .iter()
+        .map(|b| format!("{:02X}", b))
+        .collect::<String>()
 }
 
 pub fn run(args: &Args) -> Result<()> {
     match args {
         Args::Uuid(uuid_args) => {
             uuid_task(uuid_args);
+            Ok(())
+        }
+        Args::Cvid(_) => {
+            let out = execute(args)?;
+            if let Some(value) = out.value {
+                println!("{value}");
+            }
             Ok(())
         }
         Args::Path(_) => match execute(args) {
@@ -43,6 +71,7 @@ pub fn execute(args: &Args) -> Result<Output> {
             Ok(Output {
                 path: Some(path),
                 items,
+                value: None,
             })
         }
         Args::Uuid(uuid_args) => {
@@ -50,8 +79,14 @@ pub fn execute(args: &Args) -> Result<Output> {
             Ok(Output {
                 path: None,
                 items: uuid_args.count as u64,
+                value: None,
             })
         }
+        Args::Cvid(_) => Ok(Output {
+            path: None,
+            items: 1,
+            value: Some(generate_secure_cvid()),
+        }),
     }
 }
 
@@ -241,4 +276,22 @@ pub fn path_transform_line(
     }
 
     Ok(out)
+}
+
+#[cfg(test)]
+mod secrets_tests {
+    use super::*;
+
+    #[test]
+    fn cvid_is_v4_uppercase_hex() {
+        let cvid = generate_secure_cvid();
+        assert_eq!(cvid.len(), 32);
+        assert!(cvid.chars().all(|c| c.is_ascii_hexdigit()));
+        assert!(cvid.chars().all(|c| !c.is_ascii_lowercase()));
+        let bytes = (0..16)
+            .map(|i| u8::from_str_radix(&cvid[i * 2..i * 2 + 2], 16).unwrap())
+            .collect::<Vec<_>>();
+        assert_eq!(bytes[6] & 0xf0, 0x40);
+        assert_eq!(bytes[8] & 0xc0, 0x80);
+    }
 }

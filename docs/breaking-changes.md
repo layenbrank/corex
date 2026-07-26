@@ -92,9 +92,11 @@ params:
 
 | 变更 | 旧 | 新 |
 |------|----|----|
-| CLI 子命令 | `generate path` / `generate uuid` / **`generate file`** | 仅 `path` / `uuid` |
+| CLI 子命令 | `generate path` / `generate uuid` / **`generate file`** | `path` / `uuid` / **`cvid`**（`file` 已移除） |
 | Pipeline params | `File: { to, template, ... }` | **已移除**；模板文件生成改用 **`exec`** |
 | 依赖 | handlebars | 已移除 |
+
+`generate cvid` 为后续加法能力：输出 GUID v4 大写 hex；IPC `data` 为 `{"value":"..."}`。
 
 **迁移示例（version 文件生成）：**
 

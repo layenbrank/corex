@@ -181,6 +181,26 @@ Crop 成功时 `path` 为输出 PNG 路径；Clipboard 无 `path`，仅 `ok: tru
 
 成功时 `data` 为 `OsContext` JSON（OS、CPU、内存等），CLI 同样输出 JSON 到 stdout。
 
+### engine
+
+Bing 搜索建议代理。`t`（建议类型码）为任意字符串，非固定枚举。
+
+```json
+{
+  "module": "engine",
+  "action": "suggestion",
+  "args": {
+    "pt": "page.home",
+    "qry": "rust",
+    "cp": 4,
+    "csr": "1",
+    "pths": "1"
+  }
+}
+```
+
+`cvid` / `user_agent` 可选；省略 `cvid` 时自动生成 GUID v4 大写 hex。成功时 `data` 为 Suggestion JSON。
+
 ### morph
 
 PDF 操作依赖与 `corex.exe` 同目录的 `pdfium.dll`（发布 zip 已包含）。使用 `action`（kebab-case）+ 扁平 `args`。
@@ -346,6 +366,14 @@ Pipeline 密码推荐 `${env.COREX_ARCHIVE_PASSWORD}`，勿在 YAML 写明文。
 ```
 
 Uuid 成功时 `path` 为 null。
+
+**Cvid：**
+
+```json
+{ "module": "generate", "action": "cvid", "args": {} }
+```
+
+成功时 `path` 为 null，`data` 为 `{"value":"..."}`。
 
 ### exec
 

@@ -64,6 +64,8 @@ corex watch run --immediate
 | `corex scrub`                       | 清理指定名称的文件/目录   |
 | `corex generate path`               | 扫描目录并生成路径列表    |
 | `corex generate uuid`               | 生成 UUID                 |
+| `corex generate cvid`               | 生成安全 CVID（GUID v4 大写 hex） |
+| `corex engine suggestion`           | Bing 搜索建议             |
 | `corex exec run`                    | 运行外部脚本并解析 JSON 返回值 |
 | `corex compression compress zip`    | 压缩（Zip / tar.gz / 7z） |
 | `corex compression decompress zip`  | 解压归档                  |
@@ -223,6 +225,20 @@ corex generate uuid --count 5 --uppercase
 
 ---
 
+## CVID 生成 (generate cvid)
+
+生成符合 GUID v4 标准的安全 CVID（32 位大写十六进制），可用于 Bing 搜索建议等客户端标识场景。无额外参数。
+
+### 使用示例
+
+```powershell
+corex generate cvid
+```
+
+Pipeline / IPC：`action: cvid` + `args: {}`；成功时 `path` 为 null，`data` 为 `{"value":"..."}`。详见 [docs/ipc-protocol.md](docs/ipc-protocol.md#generate)。
+
+---
+
 ## 压缩打包 (compression)
 
 支持 **Zip**（含 H5+ `.wgt`）、**tar.gz**、**7z**。Pipeline/IPC：`action` + `format`（`zip` / `tar-gz` / `7z`）+ 扁平 `params`/`args`。
@@ -316,6 +332,32 @@ Pipeline / IPC：`action: os` + `params: {}` / `args: {}`。结果写入响应 `
 
 ---
 
+## 搜索建议 (engine)
+
+代理 Bing Autosuggest（`cn.bing.com/AS/Suggestions`），返回建议列表 JSON。建议项类型码 `t` 为任意字符串（非固定枚举）；省略 `--cvid` 时自动调用 `generate_secure_cvid`。
+
+### 参数
+
+| 参数           | 必填 | 默认值 | 说明 |
+| -------------- | ---- | ------ | ---- |
+| `--pt`         | ✓    | -      | 页面类型（如 `page.home`） |
+| `--qry`        | ✓    | -      | 查询关键词 |
+| `--cp`         | ✓    | -      | 光标位置（通常为 `qry` 长度） |
+| `--csr`        | ✗    | `1`    | csr 标志 |
+| `--pths`       | ✗    | `1`    | pths 标志 |
+| `--cvid`       | ✗    | 自动生成 | 客户端 CVID |
+| `--user-agent` | ✗    | Chrome UA | 出站 User-Agent |
+
+### 使用示例
+
+```powershell
+corex engine suggestion --pt page.home --qry rust --cp 4
+```
+
+Pipeline / IPC：`action: suggestion` + 扁平 `params`/`args`。结果写入响应 `data`。详见 [docs/ipc-protocol.md](docs/ipc-protocol.md#engine)。
+
+---
+
 ## PDF 处理 (morph)
 
 PDF 元数据、渲染、搜索、合并、拆分、导出图片/Office 等 10 个子命令。发布包内已捆绑 `pdfium.dll`，需与 `corex.exe` 同目录；开发环境请先运行 `scripts/download-pdfium.ps1`。
@@ -394,8 +436,9 @@ corex pipeline --id build-h5 --once
 | `scrub` | `source` / `target` |
 | `shade` | （无 action）扁平 `from` / `to` |
 | `compression` | `action` + `format` + 扁平 params |
-| `generate` | `action: path\|uuid` + 扁平 params |
+| `generate` | `action: path\|uuid\|cvid` + 扁平 params |
 | `exec` | `action: run` + 扁平 params |
+| `engine` | `action: suggestion` + 扁平 params |
 | `bootstrap` | `action: env\|inspect\|force` |
 | `screenshot` | `action: capture\|crop\|…` |
 | `codec` | `action` + `algorithm` + 扁平 params |
