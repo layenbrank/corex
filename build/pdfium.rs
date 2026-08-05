@@ -30,6 +30,18 @@ pub fn copy_pdfium_dll(manifest_dir: &Path) {
     println!("cargo:rerun-if-changed={}", checksum.display());
     println!("cargo:rerun-if-changed={}", script.display());
 
+    // 与 Cargo.toml `pdfium_7881` 对齐；升绑定 feature 时同步改 VERSION 与此常量
+    const PDFIUM_BIND_VERSION: &str = "7881";
+    let version_text = fs::read_to_string(&version)
+        .unwrap_or_else(|e| panic!("read {}: {e}", version.display()));
+    let version_text = version_text.trim();
+    if version_text != PDFIUM_BIND_VERSION {
+        panic!(
+            "assets/pdfium/VERSION={version_text} 与绑定 {PDFIUM_BIND_VERSION} 不一致；\
+             请同步 Cargo.toml pdfium_XXXX、VERSION、checksum 后重跑 download-pdfium.ps1"
+        );
+    }
+
     if !src.exists() {
         ensure_pdfium_dll(workspace, &src, &script);
     }

@@ -1,4 +1,5 @@
-# 从 bblanchon/pdfium-binaries 下载与 pdfium-render pdfium_latest 对齐的运行时库。
+# 从 bblanchon/pdfium-binaries 下载与 assets/pdfium/VERSION 对齐的运行时库。
+# VERSION 必须与 workspace Cargo.toml 里 pdfium-render 的 pdfium_XXXX feature 一致。
 # 用法: pwsh -File scripts/download-pdfium.ps1 [-Force]
 
 param(

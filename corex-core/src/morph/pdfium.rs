@@ -4,7 +4,7 @@ use std::path::PathBuf;
 
 use pdfium_render::prelude::*;
 
-/// 与 `assets/pdfium/VERSION` 及 `pdfium-render` `pdfium_latest` 对齐。
+/// 与 `assets/pdfium/VERSION` 及 Cargo.toml 中 `pdfium-render` 的 `pdfium_XXXX` feature 对齐。
 pub fn version() -> &'static str {
     include_str!("../../../assets/pdfium/VERSION").trim()
 }

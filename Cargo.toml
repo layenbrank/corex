@@ -49,9 +49,10 @@ arboard = "3.4"
 lopdf = "0.44.0"
 docx-rs = "0.4.22"
 rust_xlsxwriter = "0.96.0"
-pdfium-render = { version = "0.9.3", features = [
+pdfium-render = { version = "0.9.3", default-features = false, features = [
   "image_latest",
-  "pdfium_latest",
+  # 须与 assets/pdfium/VERSION 一致（当前 7881）；勿单独升 latest 而忘记 VERSION/DLL
+  "pdfium_7881",
   "thread_safe",
 ] }
 tracing = "0.1"
