@@ -1,42 +1,24 @@
 # Progress Log
 
-## Session: 2026-07-27
+## Session: 2026-08-05
 
-### Phase 1: Planning files
-- **Status:** complete
-- Actions taken:
-  - 重置 task_plan.md / findings.md / progress.md
-
-### Phase 2: Delete notify_flood_probe
-- **Status:** complete
-- Actions taken:
-  - 删除 corex-core/tests/notify_flood_probe.rs
-- Files created/modified:
-  - corex-core/tests/notify_flood_probe.rs (deleted)
-
-### Phase 3: Verify --locked and tests
-- **Status:** complete
-- Actions taken:
-  - cargo metadata --locked 成功（exit 0）
-  - cargo test -p corex-core --locked：全部通过，无 notify_flood_probe harness
-
-### Phase 4: Retag v2.1.0
-- **Status:** in_progress
-
-### Phase 5: Delivery
-- **Status:** pending
+### All phases complete
+- 重写 `.github/workflows/publish-release.yml`（SemVer、--target、三件套、checksum、workflow_dispatch）
+- README + ipc-protocol 写明 ZIP 含 corex + corex-serve + pdfium
+- 本地校验：资产名 `corex-v2.1.0-windows-x64.zip` 与 prepare.ts 一致；SemVer 正则与 workflow 关键词齐全
 
 ## Test Results
 | Test | Expected | Actual | Status |
 |------|----------|--------|--------|
-| cargo metadata --locked | exit 0 | exit 0 | pass |
-| cargo test -p corex-core --locked | 全部通过且无 flood probe | 69 unit + 多组 integration 全过 | pass |
+| zip 名 vs prepare.ts | corex-v2.1.0-windows-x64.zip | match | pass |
+| SemVer 样例 | ok/bad 集合正确 | pass | pass |
+| workflow 含三件套/--pipe/--target | present | present | pass |
 
 ## 5-Question Reboot Check
 | Question | Answer |
 |----------|--------|
-| Where am I? | Phase 4 — retag |
-| Where am I going? | 推送标签、收尾 |
-| What's the goal? | 修复 flood probe + 发布锁文件 CI |
+| Where am I? | Done |
+| Where am I going? | N/A（可选：打标签重发） |
+| What's the goal? | 企业级发布对齐 i-thinking 三件套 |
 | What have I learned? | See findings.md |
-| What have I done? | 删 probe、验证 locked/tests |
+| What have I done? | See above |
