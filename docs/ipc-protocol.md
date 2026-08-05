@@ -203,7 +203,7 @@ Bing 搜索建议代理。`t`（建议类型码）为任意字符串，非固定
 
 ### morph
 
-PDF 操作依赖与 `corex.exe` 同目录的 `pdfium.dll`（发布 zip 已包含）。使用 `action`（kebab-case）+ 扁平 `args`。
+PDF 操作依赖与 `corex.exe` / `corex-serve.exe` 同目录的 `pdfium.dll`（发布 zip 已包含三件套）。使用 `action`（kebab-case）+ 扁平 `args`。
 
 **Meta：**
 

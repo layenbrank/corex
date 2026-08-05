@@ -85,7 +85,7 @@ corex watch run --immediate
 | ------------- | ----------------------------------------- |
 | `corex`       | 完整 CLI（`features = all`）              |
 | `corex-serve` | Named Pipe Daemon，供 Tauri sidecar 使用  |
-| `corex-capture` | 轻量 capture，等价 `corex screenshot capture --to` |
+| `corex-capture` | 轻量 capture，等价 `corex screenshot capture --to`（不进 Release ZIP） |
 
 完整 CLI 截图请使用 `corex screenshot capture --to`；`corex-capture` 为轻量独立 binary。
 
@@ -94,6 +94,18 @@ cargo build -p corex-serve --release
 cargo run -p corex-capture -- --to C:\Temp\screenshots
 corex screenshot capture --to C:\Temp\screenshots
 ```
+
+### GitHub Release（Windows x64）
+
+打 `v*` SemVer 标签（或 `workflow_dispatch`）会发布 `corex-{tag}-windows-x64.zip`，解压后同目录包含：
+
+| 文件 | 用途 |
+|------|------|
+| `corex.exe` | CLI |
+| `corex-serve.exe` | Tauri sidecar（Named Pipe Daemon） |
+| `pdfium.dll` | PDF/morph 运行时 |
+
+另附 `.zip.sha256` 与 `SHA256SUMS.txt`。i-thinking 的 `prepare.ts` 从该资产下载并 stage `corex-serve` + `pdfium.dll`。
 
 ---
 
@@ -360,7 +372,7 @@ Pipeline / IPC：`action: suggestion` + 扁平 `params`/`args`。结果写入响
 
 ## PDF 处理 (morph)
 
-PDF 元数据、渲染、搜索、合并、拆分、导出图片/Office 等 10 个子命令。发布包内已捆绑 `pdfium.dll`，需与 `corex.exe` 同目录；开发环境请先运行 `scripts/download-pdfium.ps1`。
+PDF 元数据、渲染、搜索、合并、拆分、导出图片/Office 等 10 个子命令。发布包内已捆绑 `pdfium.dll`，需与 `corex.exe` / `corex-serve.exe` 同目录；开发环境请先运行 `scripts/download-pdfium.ps1`。
 
 ```powershell
 corex morph meta --path ./doc.pdf

@@ -1,139 +1,256 @@
 name: Publish Release
 
+# 企业级 Windows x64 发版（供 i-thinking / Tauri 消费）
+# - SemVer tag 与 workspace.package.version 强制对齐
+# - 渠道：stable | alpha | beta | rc（由 tag 后缀决定）
+# - ZIP 三件套：corex.exe + corex-serve.exe + pdfium.dll
+# - 资产名：corex-{tag}-windows-x64.zip（prepare.ts 约定）
+#
+# 发布示例：
+#   # bump workspace.package.version 后：
+#   git tag v2.1.0 && git push --tags
+#   git tag v2.1.0-beta.1 && git push --tags
+#   # 或 Actions → Publish Release → workflow_dispatch 指定 tag
+
 on:
   push:
     tags:
-      - v*
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Tag to publish (e.g. v2.1.0 / v2.1.0-beta.1); required when not on a tag push
+        required: false
+        type: string
+      draft:
+        description: Create draft Release (manual publish after review)
+        required: false
+        type: boolean
+        default: false
 
 permissions:
   contents: write
-  packages: write
-  issues: write
-  pull-requests: write
+
+concurrency:
+  group: publish-release-${{ github.ref }}-${{ inputs.tag || github.ref_name }}
+  cancel-in-progress: false
 
 env:
   CARGO_TERM_COLOR: always
-  RUSTC_WRAPPER: ""
-  CARGO_INCREMENTAL: "0"
+  RUSTC_WRAPPER: ''
+  CARGO_INCREMENTAL: '0'
+  RUST_TARGET: x86_64-pc-windows-msvc
   TARGET_DIR: target/x86_64-pc-windows-msvc/release
-  BINARY_NAME: corex.exe
 
 jobs:
   windows-x64:
     name: windows-x64
     runs-on: windows-latest
+    timeout-minutes: 90
 
     steps:
-      - uses: actions/checkout@v6
+      - name: Resolve release metadata
+        id: meta
+        shell: pwsh
+        run: |
+          if ("${{ github.ref_type }}" -eq "tag") {
+            $tag = "${{ github.ref_name }}"
+          } elseif ("${{ inputs.tag }}" -ne "") {
+            $tag = "${{ inputs.tag }}".Trim()
+          } else {
+            Write-Error "No tag: push a v* tag, or pass workflow_dispatch input tag"
+            exit 1
+          }
+
+          if ($tag -notmatch '^v(?<ver>\d+\.\d+\.\d+(?:-(?:alpha|beta|rc)(?:\.\d+)?)?)$') {
+            Write-Error "Invalid tag '$tag'. Expected SemVer: v1.2.0 | v1.2.0-alpha.1 | v1.2.0-beta.1 | v1.2.0-rc.1"
+            exit 1
+          }
+
+          $version = $Matches['ver']
+          $channel = 'stable'
+          $isPrerelease = $false
+          if ($version -match '-alpha(?:\.|$)') { $channel = 'alpha'; $isPrerelease = $true }
+          elseif ($version -match '-beta(?:\.|$)') { $channel = 'beta'; $isPrerelease = $true }
+          elseif ($version -match '-rc(?:\.|$)') { $channel = 'rc'; $isPrerelease = $true }
+
+          $draft = '${{ inputs.draft }}' -eq 'true'
+
+          "tag=$tag" >> $env:GITHUB_OUTPUT
+          "version=$version" >> $env:GITHUB_OUTPUT
+          "channel=$channel" >> $env:GITHUB_OUTPUT
+          "is_prerelease=$($isPrerelease.ToString().ToLowerInvariant())" >> $env:GITHUB_OUTPUT
+          "draft=$($draft.ToString().ToLowerInvariant())" >> $env:GITHUB_OUTPUT
+          "zip_name=corex-$tag-windows-x64.zip" >> $env:GITHUB_OUTPUT
+
+          Write-Host "tag=$tag version=$version channel=$channel prerelease=$isPrerelease draft=$draft"
+
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ steps.meta.outputs.tag }}
+
+      - name: Enforce version alignment
+        shell: pwsh
+        run: |
+          $expected = "${{ steps.meta.outputs.version }}"
+          $cargoToml = Get-Content Cargo.toml -Raw
+          if ($cargoToml -notmatch '(?ms)\[workspace\.package\][^\[]*?^version\s*=\s*"([^"]+)"') {
+            Write-Error "Cargo.toml [workspace.package] version not found"
+            exit 1
+          }
+          $actual = $Matches[1]
+          if ($actual -ne $expected) {
+            Write-Error "Version gate failed. Tag implies '$expected', but [workspace.package].version='$actual'. Bump Cargo.toml, commit, tag v$expected, and push."
+            exit 1
+          }
+          Write-Host "Version alignment OK: $expected"
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: stable
+          targets: ${{ env.RUST_TARGET }}
 
-      - name: Cache cargo dependencies
-        uses: actions/cache@v5
+      - name: Cache Cargo
+        uses: Swatinem/rust-cache@v2
         with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          shared-key: publish-${{ env.RUST_TARGET }}
 
       - name: Download native dependencies
+        shell: pwsh
         run: pwsh -File scripts/download-pdfium.ps1
 
       - name: Build workspace (release)
-        run: cargo build --workspace --release --locked --verbose
+        shell: pwsh
+        run: cargo build --workspace --release --locked --target $env:RUST_TARGET --verbose
 
       - name: Test workspace (release)
-        run: cargo test --workspace --release --locked --verbose
+        shell: pwsh
+        run: cargo test --workspace --release --locked --target $env:RUST_TARGET --verbose
 
       - name: Verify release artifacts
+        shell: pwsh
         run: |
-          $binaryPath = "$env:TARGET_DIR/$env:BINARY_NAME"
-          $dllPath = "$env:TARGET_DIR/pdfium.dll"
-          if (-not (Test-Path $binaryPath)) {
-            Write-Error "Binary not found at $binaryPath"
+          $dir = $env:TARGET_DIR
+          $required = @('corex.exe', 'corex-serve.exe', 'pdfium.dll')
+          foreach ($name in $required) {
+            $path = Join-Path $dir $name
+            if (-not (Test-Path $path)) {
+              Write-Error "Missing required artifact: $path"
+              Get-ChildItem $dir -ErrorAction SilentlyContinue | Select-Object Name, Length
+              exit 1
+            }
+            $sizeMb = (Get-Item $path).Length / 1MB
+            Write-Host "OK $name ($([math]::Round($sizeMb, 2)) MB)"
+          }
+
+          $serve = Join-Path $dir 'corex-serve.exe'
+          $help = & $serve --help 2>&1 | Out-String
+          if ($help -notmatch '--pipe') {
+            Write-Error "corex-serve.exe is not a Named Pipe daemon (missing --pipe). Output:`n$help"
             exit 1
           }
-          if (-not (Test-Path $dllPath)) {
-            Write-Error "pdfium.dll not found beside binary at $dllPath"
+          if ($help -match '<COMMAND>') {
+            Write-Error "corex-serve.exe looks like the CLI (found <COMMAND>). Refusing to package."
             exit 1
           }
-          $size = (Get-Item $binaryPath).Length / 1MB
-          Write-Host "Binary size: $([math]::Round($size, 2)) MB"
+          Write-Host "corex-serve daemon check OK (--pipe present)"
+
+          $cli = Join-Path $dir 'corex.exe'
+          $cliHelp = & $cli --help 2>&1 | Out-String
+          if ($cliHelp -notmatch '(?i)Usage:') {
+            Write-Error "corex.exe --help did not look like a CLI. Output:`n$cliHelp"
+            exit 1
+          }
+          Write-Host "corex CLI check OK"
 
       - name: Create release package
+        shell: pwsh
         run: |
-          $binaryPath = "$env:TARGET_DIR/$env:BINARY_NAME"
-          mkdir release-package
-          copy $binaryPath release-package
-          copy "$env:TARGET_DIR/pdfium.dll" release-package
+          $dir = $env:TARGET_DIR
+          $zipName = "${{ steps.meta.outputs.zip_name }}"
+          $pkg = 'release-package'
+          $out = 'release-artifacts'
 
-          if (Test-Path "README.md") { copy README.md release-package }
-          if (Test-Path "LICENSE") { copy LICENSE release-package }
-          if (Test-Path "CHANGELOG.md") { copy CHANGELOG.md release-package }
+          if (Test-Path $pkg) { Remove-Item -Recurse -Force $pkg }
+          if (Test-Path $out) { Remove-Item -Recurse -Force $out }
+          New-Item -ItemType Directory -Force -Path $pkg | Out-Null
+          New-Item -ItemType Directory -Force -Path $out | Out-Null
 
-          $zipName = "corex-${{ github.ref_name }}-windows-x64.zip"
-          Compress-Archive -Path release-package\* -DestinationPath $zipName
+          Copy-Item (Join-Path $dir 'corex.exe') $pkg
+          Copy-Item (Join-Path $dir 'corex-serve.exe') $pkg
+          Copy-Item (Join-Path $dir 'pdfium.dll') $pkg
 
-          $hash = (Get-FileHash $zipName -Algorithm SHA256).Hash
-          "$hash  $zipName" | Out-File -Encoding ASCII "$zipName.sha256"
-          Write-Host "SHA256: $hash"
+          if (Test-Path 'README.md') { Copy-Item README.md $pkg }
+          if (Test-Path 'LICENSE') { Copy-Item LICENSE $pkg }
+          if (Test-Path 'CHANGELOG.md') { Copy-Item CHANGELOG.md $pkg }
+
+          $zipPath = Join-Path $out $zipName
+          Compress-Archive -Path (Join-Path $pkg '*') -DestinationPath $zipPath -Force
+
+          $hash = (Get-FileHash $zipPath -Algorithm SHA256).Hash.ToLowerInvariant()
+          "$hash  $zipName" | Out-File -Encoding ascii (Join-Path $out "$zipName.sha256")
+          Write-Host "SHA256 $zipName: $hash"
+
+          $sums = Join-Path $out 'SHA256SUMS.txt'
+          Get-ChildItem $pkg -File | ForEach-Object {
+            $h = (Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+            "$h  $($_.Name)" | Out-File -Encoding ascii -Append $sums
+            Write-Host "SHA256 $($_.Name): $h"
+          }
+          $zipHashLine = "$hash  $zipName"
+          $zipHashLine | Out-File -Encoding ascii -Append $sums
+
+          Write-Host "Release artifacts:"
+          Get-ChildItem $out -File | ForEach-Object { Write-Host " - $($_.Name)" }
 
       - name: Get build info
         id: build_info
+        shell: pwsh
         run: |
-          $commit_hash = git rev-parse HEAD
-          $commit_short = git rev-parse --short HEAD
-          $commit_message = git log -1 --pretty=format:"%s"
-          $commit_author = git log -1 --pretty=format:"%an"
-          $commit_date = git log -1 --pretty=format:"%ci"
-          $rust_version = rustc --version
-          $cargo_version = cargo --version
-
-          echo "hash=$commit_hash" >> $env:GITHUB_OUTPUT
-          echo "short=$commit_short" >> $env:GITHUB_OUTPUT
-          echo "message=$commit_message" >> $env:GITHUB_OUTPUT
-          echo "author=$commit_author" >> $env:GITHUB_OUTPUT
-          echo "date=$commit_date" >> $env:GITHUB_OUTPUT
-          echo "rust_version=$rust_version" >> $env:GITHUB_OUTPUT
-          echo "cargo_version=$cargo_version" >> $env:GITHUB_OUTPUT
+          echo "hash=$(git rev-parse HEAD)" >> $env:GITHUB_OUTPUT
+          echo "short=$(git rev-parse --short HEAD)" >> $env:GITHUB_OUTPUT
+          echo "message=$(git log -1 --pretty=format:%s)" >> $env:GITHUB_OUTPUT
+          echo "author=$(git log -1 --pretty=format:%an)" >> $env:GITHUB_OUTPUT
+          echo "date=$(git log -1 --pretty=format:%ci)" >> $env:GITHUB_OUTPUT
+          echo "rust_version=$(rustc --version)" >> $env:GITHUB_OUTPUT
+          echo "cargo_version=$(cargo --version)" >> $env:GITHUB_OUTPUT
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v3
         with:
-          files: |
-            corex-${{ github.ref_name }}-windows-x64.zip
-            corex-${{ github.ref_name }}-windows-x64.zip.sha256
-          name: Release ${{ github.ref_name }}
+          tag_name: ${{ steps.meta.outputs.tag }}
+          files: release-artifacts/*
+          name: Release ${{ steps.meta.outputs.tag }}
+          draft: ${{ steps.meta.outputs.draft == 'true' }}
+          prerelease: ${{ steps.meta.outputs.is_prerelease == 'true' }}
+          make_latest: ${{ steps.meta.outputs.channel == 'stable' && steps.meta.outputs.draft != 'true' && steps.meta.outputs.is_prerelease != 'true' }}
+          generate_release_notes: true
           body: |
-            ## What's Changed in ${{ github.ref_name }}
+            ## Corex ${{ steps.meta.outputs.tag }}
 
-            ### 📦 Release Information
-            - **Tag**: ${{ github.ref_name }}
-            - **Commit**: `${{ steps.build_info.outputs.short }}`
-            - **Author**: ${{ steps.build_info.outputs.author }}
-            - **Date**: ${{ steps.build_info.outputs.date }}
+            | Field | Value |
+            | --- | --- |
+            | Channel | `${{ steps.meta.outputs.channel }}` |
+            | Version | `${{ steps.meta.outputs.version }}` |
+            | Commit | `${{ steps.build_info.outputs.short }}` |
+            | Platform | Windows x64 (`x86_64-pc-windows-msvc`) |
 
-            ### 💬 Commit Message
+            ### Commit
             ```
             ${{ steps.build_info.outputs.message }}
             ```
 
-            ### 🔧 Build Information
-            - **Platform**: Windows x64 (x86_64-pc-windows-msvc)
-            - **Rust**: ${{ steps.build_info.outputs.rust_version }}
-            - **Cargo**: ${{ steps.build_info.outputs.cargo_version }}
-            - `cargo build --workspace --release --locked`
-            - Optimized release build with LTO enabled
+            ### Build
+            - Rust: ${{ steps.build_info.outputs.rust_version }}
+            - Cargo: ${{ steps.build_info.outputs.cargo_version }}
+            - `cargo build --workspace --release --locked --target x86_64-pc-windows-msvc`
 
-            ### 📋 Files
-            - `corex-${{ github.ref_name }}-windows-x64.zip` — 包含 `corex.exe`、`pdfium.dll` 及文档（解压后同目录使用）
-            - `corex-${{ github.ref_name }}-windows-x64.zip.sha256` — ZIP 校验和
+            ### Artifacts (i-thinking / Tauri)
+            - `${{ steps.meta.outputs.zip_name }}` — `corex.exe` (CLI) + `corex-serve.exe` (sidecar) + `pdfium.dll`（解压后同目录）
+            - `${{ steps.meta.outputs.zip_name }}.sha256` — ZIP SHA-256（prepare.ts 校验）
+            - `SHA256SUMS.txt` — 包内文件与 ZIP 校验清单
 
-            ### 📋 Full Changelog
-            **Full Commit**: [`${{ steps.build_info.outputs.short }}`](https://github.com/${{ github.repository }}/commit/${{ steps.build_info.outputs.hash }})
-          draft: false
-          prerelease: ${{ contains(github.ref_name, 'alpha') || contains(github.ref_name, 'beta') || contains(github.ref_name, 'rc') }}
-          generate_release_notes: true
+            ### Full commit
+            [`${{ steps.build_info.outputs.short }}`](https://github.com/${{ github.repository }}/commit/${{ steps.build_info.outputs.hash }})
