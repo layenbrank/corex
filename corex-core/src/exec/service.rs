@@ -175,7 +175,8 @@ fn build_command(script: &Path, args: &[String]) -> Result<Command> {
 
     let cmd = match ext.as_str() {
         "ps1" => {
-            let mut c = Command::new("powershell");
+            // 优先 PowerShell 7+（pwsh），否则回退 Windows PowerShell 5.1
+            let mut c = Command::new(resolve_powershell_host());
             c.args([
                 "-NoProfile",
                 "-ExecutionPolicy",
@@ -199,6 +200,30 @@ fn build_command(script: &Path, args: &[String]) -> Result<Command> {
         }
     };
     Ok(cmd)
+}
+
+/// 解析 PowerShell 宿主：`pwsh` 优先，`powershell` 备选。
+fn resolve_powershell_host() -> &'static str {
+    if find_on_path("pwsh").is_some() {
+        "pwsh"
+    } else {
+        "powershell"
+    }
+}
+
+fn find_on_path(bin: &str) -> Option<PathBuf> {
+    let path = std::env::var_os("PATH")?;
+    for dir in std::env::split_paths(&path) {
+        let candidate = dir.join(bin);
+        if candidate.is_file() {
+            return Some(candidate);
+        }
+        let with_exe = dir.join(format!("{bin}.exe"));
+        if with_exe.is_file() {
+            return Some(with_exe);
+        }
+    }
+    None
 }
 
 fn parse_json_capture(stdout: &str) -> Result<Output> {
