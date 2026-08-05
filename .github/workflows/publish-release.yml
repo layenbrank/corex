@@ -191,7 +191,7 @@ jobs:
 
           $hash = (Get-FileHash $zipPath -Algorithm SHA256).Hash.ToLowerInvariant()
           "$hash  $zipName" | Out-File -Encoding ascii (Join-Path $out "$zipName.sha256")
-          Write-Host "SHA256 $zipName: $hash"
+          Write-Host "SHA256 ${zipName}: $hash"
 
           $sums = Join-Path $out 'SHA256SUMS.txt'
           Get-ChildItem $pkg -File | ForEach-Object {
