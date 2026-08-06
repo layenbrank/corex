@@ -1,0 +1,7 @@
+[package]
+name              = "pdfium"
+version.workspace = true
+edition.workspace = true
+description       = "Build helper: copy bundled pdfium.dll next to binaries"
+authors.workspace = true
+publish           = false

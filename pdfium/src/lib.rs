@@ -5,7 +5,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-pub fn copy_pdfium_dll(manifest_dir: &Path) {
+pub fn copy(manifest_dir: &Path) {
     let workspace = manifest_dir.parent().expect("workspace root");
     let target = env::var("TARGET").expect("TARGET");
     let profile = env::var("PROFILE").expect("PROFILE");
@@ -43,7 +43,7 @@ pub fn copy_pdfium_dll(manifest_dir: &Path) {
     }
 
     if !src.exists() {
-        ensure_pdfium_dll(workspace, &src, &script);
+        ensure(workspace, &src, &script);
     }
 
     if let Some(parent) = dst.parent() {
@@ -52,7 +52,7 @@ pub fn copy_pdfium_dll(manifest_dir: &Path) {
     fs::copy(&src, &dst).expect("copy pdfium.dll to output dir");
 }
 
-fn ensure_pdfium_dll(workspace: &Path, src: &Path, script: &Path) {
+fn ensure(workspace: &Path, src: &Path, script: &Path) {
     if !script.exists() {
         panic!(
             "pdfium.dll not found at {} and download script missing at {}",

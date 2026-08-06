@@ -10,6 +10,9 @@ build             = "build.rs"
 name = "corex-serve"
 path = "src/main.rs"
 
+[build-dependencies]
+pdfium = { path = "../pdfium" }
+
 [dependencies]
 corex-core = { path = "../corex-core", default-features = false, features = ["serve"] }
 anyhow     = { workspace = true }

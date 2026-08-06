@@ -1,5 +1,5 @@
 [workspace]
-members  = ["corex", "corex-core", "corex-capture", "corex-serve"]
+members  = ["corex", "corex-core", "corex-capture", "corex-serve", "pdfium"]
 resolver = "2"
 
 [workspace.package]

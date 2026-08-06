@@ -851,6 +851,7 @@ dependencies = [
  "assert_cmd",
  "clap",
  "corex-core",
+ "pdfium",
  "predicates",
  "tempfile",
 ]
@@ -923,6 +924,7 @@ dependencies = [
  "anyhow",
  "clap",
  "corex-core",
+ "pdfium",
 ]
 
 [[package]]
@@ -3227,6 +3229,10 @@ dependencies = [
  "digest",
  "hmac",
 ]
+
+[[package]]
+name = "pdfium"
+version = "2.1.3"
 
 [[package]]
 name = "pdfium-render"
