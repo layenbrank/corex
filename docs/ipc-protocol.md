@@ -231,11 +231,23 @@ PDF 操作依赖与 `corex.exe` / `corex-serve.exe` 同目录的 `pdfium.dll`（
 | action | 主要输出 |
 |--------|----------|
 | `meta` | `data`（PDF 元数据） |
-| `render-page` | `data`（base64 PNG） |
-| `render-thumbnails` | `data`（base64 PNG 数组） |
-| `search` | `data`（匹配列表） |
-| `export` / `merge` / `to-office` | `path` |
-| `split` / `split-by-count` / `to-images` | `data` |
+| `render` | `data`（base64 PNG） |
+| `thumbnails` | `data`（base64 PNG 数组） |
+| `match` | `data`（匹配列表） |
+| `export` / `merge` / `document` | `path` |
+| `split` / `images` | `data` |
+| `reorder` / `rotate` / `remove` / `extract` | `path` |
+
+页操作（0-based `pages`/`order`，写出单文件 `dest`）：
+
+```json
+{"module":"morph","action":"reorder","args":{"path":"C:/a.pdf","order":[2,0,1],"dest":"C:/out.pdf"}}
+{"module":"morph","action":"rotate","args":{"path":"C:/a.pdf","pages":[0,2],"degrees":90,"dest":"C:/out.pdf"}}
+{"module":"morph","action":"remove","args":{"path":"C:/a.pdf","pages":[1],"dest":"C:/out.pdf"}}
+{"module":"morph","action":"extract","args":{"path":"C:/a.pdf","pages":[0,3,4],"dest":"C:/part.pdf"}}
+```
+
+字段约定（与 schema 一致）：`count` / `limit` / `offset` / `dir` / `base64`。
 
 完整字段见 `morph/schema.rs`。
 

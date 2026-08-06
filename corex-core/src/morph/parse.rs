@@ -2,8 +2,8 @@
 
 use crate::invoke::InvokeContext;
 use crate::morph::schema::{
-    Args, ExportArgs, MergeArgs, MetaArgs, RenderPageArgs, RenderThumbnailsArgs, SearchArgs,
-    SplitArgs, SplitByCountArgs, ToImagesArgs, ToOfficeArgs,
+    Args, DocumentArgs, ExportArgs, ExtractArgs, ImagesArgs, MatchArgs, MergeArgs, MetaArgs,
+    RemoveArgs, ReorderArgs, RenderArgs, RotateArgs, SplitArgs, ThumbnailsArgs,
 };
 
 /// 解析 morph 各子命令中的路径占位符。
@@ -12,16 +12,16 @@ pub fn parse_args(parsed: Args, ctx: &InvokeContext<'_>) -> Args {
         Args::Meta(a) => Args::Meta(MetaArgs {
             path: ctx.parse(&a.path),
         }),
-        Args::RenderPage(a) => Args::RenderPage(RenderPageArgs {
+        Args::Render(a) => Args::Render(RenderArgs {
             path: ctx.parse(&a.path),
-            page_index: a.page_index,
+            offset: a.offset,
             scale: a.scale,
         }),
-        Args::RenderThumbnails(a) => Args::RenderThumbnails(RenderThumbnailsArgs {
+        Args::Thumbnails(a) => Args::Thumbnails(ThumbnailsArgs {
             path: ctx.parse(&a.path),
             scale: a.scale,
         }),
-        Args::Search(a) => Args::Search(SearchArgs {
+        Args::Match(a) => Args::Match(MatchArgs {
             path: ctx.parse(&a.path),
             query: a.query,
         }),
@@ -36,23 +36,40 @@ pub fn parse_args(parsed: Args, ctx: &InvokeContext<'_>) -> Args {
         Args::Split(a) => Args::Split(SplitArgs {
             path: ctx.parse(&a.path),
             ranges: a.ranges,
-            dest_dir: ctx.parse(&a.dest_dir),
+            limit: a.limit,
+            dir: ctx.parse(&a.dir),
         }),
-        Args::SplitByCount(a) => Args::SplitByCount(SplitByCountArgs {
-            path: ctx.parse(&a.path),
-            pages_per_file: a.pages_per_file,
-            dest_dir: ctx.parse(&a.dest_dir),
-        }),
-        Args::ToImages(a) => Args::ToImages(ToImagesArgs {
+        Args::Images(a) => Args::Images(ImagesArgs {
             path: ctx.parse(&a.path),
             scale: a.scale,
             format: a.format,
-            dest_dir: ctx.parse(&a.dest_dir),
+            dir: ctx.parse(&a.dir),
         }),
-        Args::ToOffice(a) => Args::ToOffice(ToOfficeArgs {
+        Args::Document(a) => Args::Document(DocumentArgs {
             path: ctx.parse(&a.path),
             format: a.format,
-            dest_dir: ctx.parse(&a.dest_dir),
+            dir: ctx.parse(&a.dir),
+        }),
+        Args::Reorder(a) => Args::Reorder(ReorderArgs {
+            path: ctx.parse(&a.path),
+            order: a.order,
+            dest: ctx.parse(&a.dest),
+        }),
+        Args::Rotate(a) => Args::Rotate(RotateArgs {
+            path: ctx.parse(&a.path),
+            pages: a.pages,
+            degrees: a.degrees,
+            dest: ctx.parse(&a.dest),
+        }),
+        Args::Remove(a) => Args::Remove(RemoveArgs {
+            path: ctx.parse(&a.path),
+            pages: a.pages,
+            dest: ctx.parse(&a.dest),
+        }),
+        Args::Extract(a) => Args::Extract(ExtractArgs {
+            path: ctx.parse(&a.path),
+            pages: a.pages,
+            dest: ctx.parse(&a.dest),
         }),
     }
 }

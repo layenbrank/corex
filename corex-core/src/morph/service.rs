@@ -1,3 +1,7 @@
+#![allow(non_snake_case)]
+//! Morph service：方法名 camelCase（toMeta / toRender / …）。
+//! schema 字段见 `schema.rs`（count / limit / offset / dir / base64）。
+
 use std::collections::{HashSet, VecDeque};
 use std::fs;
 use std::io::Cursor;
@@ -11,16 +15,18 @@ use pdfium_render::prelude::*;
 use serde_json::Value;
 
 use crate::morph::schema::{
-    Args, MergeArgs, MetaArgs, PageImage, PdfMeta, RenderPageArgs, RenderThumbnailsArgs,
-    SearchArgs, SplitArgs, SplitByCountArgs, ToImagesArgs, ToOfficeArgs,
+    Args, DocumentArgs, ExtractArgs, ImagesArgs, MatchArgs, MergeArgs, MetaArgs, PageImage,
+    PdfMeta, RemoveArgs, RenderArgs, ReorderArgs, RotateArgs, SplitArgs, SplitMode, ThumbnailsArgs,
 };
 use crate::utils::paths::{validate_output_dir, validate_read_file, validate_write_path};
 
 type LopdfId = lopdf::ObjectId;
 
 const MAX_SCALE: f32 = 10.0;
-const MAX_RENDER_PAGES: usize = 200;
-const MAX_THUMBNAIL_PAYLOAD_BYTES: usize = 50 * 1024 * 1024;
+/// 单次渲染/导出允许的最大页数
+const MAX_PAGES: usize = 200;
+/// 缩略图 base64 总字节上限
+const MAX_THUMB_BYTES: usize = 50 * 1024 * 1024;
 
 static PDFIUM: OnceLock<Result<Mutex<Pdfium>, String>> = OnceLock::new();
 
@@ -43,51 +49,56 @@ pub fn run(args: &Args) -> Result<()> {
 
 pub fn execute(args: &Args) -> Result<Output> {
     match args {
-        Args::Meta(a) => meta(a),
-        Args::RenderPage(a) => render_page(a),
-        Args::RenderThumbnails(a) => render_thumbnails(a),
-        Args::Search(a) => search(a),
-        Args::Export(a) => export(a),
-        Args::Merge(a) => merge(a),
-        Args::Split(a) => split(a),
-        Args::SplitByCount(a) => split_by_count(a),
-        Args::ToImages(a) => to_images(a),
-        Args::ToOffice(a) => to_office(a),
+        Args::Meta(a) => toMeta(a),
+        Args::Render(a) => toRender(a),
+        Args::Thumbnails(a) => toThumbnails(a),
+        Args::Match(a) => toMatch(a),
+        Args::Export(a) => toExport(a),
+        Args::Merge(a) => toMerge(a),
+        Args::Split(a) => toSplit(a),
+        Args::Images(a) => toImages(a),
+        Args::Document(a) => toDocument(a),
+        Args::Reorder(a) => toReorder(a),
+        Args::Rotate(a) => toRotate(a),
+        Args::Remove(a) => toRemove(a),
+        Args::Extract(a) => toExtract(a),
     }
 }
 
-fn validate_scale(scale: f32) -> Result<()> {
+fn check_scale(scale: f32) -> Result<()> {
     if !scale.is_finite() || scale <= 0.0 || scale > MAX_SCALE {
         bail!("scale 必须在 (0, {MAX_SCALE}] 范围内");
     }
     Ok(())
 }
 
-fn ensure_page_count(page_count: usize, op: &str) -> Result<()> {
-    if page_count > MAX_RENDER_PAGES {
-        bail!("{op} 页数 {page_count} 超过上限 {MAX_RENDER_PAGES}");
+/// 校验页数未超过 `MAX_PAGES`
+fn check_pages(count: usize, op: &str) -> Result<()> {
+    if count > MAX_PAGES {
+        bail!("{op} 页数 {count} 超过上限 {MAX_PAGES}");
     }
     Ok(())
 }
 
-fn load_pdfium() -> Result<std::sync::MutexGuard<'static, Pdfium>> {
+/// 懒加载并锁定全局 Pdfium 实例
+fn bootstrap() -> Result<std::sync::MutexGuard<'static, Pdfium>> {
     PDFIUM
-        .get_or_init(|| {
-            super::pdfium::load().map(|b| Mutex::new(Pdfium::new(b)))
-        })
+        .get_or_init(|| super::pdfium::load().map(|b| Mutex::new(Pdfium::new(b))))
         .as_ref()
         .map_err(|e| anyhow::anyhow!(e.clone()))?
         .lock()
         .map_err(|e| anyhow::anyhow!("pdfium mutex poisoned: {e}"))
 }
 
-fn image_to_base64_png(img: image::DynamicImage) -> Result<String> {
+/// PNG → base64
+fn png_b64(img: image::DynamicImage) -> Result<String> {
     let mut buf = Vec::new();
     img.write_to(&mut Cursor::new(&mut buf), image::ImageFormat::Png)?;
     Ok(STANDARD.encode(&buf))
 }
 
-fn render_page_to_image(page: &PdfPage, scale: f32) -> Result<(image::DynamicImage, u32, u32)> {
+/// 按 scale 栅格化单页，返回 (图像, 宽, 高)
+fn page_img(page: &PdfPage, scale: f32) -> Result<(image::DynamicImage, u32, u32)> {
     let target_w = (page.width().value * scale) as i32;
     let target_h = (page.height().value * scale) as i32;
     let config = PdfRenderConfig::new()
@@ -99,13 +110,13 @@ fn render_page_to_image(page: &PdfPage, scale: f32) -> Result<(image::DynamicIma
     Ok((img, w, h))
 }
 
-fn meta(args: &MetaArgs) -> Result<Output> {
+fn toMeta(args: &MetaArgs) -> Result<Output> {
     validate_read_file(&args.path)?;
-    let pdfium = load_pdfium()?;
+    let pdfium = bootstrap()?;
     let doc = pdfium
         .load_pdf_from_file(&args.path, None)
         .with_context(|| format!("无法打开 PDF: {}", args.path))?;
-    let page_count = doc.pages().len() as u32;
+    let count = doc.pages().len() as u32;
     let meta = doc.metadata();
     let title = meta
         .get(PdfDocumentMetadataTagType::Title)
@@ -115,7 +126,7 @@ fn meta(args: &MetaArgs) -> Result<Output> {
         .get(PdfDocumentMetadataTagType::Author)
         .map(|t| t.value().to_string())
         .unwrap_or_default();
-    let (page_width, page_height) = if page_count > 0 {
+    let (width, height) = if count > 0 {
         let page = doc.pages().get(0)?;
         (page.width().value, page.height().value)
     } else {
@@ -125,9 +136,9 @@ fn meta(args: &MetaArgs) -> Result<Output> {
         path: args.path.clone(),
         title,
         author,
-        page_count,
-        page_width,
-        page_height,
+        count,
+        width,
+        height,
     };
     Ok(Output {
         path: None,
@@ -135,18 +146,18 @@ fn meta(args: &MetaArgs) -> Result<Output> {
     })
 }
 
-fn render_page(args: &RenderPageArgs) -> Result<Output> {
+fn toRender(args: &RenderArgs) -> Result<Output> {
     validate_read_file(&args.path)?;
-    validate_scale(args.scale)?;
-    let pdfium = load_pdfium()?;
+    check_scale(args.scale)?;
+    let pdfium = bootstrap()?;
     let doc = pdfium.load_pdf_from_file(&args.path, None)?;
-    let page = doc.pages().get(args.page_index as i32)?;
-    let (img, w, h) = render_page_to_image(&page, args.scale)?;
+    let page = doc.pages().get(args.offset as i32)?;
+    let (img, w, h) = page_img(&page, args.scale)?;
     let page_image = PageImage {
-        data_base64: image_to_base64_png(img)?,
+        base64: png_b64(img)?,
         width: w,
         height: h,
-        page_index: args.page_index,
+        offset: args.offset,
     };
     Ok(Output {
         path: None,
@@ -154,28 +165,28 @@ fn render_page(args: &RenderPageArgs) -> Result<Output> {
     })
 }
 
-fn render_thumbnails(args: &RenderThumbnailsArgs) -> Result<Output> {
+fn toThumbnails(args: &ThumbnailsArgs) -> Result<Output> {
     validate_read_file(&args.path)?;
-    validate_scale(args.scale)?;
-    let pdfium = load_pdfium()?;
+    check_scale(args.scale)?;
+    let pdfium = bootstrap()?;
     let doc = pdfium.load_pdf_from_file(&args.path, None)?;
     let page_count = doc.pages().len() as usize;
-    ensure_page_count(page_count, "render-thumbnails")?;
+    check_pages(page_count, "thumbnails")?;
     let mut results = Vec::with_capacity(page_count);
     let mut payload_bytes = 0usize;
     for i in 0..page_count {
         let page = doc.pages().get(i as i32)?;
-        let (img, w, h) = render_page_to_image(&page, args.scale)?;
-        let b64 = image_to_base64_png(img)?;
+        let (img, w, h) = page_img(&page, args.scale)?;
+        let b64 = png_b64(img)?;
         payload_bytes += b64.len();
-        if payload_bytes > MAX_THUMBNAIL_PAYLOAD_BYTES {
-            bail!("缩略图总输出超过 {MAX_THUMBNAIL_PAYLOAD_BYTES} 字节上限");
+        if payload_bytes > MAX_THUMB_BYTES {
+            bail!("缩略图总输出超过 {MAX_THUMB_BYTES} 字节上限");
         }
         results.push(PageImage {
-            data_base64: b64,
+            base64: b64,
             width: w,
             height: h,
-            page_index: i as u32,
+            offset: i as u32,
         });
     }
     Ok(Output {
@@ -184,20 +195,20 @@ fn render_thumbnails(args: &RenderThumbnailsArgs) -> Result<Output> {
     })
 }
 
-fn search(args: &SearchArgs) -> Result<Output> {
+fn toMatch(args: &MatchArgs) -> Result<Output> {
     validate_read_file(&args.path)?;
     if args.query.trim().is_empty() {
         bail!("搜索关键词不能为空");
     }
-    let pdfium = load_pdfium()?;
+    let pdfium = bootstrap()?;
     let doc = pdfium.load_pdf_from_file(&args.path, None)?;
     let page_count = doc.pages().len();
-    let mut matches = Vec::new();
+    let mut hits = Vec::new();
     for i in 0..page_count {
         let page = doc.pages().get(i as i32)?;
         let text = page.text()?;
         let content = text.all();
-        matches.extend(crate::morph::search::search_text(
+        hits.extend(crate::morph::hit::find_hits(
             &content,
             &args.query,
             i as u32,
@@ -205,11 +216,11 @@ fn search(args: &SearchArgs) -> Result<Output> {
     }
     Ok(Output {
         path: None,
-        data: Some(serde_json::to_value(matches)?),
+        data: Some(serde_json::to_value(hits)?),
     })
 }
 
-fn export(args: &crate::morph::schema::ExportArgs) -> Result<Output> {
+fn toExport(args: &crate::morph::schema::ExportArgs) -> Result<Output> {
     validate_read_file(&args.src)?;
     validate_write_path(&args.dest)?;
     fs::copy(&args.src, &args.dest)
@@ -220,7 +231,8 @@ fn export(args: &crate::morph::schema::ExportArgs) -> Result<Output> {
     })
 }
 
-fn split_columns(line: &str) -> Vec<String> {
+/// 按连续空格拆成文本列
+fn split_cols(line: &str) -> Vec<String> {
     let mut cols = Vec::new();
     let mut current = String::new();
     let mut space_run = 0usize;
@@ -254,7 +266,7 @@ fn split_columns(line: &str) -> Vec<String> {
     cols
 }
 
-fn merge(args: &MergeArgs) -> Result<Output> {
+fn toMerge(args: &MergeArgs) -> Result<Output> {
     if args.paths.is_empty() {
         bail!("至少需要一个输入文件");
     }
@@ -263,7 +275,7 @@ fn merge(args: &MergeArgs) -> Result<Output> {
     }
     validate_write_path(&args.dest)?;
     let mut merged = LopdfDoc::with_version("1.5");
-    let mut all_page_ids: Vec<LopdfId> = Vec::new();
+    let mut kids: Vec<LopdfId> = Vec::new();
     merged.max_id += 1;
     let pages_id: LopdfId = (merged.max_id, 0);
     for path in &args.paths {
@@ -282,15 +294,15 @@ fn merge(args: &MergeArgs) -> Result<Output> {
             merged.objects.insert(id, obj);
         }
         merged.max_id = src.max_id;
-        all_page_ids.extend(page_ids);
+        kids.extend(page_ids);
     }
     merged.objects.insert(
         pages_id,
         LopdfObj::Dictionary(dictionary! {
             "Type"  => LopdfObj::Name(b"Pages".to_vec()),
             "Kids"  => LopdfObj::Array(
-                           all_page_ids.iter().map(|id| LopdfObj::Reference(*id)).collect()),
-            "Count" => LopdfObj::Integer(all_page_ids.len() as i64),
+                           kids.iter().map(|id| LopdfObj::Reference(*id)).collect()),
+            "Count" => LopdfObj::Integer(kids.len() as i64),
         }),
     );
     merged.max_id += 1;
@@ -327,7 +339,8 @@ fn parse_ranges(raw: &[String]) -> Result<Vec<[u32; 2]>> {
         .collect()
 }
 
-fn collect_refs(obj: &LopdfObj, needed: &mut HashSet<LopdfId>, queue: &mut VecDeque<LopdfId>) {
+/// 收集对象图中的间接引用（跳过 Parent，避免拉入整棵页树）
+fn push_refs(obj: &LopdfObj, needed: &mut HashSet<LopdfId>, queue: &mut VecDeque<LopdfId>) {
     match obj {
         LopdfObj::Reference(id) => {
             if needed.insert(*id) {
@@ -336,24 +349,31 @@ fn collect_refs(obj: &LopdfObj, needed: &mut HashSet<LopdfId>, queue: &mut VecDe
         }
         LopdfObj::Array(arr) => {
             for item in arr {
-                collect_refs(item, needed, queue);
+                push_refs(item, needed, queue);
             }
         }
         LopdfObj::Dictionary(dict) => {
-            for (_, val) in dict.iter() {
-                collect_refs(val, needed, queue);
+            for (key, val) in dict.iter() {
+                if key.as_slice() == b"Parent" {
+                    continue;
+                }
+                push_refs(val, needed, queue);
             }
         }
         LopdfObj::Stream(stream) => {
-            for (_, val) in stream.dict.iter() {
-                collect_refs(val, needed, queue);
+            for (key, val) in stream.dict.iter() {
+                if key.as_slice() == b"Parent" {
+                    continue;
+                }
+                push_refs(val, needed, queue);
             }
         }
         _ => {}
     }
 }
 
-fn collect_object_subgraph(source: &LopdfDoc, root_ids: &[LopdfId]) -> HashSet<LopdfId> {
+/// BFS：从根 page id 收集依赖对象
+fn walk_refs(source: &LopdfDoc, root_ids: &[LopdfId]) -> HashSet<LopdfId> {
     let mut needed = HashSet::new();
     let mut queue = VecDeque::new();
     for id in root_ids {
@@ -363,15 +383,86 @@ fn collect_object_subgraph(source: &LopdfDoc, root_ids: &[LopdfId]) -> HashSet<L
     }
     while let Some(id) = queue.pop_front() {
         if let Some(obj) = source.objects.get(&id) {
-            collect_refs(obj, &mut needed, &mut queue);
+            push_refs(obj, &mut needed, &mut queue);
         }
     }
     needed
 }
 
-fn split_pdf(path: &str, ranges: Vec<[u32; 2]>, dest_dir: &str) -> Result<Vec<String>> {
+/// 从源文档按给定 page object id 顺序写出新 PDF。
+fn write_pages(source: &LopdfDoc, page_ids: &[LopdfId], dest: &str) -> Result<()> {
+    if page_ids.is_empty() {
+        bail!("至少需要一页");
+    }
+    validate_write_path(dest)?;
+    let needed = walk_refs(source, page_ids);
+    let mut doc = LopdfDoc::with_version("1.5");
+    for id in &needed {
+        if let Some(obj) = source.objects.get(id) {
+            doc.objects.insert(*id, obj.clone());
+        }
+    }
+    doc.max_id = source.max_id;
+    doc.max_id += 1;
+    let pages_id: LopdfId = (doc.max_id, 0);
+    for &pid in page_ids {
+        if let Some(LopdfObj::Dictionary(dict)) = doc.objects.get_mut(&pid) {
+            dict.set("Parent", LopdfObj::Reference(pages_id));
+        }
+    }
+    doc.objects.insert(
+        pages_id,
+        LopdfObj::Dictionary(dictionary! {
+            "Type"  => LopdfObj::Name(b"Pages".to_vec()),
+            "Kids"  => LopdfObj::Array(
+                          page_ids.iter().map(|id| LopdfObj::Reference(*id)).collect()),
+            "Count" => LopdfObj::Integer(page_ids.len() as i64),
+        }),
+    );
+    doc.max_id += 1;
+    let catalog_id: LopdfId = (doc.max_id, 0);
+    doc.objects.insert(
+        catalog_id,
+        LopdfObj::Dictionary(dictionary! {
+            "Type"  => LopdfObj::Name(b"Catalog".to_vec()),
+            "Pages" => LopdfObj::Reference(pages_id),
+        }),
+    );
+    doc.trailer.set("Root", LopdfObj::Reference(catalog_id));
+    doc.trailer
+        .set("Size", LopdfObj::Integer((doc.max_id + 1) as i64));
+    doc.save(dest)?;
+    Ok(())
+}
+
+/// 按 1-based 页码顺序解析 page object id。
+fn page_order(source: &LopdfDoc) -> Vec<LopdfId> {
+    let pages_map = source.get_pages();
+    let mut sorted: Vec<(u32, LopdfId)> = pages_map.into_iter().collect();
+    sorted.sort_by_key(|(k, _)| *k);
+    sorted.into_iter().map(|(_, id)| id).collect()
+}
+
+/// 0-based 页索引 → page object id
+fn map_pages(page_ids: &[LopdfId], pages: &[u32], op: &str) -> Result<Vec<LopdfId>> {
+    if pages.is_empty() {
+        bail!("{op} 至少需要指定一页");
+    }
+    let count = page_ids.len() as u32;
+    let mut out = Vec::with_capacity(pages.len());
+    for &idx in pages {
+        if idx >= count {
+            bail!("{op} 页索引 {idx} 超出范围（0..{count}）");
+        }
+        out.push(page_ids[idx as usize]);
+    }
+    Ok(out)
+}
+
+/// 按 1-based 闭区间写出拆分文件
+fn split_pdf(path: &str, ranges: Vec<[u32; 2]>, dir: &str) -> Result<Vec<String>> {
     validate_read_file(path)?;
-    validate_output_dir(dest_dir)?;
+    validate_output_dir(dir)?;
     let source = LopdfDoc::load(path)?;
     let pages_map = source.get_pages();
     let page_count = pages_map.len() as u32;
@@ -379,65 +470,50 @@ fn split_pdf(path: &str, ranges: Vec<[u32; 2]>, dest_dir: &str) -> Result<Vec<St
         .file_stem()
         .and_then(|s| s.to_str())
         .unwrap_or("output");
-    fs::create_dir_all(dest_dir)?;
+    fs::create_dir_all(dir)?;
     let mut output_paths = Vec::new();
     for range in &ranges {
-        let start = range[0].max(1).min(page_count);
-        let end = range[1].max(start).min(page_count);
+        let start = range[0];
+        let end = range[1];
+        if start < 1 || end < start || end > page_count {
+            bail!("无效页码范围: {start}-{end}（文档共 {page_count} 页）");
+        }
         let range_ids: Vec<LopdfId> = (start..=end)
-            .filter_map(|n| pages_map.get(&n).copied())
-            .collect();
-        if range_ids.is_empty() {
-            continue;
-        }
-        let needed = collect_object_subgraph(&source, &range_ids);
-        let mut doc = LopdfDoc::with_version("1.5");
-        for id in &needed {
-            if let Some(obj) = source.objects.get(id) {
-                doc.objects.insert(*id, obj.clone());
-            }
-        }
-        doc.max_id = source.max_id;
-        doc.max_id += 1;
-        let pages_id: LopdfId = (doc.max_id, 0);
-        for &pid in &range_ids {
-            if let Some(LopdfObj::Dictionary(dict)) = doc.objects.get_mut(&pid) {
-                dict.set("Parent", LopdfObj::Reference(pages_id));
-            }
-        }
-        doc.objects.insert(
-            pages_id,
-            LopdfObj::Dictionary(dictionary! {
-                "Type"  => LopdfObj::Name(b"Pages".to_vec()),
-                "Kids"  => LopdfObj::Array(
-                               range_ids.iter().map(|id| LopdfObj::Reference(*id)).collect()),
-                "Count" => LopdfObj::Integer(range_ids.len() as i64),
-            }),
-        );
-        doc.max_id += 1;
-        let catalog_id: LopdfId = (doc.max_id, 0);
-        doc.objects.insert(
-            catalog_id,
-            LopdfObj::Dictionary(dictionary! {
-                "Type"  => LopdfObj::Name(b"Catalog".to_vec()),
-                "Pages" => LopdfObj::Reference(pages_id),
-            }),
-        );
-        doc.trailer.set("Root", LopdfObj::Reference(catalog_id));
-        doc.trailer
-            .set("Size", LopdfObj::Integer((doc.max_id + 1) as i64));
-        let out_path = format!("{dest_dir}/{stem}_{start}_{end}.pdf");
-        doc.save(&out_path)?;
+            .map(|n| {
+                pages_map
+                    .get(&n)
+                    .copied()
+                    .ok_or_else(|| anyhow::anyhow!("页 {n} 不存在"))
+            })
+            .collect::<Result<_>>()?;
+        let out_path = format!("{dir}/{stem}_{start}_{end}.pdf");
+        write_pages(&source, &range_ids, &out_path)?;
         output_paths.push(out_path);
     }
     Ok(output_paths)
 }
 
-fn split(args: &SplitArgs) -> Result<Output> {
+fn toSplit(args: &SplitArgs) -> Result<Output> {
     validate_read_file(&args.path)?;
-    validate_output_dir(&args.dest_dir)?;
-    let ranges = parse_ranges(&args.ranges)?;
-    let paths = split_pdf(&args.path, ranges, &args.dest_dir)?;
+    validate_output_dir(&args.dir)?;
+    let ranges = match args.mode()? {
+        SplitMode::Ranges { ranges } => parse_ranges(&ranges)?,
+        SplitMode::Limit { limit } => {
+            let page_count = LopdfDoc::load(&args.path)?.get_pages().len() as u32;
+            if page_count == 0 {
+                bail!("PDF 无页面");
+            }
+            let mut ranges = Vec::new();
+            let mut start = 1u32;
+            while start <= page_count {
+                let end = (start + limit - 1).min(page_count);
+                ranges.push([start, end]);
+                start = end + 1;
+            }
+            ranges
+        }
+    };
+    let paths = split_pdf(&args.path, ranges, &args.dir)?;
     if paths.is_empty() {
         bail!("未生成任何拆分文件，请检查页码范围");
     }
@@ -447,50 +523,26 @@ fn split(args: &SplitArgs) -> Result<Output> {
     })
 }
 
-fn split_by_count(args: &SplitByCountArgs) -> Result<Output> {
-    if args.pages_per_file == 0 {
-        bail!("每个文件的页数必须大于 0");
-    }
+fn toImages(args: &ImagesArgs) -> Result<Output> {
     validate_read_file(&args.path)?;
-    validate_output_dir(&args.dest_dir)?;
-    let page_count = LopdfDoc::load(&args.path)?.get_pages().len() as u32;
-    if page_count == 0 {
-        bail!("PDF 无页面");
-    }
-    let mut ranges = Vec::new();
-    let mut start = 1u32;
-    while start <= page_count {
-        let end = (start + args.pages_per_file - 1).min(page_count);
-        ranges.push([start, end]);
-        start = end + 1;
-    }
-    let paths = split_pdf(&args.path, ranges, &args.dest_dir)?;
-    Ok(Output {
-        path: None,
-        data: Some(serde_json::to_value(paths)?),
-    })
-}
-
-fn to_images(args: &ToImagesArgs) -> Result<Output> {
-    validate_read_file(&args.path)?;
-    validate_scale(args.scale)?;
-    validate_output_dir(&args.dest_dir)?;
-    let pdfium = load_pdfium()?;
+    check_scale(args.scale)?;
+    validate_output_dir(&args.dir)?;
+    let pdfium = bootstrap()?;
     let doc = pdfium.load_pdf_from_file(&args.path, None)?;
     let page_count = doc.pages().len() as usize;
-    ensure_page_count(page_count, "to-images")?;
+    check_pages(page_count, "images")?;
     let stem = Path::new(&args.path)
         .file_stem()
         .and_then(|s| s.to_str())
         .unwrap_or("output");
-    fs::create_dir_all(&args.dest_dir)?;
+    fs::create_dir_all(&args.dir)?;
     let is_png = !matches!(args.format.to_lowercase().as_str(), "jpg" | "jpeg");
     let ext = if is_png { "png" } else { "jpg" };
     let mut output_paths = Vec::new();
     for i in 0..page_count {
         let page = doc.pages().get(i as i32)?;
-        let (img, _, _) = render_page_to_image(&page, args.scale)?;
-        let out_path = format!("{}/{stem}_{:04}.{ext}", args.dest_dir, i + 1);
+        let (img, _, _) = page_img(&page, args.scale)?;
+        let out_path = format!("{}/{stem}_{:04}.{ext}", args.dir, i + 1);
         if is_png {
             img.save_with_format(&out_path, image::ImageFormat::Png)?;
         } else {
@@ -504,18 +556,18 @@ fn to_images(args: &ToImagesArgs) -> Result<Output> {
     })
 }
 
-fn to_office(args: &ToOfficeArgs) -> Result<Output> {
+fn toDocument(args: &DocumentArgs) -> Result<Output> {
     validate_read_file(&args.path)?;
-    validate_output_dir(&args.dest_dir)?;
+    validate_output_dir(&args.dir)?;
     let stem = Path::new(&args.path)
         .file_stem()
         .and_then(|s| s.to_str())
         .unwrap_or("output");
-    fs::create_dir_all(&args.dest_dir)?;
-    let pdfium = load_pdfium()?;
+    fs::create_dir_all(&args.dir)?;
+    let pdfium = bootstrap()?;
     let doc = pdfium.load_pdf_from_file(&args.path, None)?;
     let page_count = doc.pages().len() as usize;
-    ensure_page_count(page_count, "to-office")?;
+    check_pages(page_count, "document")?;
     let out_path = match args.format.to_lowercase().as_str() {
         "docx" => {
             use docx_rs::{BreakType, Docx, Paragraph, Run};
@@ -540,7 +592,7 @@ fn to_office(args: &ToOfficeArgs) -> Result<Output> {
                     }
                 }
             }
-            let out = Path::new(&args.dest_dir).join(format!("{stem}.docx"));
+            let out = Path::new(&args.dir).join(format!("{stem}.docx"));
             docx.build().pack(fs::File::create(&out)?)?;
             out.to_string_lossy().into_owned()
         }
@@ -557,7 +609,7 @@ fn to_office(args: &ToOfficeArgs) -> Result<Output> {
                     if trimmed.is_empty() {
                         continue;
                     }
-                    for (col_idx, cell) in split_columns(trimmed).iter().enumerate() {
+                    for (col_idx, cell) in split_cols(trimmed).iter().enumerate() {
                         if !cell.is_empty() {
                             ws.write_string(excel_row, col_idx as u16, cell.as_str())?;
                         }
@@ -565,7 +617,7 @@ fn to_office(args: &ToOfficeArgs) -> Result<Output> {
                     excel_row += 1;
                 }
             }
-            let out = Path::new(&args.dest_dir).join(format!("{stem}.xlsx"));
+            let out = Path::new(&args.dir).join(format!("{stem}.xlsx"));
             workbook.save(&out)?;
             out.to_string_lossy().into_owned()
         }
@@ -575,4 +627,254 @@ fn to_office(args: &ToOfficeArgs) -> Result<Output> {
         path: Some(out_path),
         data: None,
     })
+}
+
+fn toReorder(args: &ReorderArgs) -> Result<Output> {
+    validate_read_file(&args.path)?;
+    validate_write_path(&args.dest)?;
+    let source = LopdfDoc::load(&args.path)?;
+    let page_ids = page_order(&source);
+    let count = page_ids.len() as u32;
+    if args.order.len() as u32 != count {
+        bail!(
+            "reorder-pages order 长度 {} 与页数 {count} 不一致",
+            args.order.len()
+        );
+    }
+    let mut seen = HashSet::with_capacity(args.order.len());
+    for &idx in &args.order {
+        if idx >= count {
+            bail!("reorder-pages 页索引 {idx} 超出范围（0..{count}）");
+        }
+        if !seen.insert(idx) {
+            bail!("reorder-pages order 含重复页索引 {idx}");
+        }
+    }
+    let ordered: Vec<LopdfId> = args
+        .order
+        .iter()
+        .map(|&idx| page_ids[idx as usize])
+        .collect();
+    write_pages(&source, &ordered, &args.dest)?;
+    Ok(Output {
+        path: Some(args.dest.clone()),
+        data: None,
+    })
+}
+
+fn toRotate(args: &RotateArgs) -> Result<Output> {
+    validate_read_file(&args.path)?;
+    validate_write_path(&args.dest)?;
+    if args.degrees % 90 != 0 {
+        bail!("rotate-pages degrees 须为 90 的倍数，收到 {}", args.degrees);
+    }
+    let delta = ((args.degrees % 360) + 360) % 360;
+    let source = LopdfDoc::load(&args.path)?;
+    let page_ids = page_order(&source);
+    map_pages(&page_ids, &args.pages, "rotate")?;
+    // 先按原顺序写出，再在目标文件上改 Rotate（避免改源文件）
+    write_pages(&source, &page_ids, &args.dest)?;
+    let mut dest_doc = LopdfDoc::load(&args.dest)?;
+    let dest_ids = page_order(&dest_doc);
+    for &idx in &args.pages {
+        let pid = dest_ids[idx as usize];
+        if let Some(LopdfObj::Dictionary(dict)) = dest_doc.objects.get_mut(&pid) {
+            let current = match dict.get(b"Rotate") {
+                Ok(LopdfObj::Integer(v)) => *v,
+                _ => 0,
+            };
+            let next = (current + delta as i64).rem_euclid(360);
+            dict.set("Rotate", LopdfObj::Integer(next));
+        } else {
+            bail!("rotate-pages 无法读取页对象");
+        }
+    }
+    dest_doc.save(&args.dest)?;
+    Ok(Output {
+        path: Some(args.dest.clone()),
+        data: None,
+    })
+}
+
+fn toRemove(args: &RemoveArgs) -> Result<Output> {
+    validate_read_file(&args.path)?;
+    validate_write_path(&args.dest)?;
+    let source = LopdfDoc::load(&args.path)?;
+    let page_ids = page_order(&source);
+    let count = page_ids.len() as u32;
+    if args.pages.is_empty() {
+        bail!("delete-pages 至少需要指定一页");
+    }
+    let mut remove = HashSet::new();
+    for &idx in &args.pages {
+        if idx >= count {
+            bail!("delete-pages 页索引 {idx} 超出范围（0..{count}）");
+        }
+        remove.insert(idx);
+    }
+    if remove.len() as u32 >= count {
+        bail!("delete-pages 不能删除全部页面");
+    }
+    let kept: Vec<LopdfId> = page_ids
+        .into_iter()
+        .enumerate()
+        .filter(|(i, _)| !remove.contains(&(*i as u32)))
+        .map(|(_, id)| id)
+        .collect();
+    write_pages(&source, &kept, &args.dest)?;
+    Ok(Output {
+        path: Some(args.dest.clone()),
+        data: None,
+    })
+}
+
+fn toExtract(args: &ExtractArgs) -> Result<Output> {
+    validate_read_file(&args.path)?;
+    validate_write_path(&args.dest)?;
+    let source = LopdfDoc::load(&args.path)?;
+    let page_ids = page_order(&source);
+    let selected = map_pages(&page_ids, &args.pages, "extract")?;
+    write_pages(&source, &selected, &args.dest)?;
+    Ok(Output {
+        path: Some(args.dest.clone()),
+        data: None,
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::morph::schema::{ExtractArgs, RemoveArgs, ReorderArgs, RotateArgs};
+    use lopdf::{Object, Stream, dictionary};
+
+    fn make_blank_pdf(path: &Path, page_count: u32) -> Result<()> {
+        let mut doc = LopdfDoc::with_version("1.5");
+        let pages_id = doc.new_object_id();
+        let mut kids = Vec::new();
+        for i in 0..page_count {
+            let content_id = doc.add_object(Stream::new(
+                dictionary! {},
+                format!("BT /F1 12 Tf 100 700 Td (page-{i}) Tj ET").into_bytes(),
+            ));
+            let page_id = doc.add_object(dictionary! {
+                "Type" => Object::Name(b"Page".to_vec()),
+                "Parent" => Object::Reference(pages_id),
+                "MediaBox" => Object::Array(vec![
+                    Object::Integer(0),
+                    Object::Integer(0),
+                    Object::Integer(612),
+                    Object::Integer(792),
+                ]),
+                "Contents" => Object::Reference(content_id),
+            });
+            kids.push(Object::Reference(page_id));
+        }
+        doc.objects.insert(
+            pages_id,
+            Object::Dictionary(dictionary! {
+                "Type" => Object::Name(b"Pages".to_vec()),
+                "Kids" => Object::Array(kids),
+                "Count" => Object::Integer(page_count as i64),
+            }),
+        );
+        let catalog_id = doc.add_object(dictionary! {
+            "Type" => Object::Name(b"Catalog".to_vec()),
+            "Pages" => Object::Reference(pages_id),
+        });
+        doc.trailer.set("Root", Object::Reference(catalog_id));
+        doc.save(path)?;
+        Ok(())
+    }
+
+    #[test]
+    fn reorder_reverses() {
+        let dir = tempfile::tempdir().unwrap();
+        let src = dir.path().join("in.pdf");
+        let dest = dir.path().join("out.pdf");
+        make_blank_pdf(&src, 3).unwrap();
+        toReorder(&ReorderArgs {
+            path: src.to_string_lossy().into_owned(),
+            order: vec![2, 1, 0],
+            dest: dest.to_string_lossy().into_owned(),
+        })
+        .unwrap();
+        let doc = LopdfDoc::load(&dest).unwrap();
+        assert_eq!(page_order(&doc).len(), 3);
+    }
+
+    #[test]
+    fn remove_shrinks() {
+        let dir = tempfile::tempdir().unwrap();
+        let src = dir.path().join("in.pdf");
+        let dest = dir.path().join("out.pdf");
+        make_blank_pdf(&src, 4).unwrap();
+        toRemove(&RemoveArgs {
+            path: src.to_string_lossy().into_owned(),
+            pages: vec![1, 3],
+            dest: dest.to_string_lossy().into_owned(),
+        })
+        .unwrap();
+        let doc = LopdfDoc::load(&dest).unwrap();
+        assert_eq!(page_order(&doc).len(), 2);
+        // 被删页内容流不得残留
+        let raw = fs::read(&dest).unwrap();
+        let text = String::from_utf8_lossy(&raw);
+        assert!(text.contains("page-0"));
+        assert!(text.contains("page-2"));
+        assert!(!text.contains("page-1"));
+        assert!(!text.contains("page-3"));
+    }
+
+    #[test]
+    fn split_rejects_bad_range() {
+        let dir = tempfile::tempdir().unwrap();
+        let src = dir.path().join("in.pdf");
+        make_blank_pdf(&src, 3).unwrap();
+        let path = src.to_string_lossy().into_owned();
+        let out = dir.path().to_string_lossy().into_owned();
+        assert!(split_pdf(&path, vec![[1, 10]], &out).is_err());
+        assert!(split_pdf(&path, vec![[3, 1]], &out).is_err());
+        assert!(split_pdf(&path, vec![[0, 1]], &out).is_err());
+    }
+
+    #[test]
+    fn extract_keeps() {
+        let dir = tempfile::tempdir().unwrap();
+        let src = dir.path().join("in.pdf");
+        let dest = dir.path().join("out.pdf");
+        make_blank_pdf(&src, 5).unwrap();
+        toExtract(&ExtractArgs {
+            path: src.to_string_lossy().into_owned(),
+            pages: vec![0, 2, 4],
+            dest: dest.to_string_lossy().into_owned(),
+        })
+        .unwrap();
+        let doc = LopdfDoc::load(&dest).unwrap();
+        assert_eq!(page_order(&doc).len(), 3);
+    }
+
+    #[test]
+    fn rotate_sets() {
+        let dir = tempfile::tempdir().unwrap();
+        let src = dir.path().join("in.pdf");
+        let dest = dir.path().join("out.pdf");
+        make_blank_pdf(&src, 2).unwrap();
+        toRotate(&RotateArgs {
+            path: src.to_string_lossy().into_owned(),
+            pages: vec![0],
+            degrees: 90,
+            dest: dest.to_string_lossy().into_owned(),
+        })
+        .unwrap();
+        let doc = LopdfDoc::load(&dest).unwrap();
+        let ids = page_order(&doc);
+        let rotate = match doc.objects.get(&ids[0]) {
+            Some(Object::Dictionary(dict)) => match dict.get(b"Rotate") {
+                Ok(Object::Integer(v)) => *v,
+                _ => 0,
+            },
+            _ => panic!("missing page"),
+        };
+        assert_eq!(rotate, 90);
+    }
 }

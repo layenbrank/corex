@@ -194,15 +194,18 @@ fn validate_action(module: &str, action: &str) -> Result<()> {
         "screenshot" => &["capture", "monitors", "windows", "crop", "clipboard"],
         "morph" => &[
             "meta",
-            "render-page",
-            "render-thumbnails",
-            "search",
+            "render",
+            "thumbnails",
+            "match",
             "export",
             "merge",
             "split",
-            "split-by-count",
-            "to-images",
-            "to-office",
+            "images",
+            "document",
+            "reorder",
+            "rotate",
+            "remove",
+            "extract",
         ],
         "bootstrap" => &["env", "inspect", "force"],
         "exec" => &["run"],
@@ -396,12 +399,12 @@ mod tests {
     }
 
     #[test]
-    fn assembles_morph_render_page() {
-        let wire = WireArgs::action("render-page", json!({"path": "a.pdf", "page_index": 0}));
+    fn assembles_morph_render() {
+        let wire = WireArgs::action("render", json!({"path": "a.pdf", "offset": 0}));
         let v = assemble_typed("morph", &wire).unwrap();
         assert_eq!(
             v,
-            json!({"RenderPage": {"path": "a.pdf", "page_index": 0}})
+            json!({"Render": {"path": "a.pdf", "offset": 0}})
         );
     }
 

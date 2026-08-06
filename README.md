@@ -71,7 +71,7 @@ corex watch run --immediate
 | `corex compression decompress zip`  | 解压归档                  |
 | `corex codec encode/decode/hash`    | Base64 编解码、MD5 摘要   |
 | `corex scan os`                     | 采集 OS / CPU / 内存信息  |
-| `corex morph`                       | PDF 处理（10 子命令）     |
+| `corex morph`                       | PDF 处理（14 子命令）     |
 | `corex screenshot capture/…`        | 截图（capture/monitors/windows/crop/clipboard） |
 | `corex shade`                       | 图片格式转换 / 压缩       |
 | `corex bootstrap env/inspect/force` | 环境初始化与检查          |
@@ -372,12 +372,15 @@ Pipeline / IPC：`action: suggestion` + 扁平 `params`/`args`。结果写入响
 
 ## PDF 处理 (morph)
 
-PDF 元数据、渲染、搜索、合并、拆分、导出图片/Office 等 10 个子命令。发布包内已捆绑 `pdfium.dll`，需与 `corex.exe` / `corex-serve.exe` 同目录；开发环境请先运行 `scripts/download-pdfium.ps1`。
+PDF 元数据、渲染、搜索、合并、拆分、页整理、导出图片/Office 等子命令。发布包内已捆绑 `pdfium.dll`，需与 `corex.exe` / `corex-serve.exe` 同目录；开发环境请先运行 `scripts/download-pdfium.ps1`。
 
 ```powershell
 corex morph meta --path ./doc.pdf
 corex morph merge --paths a.pdf,b.pdf --dest ./merged.pdf
-corex morph split --path ./doc.pdf --ranges 1-3,5-7 --dest-dir ./parts
+corex morph split --path ./doc.pdf --ranges 1-3,5-7 --dir ./parts
+corex morph split --path ./doc.pdf --limit 10 --dir ./parts
+corex morph reorder --path ./doc.pdf --order 2,0,1 --dest ./reordered.pdf
+corex morph extract --path ./doc.pdf --pages 0,2,4 --dest ./part.pdf
 ```
 
 Pipeline / IPC：`action: meta` + `args: { "path": "D:/doc.pdf" }` 等；路径字段支持 `${var.*}` / `${steps.*.artifact.path}`。
