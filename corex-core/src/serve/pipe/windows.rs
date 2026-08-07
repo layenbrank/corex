@@ -46,15 +46,24 @@ pub fn run_server(options: &ServeOptions, state: &mut DaemonState) -> anyhow::Re
         };
 
         if handle.is_invalid() {
-            anyhow::bail!("CreateNamedPipeW 失败: {}", std::io::Error::last_os_error());
+            // 握手失败不得退出进程：高频 connect/disconnect 下偶发错误应重试。
+            eprintln!(
+                "corex-serve: CreateNamedPipeW 失败（将重试）: {}",
+                std::io::Error::last_os_error()
+            );
+            std::thread::sleep(std::time::Duration::from_millis(50));
+            continue;
         }
 
         if let Err(err) = unsafe { ConnectNamedPipe(handle, None) } {
+            // ERROR_PIPE_CONNECTED (535)：客户端已在 ConnectNamedPipe 前连上，可继续。
             if err.code().0 as u32 != 535 {
+                eprintln!("corex-serve: ConnectNamedPipe 失败（将重试）: {err}");
                 unsafe {
                     let _ = CloseHandle(handle);
                 };
-                anyhow::bail!("ConnectNamedPipe 失败: {err}");
+                std::thread::sleep(std::time::Duration::from_millis(50));
+                continue;
             }
         }
 

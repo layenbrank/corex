@@ -16,7 +16,7 @@
 | 编码 | UTF-8 JSON |
 | 帧格式 | 单行 JSON + `\n`（LF）换行 |
 | 请求行上限 | 64 KB（`MAX_LINE_BYTES`） |
-| 连接模式 | 服务端同连接可多行 Invoke；官方客户端每请求新建连接 |
+| 连接模式 | 服务端同连接可多行 Invoke；**推荐客户端长连接复用**（每请求新建连接会放大握手竞态） |
 
 非 Windows 平台：`serve::run` 与 Pipe 客户端均不可用（`pipe/mod.rs` 返回 bail）。
 
@@ -431,7 +431,9 @@ Uuid 成功时 `path` 为 null。
 
 - Daemon **串行**接受连接：`run_server` 循环中一次处理一个 Pipe 连接
 - **同连接多请求**：`handle_client` 内 loop 持续读行；每行 Invoke 写一行响应后**继续读**，直到 Shutdown、EOF 或读错误
-- **官方客户端**：`send_request` / `corex_ipc` 每次新建连接、发送一行、读一行响应后关闭（推荐用法）
+- **推荐客户端**：长连接复用——建立一次 Named Pipe，同连接连续 write/read 多行 Invoke（握手失败时服务端 log 后重试，**不**退出进程）
+- **兼容客户端**：`send_request` / `corex_ipc` 每次新建连接、发送一行、读一行响应后关闭（高频建连易触发握手竞态，依赖服务端重试）
+- `CreateNamedPipeW` / `ConnectNamedPipe`（非 ERROR_PIPE_CONNECTED）失败：stderr 记录后短暂等待并继续 accept，**不** `bail!` 退出
 - 请求行超过 64KB：读失败，连接断开
 - 空行或非法 JSON：返回 `{"id":0,"ok":false,...}` 错误响应（id 固定为 0）
 - 未知 module：返回 `ok: false`，error 含 `"未知或未启用的模块"`
@@ -493,8 +495,9 @@ cargo run -p corex-core --example ipc --features serve -- C:\Temp\screenshots
 未来可能扩展：
 
 - Unix Domain Socket（非 Windows）
-- 客户端长连接复用（服务端已支持同连接多请求）
 - pipeline/schedule/watch 模块（当前仅 CLI）
+
+已落地：客户端长连接复用（服务端同连接多请求 + 握手失败重试不退出）。
 
 ---
 
