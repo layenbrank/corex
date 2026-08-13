@@ -17,7 +17,7 @@ Pipeline YAML（`pipelines.yaml`）使用**小写路由 + 扁平 params**，与 
 | `copy` | （无 action） | `{ from, to, ... }` |
 | `generate` | `action: path\|uuid\|cvid` | 对应 flags |
 | `compression` | `action` + `format` | `{ from, to, ... }` |
-| `screenshot` | `action: capture\|…` | `{ to, ... }` |
+| `capture` | `action: screenshot\|tape\|…` | `{ to, ... }` |
 | `codec` | `action` + `algorithm` | `{ file, input, ... }` |
 | `scan` | `action: os` | `{}` |
 | `engine` | `action: suggestion` | `{ pt, qry, cp, ... }` |
@@ -26,16 +26,16 @@ Pipeline YAML（`pipelines.yaml`）使用**小写路由 + 扁平 params**，与 
 
 compression 密码请用 `${env.COREX_ARCHIVE_PASSWORD}`，勿写明文 YAML。
 
-screenshot Capture 示例：
+capture Screenshot 示例：
 
 ```yaml
-module: screenshot
-action: capture
+module: capture
+action: screenshot
 params:
   to: '${var.base}\\screenshots'
 ```
 
-Crop 使用 `source`（输入图）与 `to`（输出目录），与 Capture 命名一致。详见 [breaking-changes.md](./breaking-changes.md)。
+Crop 使用 `source`（输入图）与 `to`（输出目录），与 Screenshot 命名一致。详见 [breaking-changes.md](./breaking-changes.md)。
 
 文件说明：
 

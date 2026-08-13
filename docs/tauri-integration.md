@@ -25,9 +25,9 @@ sequenceDiagram
     Sidecar->>Core: DaemonState.init Monitor cache
     Sidecar->>Pipe: CreateNamedPipe listen
     Tauri->>Pipe: is_ready probe
-    Tauri->>Pipe: invoke screenshot JSON
+    Tauri->>Pipe: invoke capture screenshot JSON
     Pipe->>Sidecar: parse_request
-    Sidecar->>Core: dispatch screenshot capture
+    Sidecar->>Core: dispatch capture screenshot
     Core-->>Sidecar: path ms
     Sidecar-->>Tauri: Response JSON
     Tauri->>Tauri: emit screenshot_done
@@ -357,7 +357,7 @@ args 格式见 [ipc-protocol.md](./ipc-protocol.md)。
 
 **原因：** 模块返回 ok 但未设置 path（如 bootstrap）。
 
-**解决：** screenshot 模块应始终返回 path；检查 Daemon stderr 日志。
+**解决：** capture 模块的 screenshot action 应始终返回 path；检查 Daemon stderr 日志。
 
 ### 退出后 corex-serve 残留
 

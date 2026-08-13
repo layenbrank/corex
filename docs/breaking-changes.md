@@ -45,6 +45,45 @@ params:
 
 不保留旧 PascalCase / `scheme` 双读。
 
+## capture 模块（v3.0.0，module/action 对调）
+
+截图能力模块与动作命名对调：module `screenshot` → `capture`，action `capture` → `screenshot`；同时新增录屏占位 action `tape`（预留，未实现，调用即报错）。Cargo feature `screenshot` 同步改名为 `capture`；产物文件名前缀 `screenshot-*.png` 与日志保持不变。
+
+| 变更 | 旧 | 新 |
+|------|----|----|
+| IPC / Pipeline module | `"screenshot"` | `"capture"` |
+| 截图 action | `"capture"` | `"screenshot"` |
+| 录屏 action | 无 | `"tape"`（预留占位，尚未实现） |
+| CLI | `corex screenshot capture --to DIR` | `corex capture screenshot --to DIR` |
+| Cargo feature | `screenshot` | `capture` |
+| 库模块路径 | `cx::screenshot` / `Args::Capture(CaptureArgs)` | `cx::capture` / `Args::Screenshot(ScreenshotArgs)` |
+
+**迁移示例：**
+
+```json
+// 旧
+{"type":"invoke","id":1,"module":"screenshot","action":"capture","args":{"to":"C:/out"}}
+
+// 新
+{"type":"invoke","id":1,"module":"capture","action":"screenshot","args":{"to":"C:/out"}}
+```
+
+```yaml
+# 旧
+module: screenshot
+action: capture
+params:
+  to: 'C:/out'
+
+# 新
+module: capture
+action: screenshot
+params:
+  to: 'C:/out'
+```
+
+不保留旧 module/action 双读；workspace 版本 bump 至 `3.0.0`。
+
 ## IPC 协议
 
 | 变更 | 旧格式 | 新格式 |
@@ -142,4 +181,4 @@ params:
 
 ## i-thinking 集成
 
-Tauri 侧需同步更新 `corex_ipc.rs` 与所有 `invoke("screenshot", ...)` 调用。参考 [`examples/tauri/corex_ipc.rs`](../examples/tauri/corex_ipc.rs)。
+Tauri 侧需同步更新 `corex_ipc.rs` 与所有 IPC 调用：v3.0.0 起 wire 格式为 `invoke("capture", action "screenshot", ...)`（旧为 `invoke("screenshot", action "capture", ...)`）。参考 [`examples/tauri/corex_ipc.rs`](../examples/tauri/corex_ipc.rs)。

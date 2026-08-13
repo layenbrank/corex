@@ -8,8 +8,8 @@ use image::{ImageReader, RgbaImage, imageops};
 use serde_json::Value;
 use xcap::{Monitor, Window};
 
-use crate::screenshot::schema::{
-    Args, CaptureArgs, ClipboardArgs, CropArgs, MonitorInfo, WindowInfo,
+use crate::capture::schema::{
+    Args, ClipboardArgs, CropArgs, MonitorInfo, ScreenshotArgs, WindowInfo,
 };
 use crate::utils::paths::{validate_output_dir, validate_read_file, validate_read_path};
 
@@ -39,13 +39,16 @@ pub fn run(args: &Args) -> Result<()> {
 
 pub fn execute(args: &Args, cached_monitors: Option<&[Monitor]>) -> Result<Output> {
     match args {
-        Args::Capture(a) => {
+        Args::Screenshot(a) => {
             validate_read_path(&a.to)?;
-            let path = capture(a, cached_monitors)?;
+            let path = screenshot(a, cached_monitors)?;
             Ok(Output {
                 path: Some(path),
                 data: None,
             })
+        }
+        Args::Tape => {
+            bail!("capture tape 录屏功能尚未实现")
         }
         Args::Monitors => {
             let monitors = list_monitors(cached_monitors)?;
@@ -75,7 +78,7 @@ pub fn execute(args: &Args, cached_monitors: Option<&[Monitor]>) -> Result<Outpu
     }
 }
 
-pub fn capture(args: &CaptureArgs, cached_monitors: Option<&[Monitor]>) -> Result<PathBuf> {
+pub fn screenshot(args: &ScreenshotArgs, cached_monitors: Option<&[Monitor]>) -> Result<PathBuf> {
     let to = Path::new(&args.to);
     let start = Instant::now();
     let owned_monitors;

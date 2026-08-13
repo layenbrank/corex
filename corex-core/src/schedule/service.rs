@@ -369,7 +369,7 @@ fn generate_config_template() -> Result<()> {
         "  解压缩        compression unzip",
         "  图片处理      shade",
         "  清理删除      scrub",
-        "  截图          screenshot",
+        "  截图          capture screenshot",
         "  环境初始化    bootstrap",
     ];
     println!();
@@ -549,9 +549,9 @@ fn generate_config_template() -> Result<()> {
                     .interact_text()?;
                 new_step(
                     step_id,
-                    "screenshot",
+                    "capture",
                     Some("截图任务".to_string()),
-                    Some("capture"),
+                    Some("screenshot"),
                     None,
                     None,
                     serde_json::json!({ "to": to }),

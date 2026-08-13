@@ -1,12 +1,12 @@
-//! screenshot 参数占位符解析
+//! capture 参数占位符解析
 
+use crate::capture::schema::{Args, ClipboardArgs, CropArgs, ScreenshotArgs};
 use crate::invoke::InvokeContext;
-use crate::screenshot::schema::{Args, CaptureArgs, ClipboardArgs, CropArgs};
 
 /// 解析 `${var.*}` / `${steps.*}` 占位符。
 pub fn parse_args(parsed: Args, ctx: &InvokeContext<'_>) -> Args {
     match parsed {
-        Args::Capture(args) => Args::Capture(CaptureArgs {
+        Args::Screenshot(args) => Args::Screenshot(ScreenshotArgs {
             to: ctx.parse(&args.to),
             description: args.description,
         }),

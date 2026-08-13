@@ -19,11 +19,11 @@ pub fn dispatch(
     module: &str,
     wire: WireArgs,
 ) -> Result<DispatchResult> {
-    #[cfg(feature = "screenshot")]
-    if module == "screenshot" {
+    #[cfg(feature = "capture")]
+    if module == "capture" {
         if matches!(
             wire.action.as_deref(),
-            Some("capture") | Some("monitors")
+            Some("screenshot") | Some("monitors")
         ) {
             let _ = state.refresh_monitors();
         }

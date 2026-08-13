@@ -13,7 +13,7 @@ Corex 从 Tauri 项目中独立拆分，重依赖（xcap、image、tokio 等）�
 | [docs/architecture-and-tauri-integration.md](docs/architecture-and-tauri-integration.md) | 架构总览、四阶段改动、快速开始 |
 | [docs/architecture.md](docs/architecture.md) | Feature 体系、serve 模块深度 |
 | [docs/pipeline-v3.md](docs/pipeline-v3.md) | Pipeline v3 配置、watch / schedule 字段 |
-| [docs/breaking-changes.md](docs/breaking-changes.md) | v0.3+ IPC / screenshot 破坏性变更 |
+| [docs/breaking-changes.md](docs/breaking-changes.md) | v0.3+ IPC / capture 破坏性变更 |
 | [docs/ipc-protocol.md](docs/ipc-protocol.md) | Named Pipe JSON 协议 |
 | [docs/tauri-integration.md](docs/tauri-integration.md) | Tauri 2 完整接入指南 |
 | [examples/tauri/](examples/tauri/) | 可复制的 Tauri 示例代码 |
@@ -72,7 +72,7 @@ corex watch run --immediate
 | `corex codec encode/decode/hash`    | Base64 编解码、MD5 摘要   |
 | `corex scan os`                     | 采集 OS / CPU / 内存信息  |
 | `corex morph`                       | PDF 处理（14 子命令）     |
-| `corex screenshot capture/…`        | 截图（capture/monitors/windows/crop/clipboard） |
+| `corex capture screenshot/…`        | 捕获（screenshot/tape/monitors/windows/crop/clipboard） |
 | `corex shade`                       | 图片格式转换 / 压缩       |
 | `corex bootstrap env/inspect/force` | 环境初始化与检查          |
 | `corex pipeline`                    | 执行 YAML 定义的 Pipeline |
@@ -85,14 +85,14 @@ corex watch run --immediate
 | ------------- | ----------------------------------------- |
 | `corex`       | 完整 CLI（`features = all`）              |
 | `corex-serve` | Named Pipe Daemon，供 Tauri sidecar 使用  |
-| `corex-capture` | 轻量 capture，等价 `corex screenshot capture --to`（不进 Release ZIP） |
+| `corex-capture` | 轻量 capture，等价 `corex capture screenshot --to`（不进 Release ZIP） |
 
-完整 CLI 截图请使用 `corex screenshot capture --to`；`corex-capture` 为轻量独立 binary。
+完整 CLI 截图请使用 `corex capture screenshot --to`；`corex-capture` 为轻量独立 binary。
 
 ```powershell
 cargo build -p corex-serve --release
 cargo run -p corex-capture -- --to C:\Temp\screenshots
-corex screenshot capture --to C:\Temp\screenshots
+corex capture screenshot --to C:\Temp\screenshots
 ```
 
 ### GitHub Release（Windows x64）
@@ -387,22 +387,23 @@ Pipeline / IPC：`action: meta` + `args: { "path": "D:/doc.pdf" }` 等；路径�
 
 ---
 
-## 截图 (screenshot)
+## 捕获 (capture)
 
-子命令：`capture`（全屏）、`monitors`（显示器列表）、`windows`（窗口列表）、`crop`（区域裁剪）、`clipboard`（剪贴板区域）。
+子命令：`screenshot`（全屏截图）、`tape`（录屏，预留未实现）、`monitors`（显示器列表）、`windows`（窗口列表）、`crop`（区域裁剪）、`clipboard`（剪贴板区域）。
 
 | 子命令 | 关键参数 | 说明 |
 | ------ | -------- | ---- |
-| `capture` | `--to` | 输出目录 |
+| `screenshot` | `--to` | 输出目录 |
+| `tape` | （无） | 录屏占位，尚未实现 |
 | `crop` | `--source`、`--to` | 源图路径 + 输出目录 |
 | `clipboard` | `--source` | 剪贴板图片路径 |
 
 ```powershell
-corex screenshot capture --to C:\Screenshots
-corex screenshot crop --source C:\in.png --to C:\out --x 0 --y 0 --w 800 --h 600
+corex capture screenshot --to C:\Screenshots
+corex capture crop --source C:\in.png --to C:\out --x 0 --y 0 --w 800 --h 600
 ```
 
-IPC Capture：`action:"capture"` + `args:{"to":"C:/Screenshots"}`。破坏性变更见 [docs/breaking-changes.md](docs/breaking-changes.md)。
+IPC 截图：`module:"capture"` + `action:"screenshot"` + `args:{"to":"C:/Screenshots"}`。破坏性变更见 [docs/breaking-changes.md](docs/breaking-changes.md)。
 
 ---
 
@@ -455,7 +456,7 @@ corex pipeline --id build-h5 --once
 | `exec` | `action: run` + 扁平 params |
 | `engine` | `action: suggestion` + 扁平 params |
 | `bootstrap` | `action: env\|inspect\|force` |
-| `screenshot` | `action: capture\|crop\|…` |
+| `capture` | `action: screenshot\|tape\|crop\|…` |
 | `codec` | `action` + `algorithm` + 扁平 params |
 | `scan` | `action: os` |
 | `morph` | `action: meta\|merge\|…` |
@@ -464,8 +465,8 @@ corex pipeline --id build-h5 --once
 
 ```yaml
 - id: capture_screen
-  module: screenshot
-  action: capture
+  module: capture
+  action: screenshot
   params:
     to: '${var.base}\\screenshots'
 ```

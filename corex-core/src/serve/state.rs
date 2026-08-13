@@ -1,15 +1,15 @@
-#[cfg(feature = "screenshot")]
+#[cfg(feature = "capture")]
 use xcap::Monitor;
 
 /// Daemon 启动时预热的共享状态
 pub struct DaemonState {
-    #[cfg(feature = "screenshot")]
+    #[cfg(feature = "capture")]
     pub monitors: Option<Vec<Monitor>>,
 }
 
 impl DaemonState {
     pub fn init() -> anyhow::Result<Self> {
-        #[cfg(feature = "screenshot")]
+        #[cfg(feature = "capture")]
         {
             match Monitor::all() {
                 Ok(monitors) if !monitors.is_empty() => {
@@ -29,14 +29,14 @@ impl DaemonState {
             }
         }
 
-        #[cfg(not(feature = "screenshot"))]
+        #[cfg(not(feature = "capture"))]
         {
             Ok(Self {})
         }
     }
 
-    /// 刷新显示器缓存（Capture / Monitors 前可选调用）
-    #[cfg(feature = "screenshot")]
+    /// 刷新显示器缓存（Screenshot / Monitors 前可选调用）
+    #[cfg(feature = "capture")]
     pub fn refresh_monitors(&mut self) -> anyhow::Result<&[Monitor]> {
         let monitors = Monitor::all().map_err(|e| anyhow::anyhow!(e.to_string()))?;
         if monitors.is_empty() {

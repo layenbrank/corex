@@ -54,7 +54,7 @@
 //!
 //! ## 协议（与 corex-serve 一致）
 //!
-//! 请求：`{"type":"invoke","id":1,"module":"screenshot","action":"capture","args":{"to":"C:/out"}}\n`
+//! 请求：`{"type":"invoke","id":1,"module":"capture","action":"screenshot","args":{"to":"C:/out"}}\n`
 //! 响应：`{"id":1,"ok":true,"path":"...","ms":87}\n`
 //! 关闭：`{"type":"shutdown"}\n`
 
@@ -138,8 +138,8 @@ pub fn invoke(
 /// 截图（全局快捷键等高频场景）
 pub fn screenshot(to: impl AsRef<str>) -> Result<String, String> {
     let resp = invoke(
-        "screenshot",
-        Some("capture"),
+        "capture",
+        Some("screenshot"),
         None,
         None,
         json!({ "to": to.as_ref() }),

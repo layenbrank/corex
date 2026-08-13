@@ -6,7 +6,7 @@ use serde_json::{Value, json};
 use super::wire::WireArgs;
 
 /// 无参子命令（externally tagged 为 `null`）
-const UNIT_ACTIONS: &[&str] = &["monitors", "windows", "env", "inspect", "force"];
+const UNIT_ACTIONS: &[&str] = &["monitors", "windows", "env", "inspect", "force", "tape"];
 
 /// 将 wire 组装为可供 `serde_json::from_value::<ModuleArgs>` 的 Value
 pub fn assemble_typed(module: &str, wire: &WireArgs) -> Result<Value> {
@@ -27,10 +27,10 @@ pub fn assemble_typed(module: &str, wire: &WireArgs) -> Result<Value> {
             reject_action_module_routing("scan", wire)?;
             assemble_action_module("scan", wire)
         }
-        #[cfg(feature = "screenshot")]
-        "screenshot" => {
-            reject_action_module_routing("screenshot", wire)?;
-            assemble_action_module("screenshot", wire)
+        #[cfg(feature = "capture")]
+        "capture" => {
+            reject_action_module_routing("capture", wire)?;
+            assemble_action_module("capture", wire)
         }
         #[cfg(feature = "morph")]
         "morph" => {
@@ -191,7 +191,7 @@ fn validate_action(module: &str, action: &str) -> Result<()> {
         "generate" => &["path", "uuid", "cvid"],
         "scan" => &["os"],
         "engine" => &["suggestion"],
-        "screenshot" => &["capture", "monitors", "windows", "crop", "clipboard"],
+        "capture" => &["screenshot", "tape", "monitors", "windows", "crop", "clipboard"],
         "morph" => &[
             "meta",
             "render",
@@ -278,10 +278,10 @@ fn decode_module_args(module: &str, typed: Value) -> Result<()> {
             let _: crate::scan::schema::Args = serde_json::from_value(typed)
                 .map_err(|e| anyhow::anyhow!("scan params 无效: {e}"))?;
         }
-        #[cfg(feature = "screenshot")]
-        "screenshot" => {
-            let _: crate::screenshot::schema::Args = serde_json::from_value(typed)
-                .map_err(|e| anyhow::anyhow!("screenshot params 无效: {e}"))?;
+        #[cfg(feature = "capture")]
+        "capture" => {
+            let _: crate::capture::schema::Args = serde_json::from_value(typed)
+                .map_err(|e| anyhow::anyhow!("capture params 无效: {e}"))?;
         }
         #[cfg(feature = "morph")]
         "morph" => {
@@ -374,8 +374,15 @@ mod tests {
     #[test]
     fn assembles_unit_action() {
         let wire = WireArgs::action("monitors", json!({}));
-        let v = assemble_typed("screenshot", &wire).unwrap();
+        let v = assemble_typed("capture", &wire).unwrap();
         assert_eq!(v, json!({"Monitors": null}));
+    }
+
+    #[test]
+    fn assembles_capture_tape() {
+        let wire = WireArgs::action("tape", json!({}));
+        let v = assemble_typed("capture", &wire).unwrap();
+        assert_eq!(v, json!({"Tape": null}));
     }
 
     #[test]
@@ -387,7 +394,7 @@ mod tests {
     #[test]
     fn rejects_nonempty_flags_on_unit_action() {
         let wire = WireArgs::action("monitors", json!({"to": "x"}));
-        let err = assemble_typed("screenshot", &wire).unwrap_err().to_string();
+        let err = assemble_typed("capture", &wire).unwrap_err().to_string();
         assert!(err.contains("无参数"));
     }
 

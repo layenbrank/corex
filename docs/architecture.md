@@ -33,7 +33,7 @@ module/
 | exec | `exec::run` | `exec/service.rs` |
 | engine | `engine::run` | `engine/service.rs` |
 | bootstrap | `bootstrap::run` | `bootstrap/service.rs` |
-| screenshot | `screenshot::run` | `screenshot/service.rs` |
+| capture | `capture::run` | `capture/service.rs` |
 | codec | `codec::run` | `codec/service.rs` |
 | scan | `scan::run` | `scan/service.rs` |
 | morph | `morph::run` | `morph/service.rs` |
@@ -41,7 +41,7 @@ module/
 | schedule | `schedule::run` | `schedule/service.rs` |
 | watch | `watch::run` | `watch/service.rs` |
 
-screenshot 模块通过 `execute(&Args, Option<&[Monitor]>)` 支持 Daemon 传入缓存的显示器列表。
+capture 模块通过 `execute(&Args, Option<&[Monitor]>)` 支持 Daemon 传入缓存的显示器列表。
 
 ### CLI 分发
 
@@ -51,7 +51,7 @@ screenshot 模块通过 `execute(&Args, Option<&[Monitor]>)` 支持 Daemon 传�
 pub fn dispatch(args: Args) -> Result<()> {
     match args.command {
         Commands::Copy(a) => copy::run(&a),
-        Commands::Screenshot(a) => screenshot::run(&a),
+        Commands::Capture(a) => capture::run(&a),
         Commands::Pipeline(a) => pipeline::run(&a),
         Commands::Schedule(a) => schedule::run(&a),
         // ...
@@ -69,11 +69,11 @@ pub fn dispatch(args: Args) -> Result<()> {
 | `service.rs::run` | CLI 包装 | execute + 人类输出 |
 | `invoke/registry` | 薄路由 | `decode_json` → `parse_args` → `execute` → `InvokeResult` |
 
-已实现 execute 的模块：compression、codec、scan、morph、screenshot、copy、scrub、shade、generate、bootstrap、exec、engine。
+已实现 execute 的模块：compression、codec、scan、morph、capture、copy、scrub、shade、generate、bootstrap、exec、engine。
 
 ### Invoke 模块 vs 非 Invoke 模块
 
-**Invoke 模块**（可被 Pipeline step / IPC `invoke` 调用）：copy、scrub、shade、compression、generate、exec、screenshot、codec、scan、morph、bootstrap、engine。
+**Invoke 模块**（可被 Pipeline step / IPC `invoke` 调用）：copy、scrub、shade、compression、generate、exec、capture、codec、scan、morph、bootstrap、engine。
 
 **非 Invoke 模块**（仅 CLI 入口，不在 `invoke/registry` 中注册）：
 
@@ -83,7 +83,7 @@ pub fn dispatch(args: Args) -> Result<()> {
 | `schedule` | `schedule::run` | 配置生成 / cron 调度，非 pipeline step |
 | `watch` | `watch::run` | 文件变更监听 / debounce 后重跑 Pipeline，非 pipeline step |
 
-screenshot 通过 `execute(args, cached_monitors)` 支持 Daemon 传入预热的显示器列表。
+capture 通过 `execute(args, cached_monitors)` 支持 Daemon 传入预热的显示器列表。
 
 ### Pipeline 与统一 Invoke
 
@@ -141,14 +141,14 @@ glob 过滤工具：`utils/filter.rs`（原 `ignore.rs`，与 copy/generate 的 
 ```
 default = ["all"]
 all = ["command"]
-command = [cli, copy, scrub, shade, compression, generate, bootstrap, screenshot, codec, scan, morph, exec, engine, pipeline, schedule, watch]
+command = [cli, copy, scrub, shade, compression, generate, bootstrap, capture, codec, scan, morph, exec, engine, pipeline, schedule, watch]
 cli = [dep:clap]
-daemon = [cli, copy, scrub, shade, compression, generate, bootstrap, screenshot, codec, scan, morph, exec, engine]
+daemon = [cli, copy, scrub, shade, compression, generate, bootstrap, capture, codec, scan, morph, exec, engine]
 serve = [daemon]
 pipeline = [regex, serde_yml, dialoguer, crossterm, tokio, dirs, tasks]
 schedule = [pipeline, cron, chrono]
 watch = [pipeline, notify-fs, notify-debouncer-full, chrono, glob]
-tasks = [codec, scan, morph, copy, scrub, shade, compression, generate, bootstrap, screenshot, exec, engine]
+tasks = [codec, scan, morph, copy, scrub, shade, compression, generate, bootstrap, capture, exec, engine]
 ```
 
 各模块 feature 还引入工具性子 feature：
@@ -167,7 +167,7 @@ tasks = [codec, scan, morph, copy, scrub, shade, compression, generate, bootstra
 | `command` | clap + 全部业务 + pipeline + schedule + watch |
 | `daemon` | 业务模块 + cli，**不含** pipeline / schedule / watch |
 | `serve` | daemon + serve 模块（Named Pipe IPC） |
-| `screenshot` | 仅 xcap + image |
+| `capture` | 仅 xcap + image |
 
 ### 三 Binary 配置
 
@@ -189,7 +189,7 @@ cx = { path = "../corex-core", default-features = false, features = ["serve"] }
 
 ```toml
 [dependencies]
-cx = { path = "../corex-core", default-features = false, features = ["screenshot"] }
+cx = { path = "../corex-core", default-features = false, features = ["capture"] }
 clap = { workspace = true }
 ```
 
@@ -215,8 +215,8 @@ cargo build -p corex-serve --release
 # 轻量截图
 cargo build -p corex-capture --release
 
-# 按需编译库（仅 screenshot）
-cargo build -p corex-core --no-default-features --features screenshot
+# 按需编译库（仅 capture）
+cargo build -p corex-core --no-default-features --features capture
 ```
 
 ---
@@ -286,10 +286,10 @@ impl DaemonState {
 }
 ```
 
-**`screenshot/service.rs`：**
+**`capture/service.rs`：**
 
 ```rust
-pub fn capture(args: &Args, cached_monitors: Option<&[Monitor]>) -> Result<PathBuf> {
+pub fn screenshot(args: &ScreenshotArgs, cached_monitors: Option<&[Monitor]>) -> Result<PathBuf> {
     let monitors = match cached_monitors {
         Some(m) => m,
         None => { /* Monitor::all() 每次 */ }
@@ -298,13 +298,13 @@ pub fn capture(args: &Args, cached_monitors: Option<&[Monitor]>) -> Result<PathB
 }
 ```
 
-CLI 路径调用 `capture(args, None)`；Daemon 路径传入 `state.monitors.as_deref()`。
+CLI 路径调用 `screenshot(args, None)`；Daemon 路径传入 `state.monitors.as_deref()`。
 
 ### dispatch 支持的 module
 
 | module | 调用 | 返回 path | 返回 data |
 |--------|------|-----------|-----------|
-| screenshot | `screenshot::execute` | 写文件类操作 | monitors/windows 等 |
+| capture | `capture::execute` | 写文件类操作 | monitors/windows 等 |
 | copy | `copy::run(&args)` | `args.to` | — |
 | scrub | `scrub::run(&args)` | `args.target` | — |
 | shade | `shade::run(&args)` | `args.to` | — |
@@ -345,7 +345,7 @@ CLI 路径调用 `capture(args, None)`；Daemon 路径传入 `state.monitors.as_
 
 ```powershell
 corex --help
-corex screenshot capture --to C:\Screenshots
+corex capture screenshot --to C:\Screenshots
 corex copy --from ./src --to ./dist --excludes "node_modules"
 corex pipeline --config pipelines.yaml
 corex schedule run
@@ -391,8 +391,8 @@ use cx::serve;
 
 let resp = serve::request(
     r"\\.\pipe\corex",
-    "screenshot",
-    WireArgs::action("capture", serde_json::json!({ "to": "C:/out" })),
+    "capture",
+    WireArgs::action("screenshot", serde_json::json!({ "to": "C:/out" })),
 )?;
 
 if resp.ok {

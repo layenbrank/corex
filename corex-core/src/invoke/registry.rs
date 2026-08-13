@@ -24,8 +24,8 @@ pub fn invoke(module: &str, wire: WireArgs, ctx: &InvokeContext<'_>) -> Result<I
         "shade" => invoke_shade(args, ctx),
         #[cfg(feature = "generate")]
         "generate" => invoke_generate(args, ctx),
-        #[cfg(feature = "screenshot")]
-        "screenshot" => invoke_screenshot(args, ctx),
+        #[cfg(feature = "capture")]
+        "capture" => invoke_capture(args, ctx),
         #[cfg(feature = "codec")]
         "codec" => invoke_codec(args, ctx),
         #[cfg(feature = "scan")]
@@ -55,8 +55,8 @@ pub fn known_modules() -> &'static [&'static str] {
         "shade",
         #[cfg(feature = "generate")]
         "generate",
-        #[cfg(feature = "screenshot")]
-        "screenshot",
+        #[cfg(feature = "capture")]
+        "capture",
         #[cfg(feature = "codec")]
         "codec",
         #[cfg(feature = "scan")]
@@ -136,11 +136,11 @@ fn invoke_generate(args: Value, ctx: &InvokeContext<'_>) -> Result<InvokeResult>
     }
 }
 
-#[cfg(feature = "screenshot")]
-fn invoke_screenshot(args: Value, ctx: &InvokeContext<'_>) -> Result<InvokeResult> {
-    let raw: crate::screenshot::schema::Args = decode_json(args, "screenshot")?;
-    let args = crate::screenshot::parse_args(raw, ctx);
-    let output = crate::screenshot::service::execute(&args, ctx.cached_monitors())?;
+#[cfg(feature = "capture")]
+fn invoke_capture(args: Value, ctx: &InvokeContext<'_>) -> Result<InvokeResult> {
+    let raw: crate::capture::schema::Args = decode_json(args, "capture")?;
+    let args = crate::capture::parse_args(raw, ctx);
+    let output = crate::capture::service::execute(&args, ctx.cached_monitors())?;
     Ok(optional_path_result(output.path).with_ipc_data(output.data))
 }
 

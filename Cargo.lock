@@ -845,7 +845,7 @@ checksum = "773648b94d0e5d620f64f280777445740e61fe701025087ec8b57f45c791888b"
 
 [[package]]
 name = "corex"
-version = "2.1.5"
+version = "3.0.0"
 dependencies = [
  "anyhow",
  "assert_cmd",
@@ -858,7 +858,7 @@ dependencies = [
 
 [[package]]
 name = "corex-capture"
-version = "2.1.5"
+version = "3.0.0"
 dependencies = [
  "anyhow",
  "clap",
@@ -867,7 +867,7 @@ dependencies = [
 
 [[package]]
 name = "corex-core"
-version = "2.1.5"
+version = "3.0.0"
 dependencies = [
  "anyhow",
  "arboard",
@@ -919,7 +919,7 @@ dependencies = [
 
 [[package]]
 name = "corex-serve"
-version = "2.1.5"
+version = "3.0.0"
 dependencies = [
  "anyhow",
  "clap",
@@ -3232,7 +3232,7 @@ dependencies = [
 
 [[package]]
 name = "pdfium"
-version = "2.1.5"
+version = "3.0.0"
 
 [[package]]
 name = "pdfium-render"

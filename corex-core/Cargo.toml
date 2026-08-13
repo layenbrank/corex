@@ -29,7 +29,7 @@ command = [
   "compression",
   "generate",
   "bootstrap",
-  "screenshot",
+  "capture",
   "exec",
   "engine",
   "pipeline",
@@ -51,7 +51,7 @@ invoke = [
   "compression",
   "generate",
   "bootstrap",
-  "screenshot",
+  "capture",
   "exec",
   "engine",
 ]
@@ -69,7 +69,7 @@ daemon = [
   "compression",
   "generate",
   "bootstrap",
-  "screenshot",
+  "capture",
   "exec",
   "engine",
 ]
@@ -111,7 +111,7 @@ generate = [
 engine = ["dep:reqwest", "generate"]
 bootstrap = []
 exec = []
-screenshot = ["dep:xcap", "dep:image", "dep:base64", "dep:arboard", "cli"]
+capture = ["dep:xcap", "dep:image", "dep:base64", "dep:arboard", "cli"]
 
 pipeline = [
   "dep:regex",
@@ -219,7 +219,7 @@ path = "tests/orchestrator_failed.rs"
 
 [[test]]
 name = "invoke_parse"
-required-features = ["invoke", "codec", "compression", "screenshot"]
+required-features = ["invoke", "codec", "compression", "capture"]
 path = "tests/invoke_parse.rs"
 
 [[test]]

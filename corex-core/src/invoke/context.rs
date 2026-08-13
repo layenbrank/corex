@@ -41,12 +41,12 @@ impl<'a> InvokeContext<'a> {
     }
 
     /// Daemon 预热的显示器列表（IPC 截图加速）；无 daemon 时返回 None。
-    #[cfg(all(feature = "screenshot", feature = "serve"))]
+    #[cfg(all(feature = "capture", feature = "serve"))]
     pub fn cached_monitors(&self) -> Option<&[xcap::Monitor]> {
         self.daemon.as_ref().and_then(|d| d.monitors.as_deref())
     }
 
-    #[cfg(all(feature = "screenshot", not(feature = "serve")))]
+    #[cfg(all(feature = "capture", not(feature = "serve")))]
     pub fn cached_monitors(&self) -> Option<&[xcap::Monitor]> {
         None
     }

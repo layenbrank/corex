@@ -27,7 +27,7 @@
 ### Invoke（执行业务模块）
 
 ```json
-{"type":"invoke","id":1,"module":"screenshot","action":"capture","args":{"to":"C:/Screenshots"}}
+{"type":"invoke","id":1,"module":"capture","action":"screenshot","args":{"to":"C:/Screenshots"}}
 ```
 
 字段说明：
@@ -71,7 +71,7 @@
 失败时：
 
 ```json
-{"id":1,"ok":false,"ms":12,"error":"screenshot args 解析失败: missing field `to`"}
+{"id":1,"ok":false,"ms":12,"error":"capture params 解析失败: missing field `to`"}
 ```
 
 | 字段 | 类型 | 说明 |
@@ -91,12 +91,14 @@ Rust 类型定义见 `corex-core/src/serve/protocol.rs` 的 `Response` 结构体
 
 `args` 为扁平 flags；子命令用顶层 `action` / `format` / `algorithm`（与 CLI kebab 词表一致）。
 
-### screenshot
+### capture
+
+action 词表：`screenshot` / `tape`（录屏预留，尚未实现）/ `monitors` / `windows` / `crop` / `clipboard`。
 
 ```json
 {
-  "module": "screenshot",
-  "action": "capture",
+  "module": "capture",
+  "action": "screenshot",
   "args": {
     "to": "C:/Screenshots",
     "description": "可选描述"
@@ -107,17 +109,17 @@ Rust 类型定义见 `corex-core/src/serve/protocol.rs` 的 `Response` 结构体
 **Monitors / Windows：**
 
 ```json
-{ "module": "screenshot", "action": "monitors", "args": {} }
-{ "module": "screenshot", "action": "windows", "args": {} }
+{ "module": "capture", "action": "monitors", "args": {} }
+{ "module": "capture", "action": "windows", "args": {} }
 ```
 
-成功时 `data` 为 `MonitorInfo[]` 或 `WindowInfo[]`；Capture 成功时 `path` 为生成的 PNG 文件路径。
+成功时 `data` 为 `MonitorInfo[]` 或 `WindowInfo[]`；Screenshot 成功时 `path` 为生成的 PNG 文件路径。
 
 **Crop / Clipboard：**
 
 ```json
 {
-  "module": "screenshot",
+  "module": "capture",
   "action": "crop",
   "args": {
     "source": "C:/in.png",
@@ -130,7 +132,7 @@ Rust 类型定义见 `corex-core/src/serve/protocol.rs` 的 `Response` 结构体
 }
 ```
 
-IPC 大图裁剪推荐使用 `image_file`（PNG 文件路径）而非 `final_image_base64`，避免超过 64KB 行限。`Crop.to` 与 `Capture.to` 相同，均为**输出目录**。
+IPC 大图裁剪推荐使用 `image_file`（PNG 文件路径）而非 `final_image_base64`，避免超过 64KB 行限。`Crop.to` 与 `Screenshot.to` 相同，均为**输出目录**。
 
 Crop 成功时 `path` 为输出 PNG 路径；Clipboard 无 `path`，仅 `ok: true`。
 
@@ -453,8 +455,8 @@ use cx::serve;
 // 调用模块
 let resp = serve::request(
     r"\\.\pipe\corex",
-    "screenshot",
-    WireArgs::action("capture", serde_json::json!({ "to": "C:/out" })),
+    "capture",
+    WireArgs::action("screenshot", serde_json::json!({ "to": "C:/out" })),
 )?;
 
 // 关闭 Daemon

@@ -31,7 +31,7 @@ pub fn execute(args: &Args) -> Result<Output>;
 pub fn run(args: &Args) -> Result<()>; // 包装 execute + CLI 输出
 ```
 
-IPC（Tauri）经 `serve/dispatch` → `invoke()` → `execute()`；screenshot 使用 `InvokeContext::daemon` 传入 Monitor 缓存。
+IPC（Tauri）经 `serve/dispatch` → `invoke()` → `execute()`；capture 使用 `InvokeContext::daemon` 传入 Monitor 缓存。
 
 ## IPC / CLI
 

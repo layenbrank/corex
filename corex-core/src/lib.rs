@@ -34,8 +34,8 @@ pub mod engine;
 pub mod morph;
 #[cfg(feature = "scan")]
 pub mod scan;
-#[cfg(feature = "screenshot")]
-pub mod screenshot;
+#[cfg(feature = "capture")]
+pub mod capture;
 #[cfg(feature = "scrub")]
 pub mod scrub;
 #[cfg(feature = "shade")]

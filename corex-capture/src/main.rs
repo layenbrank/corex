@@ -1,10 +1,10 @@
 use anyhow::Result;
 use clap::Parser;
-use cx::screenshot;
+use cx::capture;
 
-/// 轻量截图 capture（等价 `corex screenshot capture --to`）
+/// 轻量 capture screenshot（等价 `corex capture screenshot --to`）
 #[derive(Debug, Parser)]
-#[command(version, about = "Corex 轻量截图 capture")]
+#[command(version, about = "Corex 轻量 capture screenshot")]
 struct Args {
     /// 截图输出目录
     #[arg(short, long)]
@@ -13,8 +13,8 @@ struct Args {
 
 fn main() -> Result<()> {
     let args = Args::parse();
-    screenshot::run(&screenshot::schema::Args::Capture(
-        screenshot::schema::CaptureArgs {
+    capture::run(&capture::schema::Args::Screenshot(
+        capture::schema::ScreenshotArgs {
             to: args.to,
             description: None,
         },

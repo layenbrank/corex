@@ -65,12 +65,12 @@ fn invoke_compression_parse_path_placeholders() {
     assert!(archive.is_file());
 }
 
-#[cfg(feature = "screenshot")]
+#[cfg(feature = "capture")]
 #[test]
-fn invoke_screenshot_monitors_returns_data() {
+fn invoke_capture_monitors_returns_data() {
     let ctx = InvokeContext::empty();
     let result = invoke(
-        "screenshot",
+        "capture",
         WireArgs::action("monitors", json!({})),
         &ctx,
     )
@@ -80,12 +80,12 @@ fn invoke_screenshot_monitors_returns_data() {
     assert!(data.is_array());
 }
 
-#[cfg(feature = "screenshot")]
+#[cfg(feature = "capture")]
 #[test]
-fn invoke_screenshot_windows_returns_data() {
+fn invoke_capture_windows_returns_data() {
     let ctx = InvokeContext::empty();
     let result = invoke(
-        "screenshot",
+        "capture",
         WireArgs::action("windows", json!({})),
         &ctx,
     )
@@ -93,4 +93,13 @@ fn invoke_screenshot_windows_returns_data() {
 
     let data = ipc_data(&result).or(result.data).expect("data field");
     assert!(data.is_array());
+}
+
+#[cfg(feature = "capture")]
+#[test]
+fn invoke_capture_tape_not_implemented() {
+    let ctx = InvokeContext::empty();
+    let err = invoke("capture", WireArgs::action("tape", json!({})), &ctx)
+        .expect_err("tape 应报错");
+    assert!(err.to_string().contains("录屏功能尚未实现"));
 }

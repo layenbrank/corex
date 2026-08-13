@@ -76,7 +76,7 @@ mod tests {
 
     #[test]
     fn parse_typed_invoke() {
-        let line = r#"{"type":"invoke","id":1,"module":"screenshot","action":"capture","args":{"to":"/tmp"}}"#;
+        let line = r#"{"type":"invoke","id":1,"module":"capture","action":"screenshot","args":{"to":"/tmp"}}"#;
         let req = parse_request(line).unwrap();
         match req {
             Request::Invoke {
@@ -86,8 +86,8 @@ mod tests {
                 ..
             } => {
                 assert_eq!(id, 1);
-                assert_eq!(module, "screenshot");
-                assert_eq!(action.as_deref(), Some("capture"));
+                assert_eq!(module, "capture");
+                assert_eq!(action.as_deref(), Some("screenshot"));
             }
             _ => panic!("expected invoke"),
         }

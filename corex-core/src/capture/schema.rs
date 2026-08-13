@@ -3,11 +3,13 @@ use serde::{Deserialize, Serialize};
 
 use crate::utils::verifier;
 
-/// screenshot 子命令
+/// capture 子命令（截图/录屏）
 #[derive(Debug, Parser, Clone, Serialize, Deserialize)]
 pub enum Args {
     /// 截取主显示器并保存 PNG
-    Capture(CaptureArgs),
+    Screenshot(ScreenshotArgs),
+    /// 录屏（预留，未实现）
+    Tape,
     /// 枚举显示器
     Monitors,
     /// 枚举可见窗口
@@ -19,7 +21,7 @@ pub enum Args {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Parser)]
-pub struct CaptureArgs {
+pub struct ScreenshotArgs {
     #[arg(short, long, value_parser = verifier::path)]
     pub to: String,
     #[arg(help = "任务描述")]
@@ -31,7 +33,7 @@ pub struct CaptureArgs {
 pub struct CropArgs {
     #[arg(long, value_parser = verifier::file)]
     pub source: String,
-    /// 输出目录（自动生成 screenshot-crop-{ts}.png，与 Capture.to 一致）
+    /// 输出目录（自动生成 screenshot-crop-{ts}.png，与 Screenshot.to 一致）
     #[arg(long, value_parser = verifier::path)]
     pub to: String,
     #[arg(long, default_value_t = 0)]
@@ -97,14 +99,21 @@ mod tests {
     use serde_json::json;
 
     #[test]
-    fn capture_args_roundtrip() {
-        let args = Args::Capture(CaptureArgs {
+    fn screenshot_args_roundtrip() {
+        let args = Args::Screenshot(ScreenshotArgs {
             to: "C:/out".to_string(),
             description: None,
         });
         let v = serde_json::to_value(&args).unwrap();
         let back: Args = serde_json::from_value(v).unwrap();
-        assert!(matches!(back, Args::Capture(_)));
+        assert!(matches!(back, Args::Screenshot(_)));
+    }
+
+    #[test]
+    fn tape_unit_variant() {
+        let v = json!({"Tape": null});
+        let args: Args = serde_json::from_value(v).unwrap();
+        assert!(matches!(args, Args::Tape));
     }
 
     #[test]

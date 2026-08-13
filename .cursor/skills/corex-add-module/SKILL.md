@@ -71,7 +71,7 @@ corex-core/src/<module>/
 | 需要 Pipeline 变量替换 | `copy` / `codec` | `parse.rs` + `parse_args` |
 | 子命令嵌套（操作→算法→参数） | `codec` | `Args` enum + `Subcommand` |
 | 无输出副作用 | `bootstrap` | `InvokeResult::default()` |
-| Daemon 特殊状态 | `screenshot` | `ctx.cached_monitors()` |
+| Daemon 特殊状态 | `capture` | `ctx.cached_monitors()` |
 
 详细模板见 [references/templates.md](references/templates.md)；完整检查清单见 [references/checklist.md](references/checklist.md)。
 
@@ -109,12 +109,12 @@ pub fn execute(args: &Args) -> Result<Output> {
 ## Schema 要求
 
 1. **必须**同时 derive `clap::Parser` 与 `serde::{Serialize, Deserialize}`，以便 CLI 与 JSON IPC 共用。
-2. 有子命令时用 `enum Args` + `#[command(subcommand)]`（参考 `codec`、`screenshot`）。
+2. 有子命令时用 `enum Args` + `#[command(subcommand)]`（参考 `codec`、`capture`）。
 3. IPC args 使用**线格式**（小写路由 + 扁平 flags）：
 
 ```json
 {"module":"scan","action":"os","args":{}}
-{"module":"screenshot","action":"capture","args":{"to":"C:/out"}}
+{"module":"capture","action":"screenshot","args":{"to":"C:/out"}}
 {"module":"codec","action":"encode","algorithm":"base64","args":{"input":"aGVsbG8="}}
 ```
 

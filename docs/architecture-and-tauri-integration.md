@@ -77,7 +77,7 @@ corex/                    # workspace 根
 ├── corex-core/           # 库 crate，对外名 cx
 ├── corex/                # 完整 CLI（all features）
 ├── corex-serve/          # Daemon（serve feature）
-├── corex-capture/           # 轻量截图（screenshot only）
+├── corex-capture/           # 轻量捕获（capture only）
 ├── examples/tauri/       # Tauri 集成示例（阶段 4）
 └── docs/                 # 本文档体系
 ```
@@ -88,7 +88,7 @@ corex/                    # workspace 根
 |--------|----------|------|
 | `corex` | `all` | 开发、脚本、Pipeline、Schedule |
 | `corex-serve` | `serve` | Tauri sidecar，Named Pipe Daemon |
-| `corex-capture` | `screenshot` | 无 Daemon 时的轻量截图 |
+| `corex-capture` | `capture` | 无 Daemon 时的轻量截图 |
 
 ### i-thinking 能力对照（corex 模块）
 
@@ -97,7 +97,7 @@ corex/                    # workspace 根
 | `utils/pdf.rs` | `morph` | `corex morph meta --path a.pdf` | `morph` |
 | `utils/scan.rs` | `scan` | `corex scan os` | `scan` |
 | base64 / MD5 工具 | `codec` | `corex codec hash md5 --input hello` | `codec` |
-| `screenshot/service.rs`（可移植部分） | `screenshot` | `corex screenshot windows` | `screenshot` |
+| `capture/service.rs`（可移植部分） | `capture` | `corex capture windows` | `capture` |
 | `services/engine`（Bing 建议） | `engine` | `corex engine suggestion --pt page.home --qry rust --cp 4` | `engine` |
 | copy / scrub / shade 等 | 已有 | `corex copy ...` | `copy` 等 |
 
@@ -193,7 +193,7 @@ cargo build --release
 
 ```powershell
 corex --help
-corex screenshot capture --to C:\Temp\screenshots
+corex capture screenshot --to C:\Temp\screenshots
 corex copy --from ./src --to ./dist
 ```
 
@@ -241,8 +241,8 @@ cargo run -p corex-capture -- --to C:\Temp\screenshots
 Tauri shortcut
 └── Command::new("corex").spawn()          [200-500ms]
     └── main → clap::parse → command::dispatch
-        └── screenshot::run
-            └── capture(args, None)       [Monitor::all 每次]
+        └── capture::run
+            └── screenshot(args, None)       [Monitor::all 每次]
                 └── capture_image → save
 ```
 
@@ -256,7 +256,7 @@ Tauri shortcut / tray / hotkey
             └── [Named Pipe] corex-serve (已运行)
                 └── handle_client (private)
                     └── dispatch::handle_invoke
-                        └── screenshot::capture(args, cached_monitors)
+                        └── capture::screenshot(args, cached_monitors)
                             └── capture_image → save
 ```
 
@@ -271,7 +271,7 @@ corex-serve main
             ├── protocol::parse_request()
             ├── dispatch::handle_invoke()
             │   └── dispatch() → {copy|scrub|shade|...}::run
-            │                  → screenshot::capture(cached)
+            │                  → capture::screenshot(cached)
             └── write_response()
 
 客户端（Tauri / ipc example）
@@ -345,7 +345,7 @@ sequenceDiagram
 | 项 | 状态 |
 |----|------|
 | 阶段 1–3 实现 | 完成 |
-| codec / scan / morph / screenshot 扩展 | 完成 |
+| codec / scan / morph / capture 扩展 | 完成 |
 | 阶段 4 Tauri 示例 | 完成（待用户集成到 Tauri 项目） |
 | 阶段 5 基准测试 | 待办 |
 | 非 Windows IPC（Unix Socket） | 未实现 |

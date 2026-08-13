@@ -137,7 +137,7 @@ pnpm tauri dev
 - **快捷键**：修改 `register_hotkeys` 中的 `"Ctrl+Shift+S"`
 - **仅托盘无窗口**：`tauri.conf.json` 中 `"visible": false`，关闭窗口时 `prevent_close` 改为 hide（见 Tauri 文档）
 
-## 9. 通用 IPC 调用（codec / scan / morph / screenshot）
+## 9. 通用 IPC 调用（codec / scan / morph / capture）
 
 `corex_ipc::invoke(module, action, format, algorithm, args)`：路由字段 + 扁平 flags；结构化结果在 `data`，文件路径在 `path`。
 
@@ -172,7 +172,7 @@ let resp = corex_ipc::invoke(
 let merged = resp.path.unwrap();
 
 // 枚举窗口
-let resp = corex_ipc::invoke("screenshot", Some("windows"), None, None, serde_json::json!({}))?;
+let resp = corex_ipc::invoke("capture", Some("windows"), None, None, serde_json::json!({}))?;
 let windows = resp.data.unwrap();
 ```
 

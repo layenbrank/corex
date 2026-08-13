@@ -2,7 +2,7 @@
 name              = "corex-capture"
 version.workspace = true
 edition.workspace = true
-description       = "Corex minimal screenshot capture binary"
+description       = "Corex minimal capture binary (screenshot/tape)"
 authors.workspace = true
 
 [[bin]]
@@ -10,6 +10,6 @@ name = "corex-capture"
 path = "src/main.rs"
 
 [dependencies]
-corex-core = { path = "../corex-core", default-features = false, features = ["screenshot"] }
+corex-core = { path = "../corex-core", default-features = false, features = ["capture"] }
 anyhow     = { workspace = true }
 clap       = { workspace = true }

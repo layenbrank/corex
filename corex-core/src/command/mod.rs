@@ -27,8 +27,8 @@ use crate::scan;
 use crate::schedule;
 #[cfg(feature = "watch")]
 use crate::watch;
-#[cfg(feature = "screenshot")]
-use crate::screenshot;
+#[cfg(feature = "capture")]
+use crate::capture;
 #[cfg(feature = "scrub")]
 use crate::scrub;
 #[cfg(feature = "shade")]
@@ -84,10 +84,10 @@ pub enum Commands {
     #[cfg(feature = "bootstrap")]
     #[command(subcommand)]
     Bootstrap(bootstrap::schema::Args),
-    /// 截图
-    #[cfg(feature = "screenshot")]
+    /// 捕获（截图/录屏）
+    #[cfg(feature = "capture")]
     #[command(subcommand)]
-    Screenshot(screenshot::schema::Args),
+    Capture(capture::schema::Args),
     /// 压缩打包 / 解压缩
     #[cfg(feature = "compression")]
     #[command(subcommand)]
@@ -135,8 +135,8 @@ pub fn dispatch(args: Args) -> Result<()> {
         Commands::Exec(a) => exec::run(&a),
         #[cfg(feature = "bootstrap")]
         Commands::Bootstrap(a) => bootstrap::run(&a),
-        #[cfg(feature = "screenshot")]
-        Commands::Screenshot(a) => screenshot::run(&a),
+        #[cfg(feature = "capture")]
+        Commands::Capture(a) => capture::run(&a),
         #[cfg(feature = "compression")]
         Commands::Compression(a) => compression::run(&a),
         #[cfg(feature = "pipeline")]

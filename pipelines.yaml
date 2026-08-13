@@ -110,8 +110,8 @@ pipelines:
           file: '${var.base}\\README.md'
 
       - id: capture_screen
-        module: screenshot
-        action: capture
+        module: capture
+        action: screenshot
         depends_on: [hash_readme]
         params:
           to: '${var.base}\\screenshots'
