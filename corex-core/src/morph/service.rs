@@ -16,7 +16,8 @@ use serde_json::Value;
 
 use crate::morph::schema::{
     Args, DocumentArgs, ExtractArgs, ImagesArgs, MatchArgs, MergeArgs, MetaArgs, PageImage,
-    PdfMeta, RemoveArgs, RenderArgs, ReorderArgs, RotateArgs, SplitArgs, SplitMode, ThumbnailsArgs,
+    PdfMeta, RemoveArgs, RenderArgs, ReorderArgs, RotateArgs, SplitArgs, SplitMode, StackArgs,
+    ThumbnailsArgs,
 };
 use crate::utils::paths::{validate_output_dir, validate_read_file, validate_write_path};
 
@@ -25,6 +26,8 @@ type LopdfId = lopdf::ObjectId;
 const MAX_SCALE: f32 = 10.0;
 /// 单次渲染/导出允许的最大页数
 const MAX_PAGES: usize = 200;
+/// 合成画布像素总量上限（约 400MB RGBA）
+const MAX_CANVAS_PIXELS: u64 = 100_000_000;
 /// 缩略图 base64 总字节上限
 const MAX_THUMB_BYTES: usize = 50 * 1024 * 1024;
 
@@ -55,6 +58,7 @@ pub fn execute(args: &Args) -> Result<Output> {
         Args::Match(a) => toMatch(a),
         Args::Export(a) => toExport(a),
         Args::Merge(a) => toMerge(a),
+        Args::Stack(a) => toStack(a),
         Args::Split(a) => toSplit(a),
         Args::Images(a) => toImages(a),
         Args::Document(a) => toDocument(a),
@@ -319,6 +323,70 @@ fn toMerge(args: &MergeArgs) -> Result<Output> {
         .trailer
         .set("Size", LopdfObj::Integer((merged.max_id + 1) as i64));
     merged.save(&args.dest)?;
+    Ok(Output {
+        path: Some(args.dest.clone()),
+        data: None,
+    })
+}
+
+/// 将相邻两页（0+1, 2+3, …）栅格化后垂直堆叠合成一页；奇数尾页单独保留。
+///
+/// 新页宽 = max(w1, w2)、高 = h1 + h2（像素），不等宽处右侧留白（白底）。
+fn toStack(args: &StackArgs) -> Result<Output> {
+    validate_read_file(&args.path)?;
+    validate_write_path(&args.dest)?;
+    check_scale(args.scale)?;
+    let pdfium = bootstrap()?;
+    let doc = pdfium
+        .load_pdf_from_file(&args.path, None)
+        .with_context(|| format!("无法打开 PDF: {}", args.path))?;
+    let page_count = doc.pages().len() as usize;
+    if page_count == 0 {
+        bail!("PDF 无页面");
+    }
+    check_pages(page_count, "stack")?;
+    let mut out = pdfium.create_new_pdf()?;
+    for pair in (0..page_count).step_by(2) {
+        // 渲染当前对的两页（位图在 page_img 返回后即由 DynamicImage 接管，逐对及时释放）
+        let top_page = doc.pages().get(pair as i32)?;
+        let (top, tw, th) = page_img(&top_page, args.scale)?;
+        let bottom = if pair + 1 < page_count {
+            let bottom_page = doc.pages().get((pair + 1) as i32)?;
+            Some(page_img(&bottom_page, args.scale)?)
+        } else {
+            None
+        };
+        // 垂直堆叠：上页在上、下页在下，短页右侧留白
+        let (canvas, cw, ch) = match &bottom {
+            Some((img, bw, bh)) => {
+                let cw = tw.max(*bw);
+                let ch = th + bh;
+                // 极端页面尺寸 + 高 scale 下画布分配会 panic/abort，提前拦截
+                let pixels = (cw as u64).checked_mul(ch as u64).unwrap_or(u64::MAX);
+                if pixels > MAX_CANVAS_PIXELS {
+                    bail!("合成画布 {cw}×{ch} 像素过大，请降低 scale");
+                }
+                let mut canvas = image::DynamicImage::ImageRgba8(image::RgbaImage::from_pixel(
+                    cw,
+                    ch,
+                    image::Rgba([255, 255, 255, 255]),
+                ));
+                image::imageops::overlay(&mut canvas, &top, 0, 0);
+                image::imageops::overlay(&mut canvas, img, 0, th as i64);
+                (canvas, cw, ch)
+            }
+            None => (top, tw, th),
+        };
+        // 像素 → pt：page_img 按 pt × scale 渲染，此处直接除回 scale，无 72/96 换算
+        let w_pt = PdfPoints::new(cw as f32 / args.scale);
+        let h_pt = PdfPoints::new(ch as f32 / args.scale);
+        let image_obj = PdfPageImageObject::new_with_size(&out, &canvas, w_pt, h_pt)?;
+        let mut page = out
+            .pages_mut()
+            .create_page_at_end(PdfPagePaperSize::from_points(w_pt, h_pt))?;
+        page.objects_mut().add_image_object(image_obj)?;
+    }
+    out.save_to_file(&args.dest)?;
     Ok(Output {
         path: Some(args.dest.clone()),
         data: None,
@@ -744,7 +812,7 @@ fn toExtract(args: &ExtractArgs) -> Result<Output> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::morph::schema::{ExtractArgs, RemoveArgs, ReorderArgs, RotateArgs};
+    use crate::morph::schema::{ExtractArgs, RemoveArgs, ReorderArgs, RotateArgs, StackArgs};
     use lopdf::{Object, Stream, dictionary};
 
     fn make_blank_pdf(path: &Path, page_count: u32) -> Result<()> {
@@ -876,5 +944,126 @@ mod tests {
             _ => panic!("missing page"),
         };
         assert_eq!(rotate, 90);
+    }
+
+    /// 测试二进制与 pdfium.dll 不同目录，将 COREX_PDFIUM_DIR 指向仓库捆绑目录
+    /// （Once 包裹：并行测试线程下 set_var 只执行一次，避免数据竞争）
+    fn ensure_pdfium_dir() {
+        static ONCE: std::sync::Once = std::sync::Once::new();
+        ONCE.call_once(|| {
+            if std::env::var_os("COREX_PDFIUM_DIR").is_some() {
+                return;
+            }
+            let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../assets/pdfium");
+            let Ok(entries) = fs::read_dir(&root) else {
+                return;
+            };
+            if let Some(entry) = entries
+                .flatten()
+                .find(|e| e.path().join("pdfium.dll").is_file())
+            {
+                unsafe { std::env::set_var("COREX_PDFIUM_DIR", entry.path()) };
+            }
+        });
+    }
+
+    /// 读取目标文件第 idx（0-based）页的 MediaBox（pt）
+    fn media_box(doc: &LopdfDoc, idx: usize) -> [f32; 4] {
+        let ids = page_order(doc);
+        let dict = match doc.objects.get(&ids[idx]) {
+            Some(Object::Dictionary(d)) => d,
+            _ => panic!("缺少页对象"),
+        };
+        let arr = match dict.get(b"MediaBox") {
+            Ok(Object::Array(a)) => a,
+            other => panic!("缺少 MediaBox: {other:?}"),
+        };
+        let mut out = [0f32; 4];
+        for (i, v) in arr.iter().take(4).enumerate() {
+            out[i] = match v {
+                Object::Integer(n) => *n as f32,
+                Object::Real(r) => *r,
+                other => panic!("非法 MediaBox 项: {other:?}"),
+            };
+        }
+        out
+    }
+
+    #[test]
+    fn stack_even_halves() {
+        ensure_pdfium_dir();
+        let dir = tempfile::tempdir().unwrap();
+        let src = dir.path().join("in.pdf");
+        let dest = dir.path().join("out.pdf");
+        make_blank_pdf(&src, 4).unwrap();
+        toStack(&StackArgs {
+            path: src.to_string_lossy().into_owned(),
+            dest: dest.to_string_lossy().into_owned(),
+            scale: 2.0,
+        })
+        .unwrap();
+        let doc = LopdfDoc::load(&dest).unwrap();
+        let ids = page_order(&doc);
+        // 偶数页输入页数减半
+        assert_eq!(ids.len(), 2);
+        for i in 0..2 {
+            let [x0, y0, x1, y1] = media_box(&doc, i);
+            // 宽不变、高约为单页两倍（渲染取整允许少量误差）
+            assert!((x1 - x0 - 612.0).abs() < 2.0, "宽异常: {}", x1 - x0);
+            assert!((y1 - y0 - 1584.0).abs() < 2.0, "高异常: {}", y1 - y0);
+        }
+    }
+
+    #[test]
+    fn stack_odd_tail_kept() {
+        ensure_pdfium_dir();
+        let dir = tempfile::tempdir().unwrap();
+        let src = dir.path().join("in.pdf");
+        let dest = dir.path().join("out.pdf");
+        make_blank_pdf(&src, 3).unwrap();
+        toStack(&StackArgs {
+            path: src.to_string_lossy().into_owned(),
+            dest: dest.to_string_lossy().into_owned(),
+            scale: 2.0,
+        })
+        .unwrap();
+        let doc = LopdfDoc::load(&dest).unwrap();
+        let ids = page_order(&doc);
+        assert_eq!(ids.len(), 2);
+        // 奇数尾页单独保留为一页，高度仍为单页高
+        let [x0, y0, x1, y1] = media_box(&doc, 1);
+        assert!((x1 - x0 - 612.0).abs() < 2.0);
+        assert!((y1 - y0 - 792.0).abs() < 2.0);
+    }
+
+    #[test]
+    fn stack_rejects_bad_input() {
+        ensure_pdfium_dir();
+        let dir = tempfile::tempdir().unwrap();
+        let dest = dir.path().join("out.pdf").to_string_lossy().into_owned();
+        // 不存在的路径
+        assert!(
+            toStack(&StackArgs {
+                path: dir
+                    .path()
+                    .join("missing.pdf")
+                    .to_string_lossy()
+                    .into_owned(),
+                dest: dest.clone(),
+                scale: 2.0,
+            })
+            .is_err()
+        );
+        // 页数越界（超过 MAX_PAGES）
+        let big = dir.path().join("big.pdf");
+        make_blank_pdf(&big, MAX_PAGES as u32 + 1).unwrap();
+        assert!(
+            toStack(&StackArgs {
+                path: big.to_string_lossy().into_owned(),
+                dest,
+                scale: 2.0,
+            })
+            .is_err()
+        );
     }
 }

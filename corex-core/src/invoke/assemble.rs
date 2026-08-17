@@ -156,9 +156,10 @@ fn assemble_codec(wire: &WireArgs) -> Result<Value> {
         "hash" => "md5",
         _ => "base64",
     };
-    let algorithm = wire.algorithm.as_deref().ok_or_else(|| {
-        anyhow::anyhow!("codec action `{action}` 需要 algorithm: {allowed_algo}")
-    })?;
+    let algorithm = wire
+        .algorithm
+        .as_deref()
+        .ok_or_else(|| anyhow::anyhow!("codec action `{action}` 需要 algorithm: {allowed_algo}"))?;
     let algo_key = algorithm_to_pascal(action, algorithm)?;
     let action_key = kebab_to_pascal(action);
     let flags = normalize_flags(&wire.flags);
@@ -191,7 +192,14 @@ fn validate_action(module: &str, action: &str) -> Result<()> {
         "generate" => &["path", "uuid", "cvid"],
         "scan" => &["os"],
         "engine" => &["suggestion"],
-        "capture" => &["screenshot", "tape", "monitors", "windows", "crop", "clipboard"],
+        "capture" => &[
+            "screenshot",
+            "tape",
+            "monitors",
+            "windows",
+            "crop",
+            "clipboard",
+        ],
         "morph" => &[
             "meta",
             "render",
@@ -199,6 +207,7 @@ fn validate_action(module: &str, action: &str) -> Result<()> {
             "match",
             "export",
             "merge",
+            "stack",
             "split",
             "images",
             "document",
@@ -324,11 +333,7 @@ mod tests {
 
     #[test]
     fn assembles_compression_flat() {
-        let wire = WireArgs::compression(
-            "compress",
-            "zip",
-            json!({"from": "a", "to": "b.zip"}),
-        );
+        let wire = WireArgs::compression("compress", "zip", json!({"from": "a", "to": "b.zip"}));
         let v = assemble_typed("compression", &wire).unwrap();
         assert_eq!(
             v,
@@ -409,10 +414,7 @@ mod tests {
     fn assembles_morph_render() {
         let wire = WireArgs::action("render", json!({"path": "a.pdf", "offset": 0}));
         let v = assemble_typed("morph", &wire).unwrap();
-        assert_eq!(
-            v,
-            json!({"Render": {"path": "a.pdf", "offset": 0}})
-        );
+        assert_eq!(v, json!({"Render": {"path": "a.pdf", "offset": 0}}));
     }
 
     #[test]

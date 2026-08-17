@@ -3,7 +3,7 @@
 use crate::invoke::InvokeContext;
 use crate::morph::schema::{
     Args, DocumentArgs, ExportArgs, ExtractArgs, ImagesArgs, MatchArgs, MergeArgs, MetaArgs,
-    RemoveArgs, ReorderArgs, RenderArgs, RotateArgs, SplitArgs, ThumbnailsArgs,
+    RemoveArgs, RenderArgs, ReorderArgs, RotateArgs, SplitArgs, StackArgs, ThumbnailsArgs,
 };
 
 /// 解析 morph 各子命令中的路径占位符。
@@ -32,6 +32,11 @@ pub fn parse_args(parsed: Args, ctx: &InvokeContext<'_>) -> Args {
         Args::Merge(a) => Args::Merge(MergeArgs {
             paths: a.paths.iter().map(|p| ctx.parse(p)).collect(),
             dest: ctx.parse(&a.dest),
+        }),
+        Args::Stack(a) => Args::Stack(StackArgs {
+            path: ctx.parse(&a.path),
+            dest: ctx.parse(&a.dest),
+            scale: a.scale,
         }),
         Args::Split(a) => Args::Split(SplitArgs {
             path: ctx.parse(&a.path),

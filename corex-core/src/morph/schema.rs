@@ -23,6 +23,8 @@ pub enum Args {
     Export(ExportArgs),
     /// 合并多个 PDF
     Merge(MergeArgs),
+    /// 相邻两页栅格化后垂直堆叠合成一页（0+1, 2+3, …；奇数尾页单独保留）
+    Stack(StackArgs),
     /// 拆分 PDF（模式见 `SplitMode`：`ranges` 或 `limit`）
     Split(SplitArgs),
     /// 导出为图片文件
@@ -86,6 +88,16 @@ pub struct MergeArgs {
     pub paths: Vec<String>,
     #[arg(long)]
     pub dest: String,
+}
+
+#[derive(Debug, Parser, Clone, Serialize, Deserialize)]
+pub struct StackArgs {
+    #[arg(long, value_parser = verifier::path)]
+    pub path: String,
+    #[arg(long)]
+    pub dest: String,
+    #[arg(long, default_value_t = 2.0)]
+    pub scale: f32,
 }
 
 #[derive(Debug, Parser, Clone, Serialize, Deserialize)]
