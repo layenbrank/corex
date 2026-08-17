@@ -14,9 +14,6 @@ struct Args {
 fn main() -> Result<()> {
     let args = Args::parse();
     capture::run(&capture::schema::Args::Screenshot(
-        capture::schema::ScreenshotArgs {
-            to: args.to,
-            description: None,
-        },
+        capture::schema::ScreenshotArgs::new(args.to),
     ))
 }

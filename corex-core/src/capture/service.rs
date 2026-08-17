@@ -1,11 +1,14 @@
+use std::fs::File;
+use std::io::BufWriter;
 use std::path::{Path, PathBuf};
 use std::time::{Instant, SystemTime};
 
 use anyhow::{Context, Result, bail};
 use arboard::ImageData;
 use base64::{Engine, engine::general_purpose::STANDARD};
-use image::{ImageReader, RgbaImage, imageops};
-use serde_json::Value;
+use image::codecs::jpeg::JpegEncoder;
+use image::{ColorType, DynamicImage, ImageReader, RgbaImage, imageops};
+use serde_json::{json, Value};
 use xcap::{Monitor, Window};
 
 use crate::capture::schema::{
@@ -41,10 +44,14 @@ pub fn execute(args: &Args, cached_monitors: Option<&[Monitor]>) -> Result<Outpu
     match args {
         Args::Screenshot(a) => {
             validate_read_path(&a.to)?;
-            let path = screenshot(a, cached_monitors)?;
+            let captured = screenshot(a, cached_monitors)?;
             Ok(Output {
-                path: Some(path),
-                data: None,
+                path: Some(captured.path),
+                data: Some(json!({
+                    "width": captured.width,
+                    "height": captured.height,
+                    "format": captured.format,
+                })),
             })
         }
         Args::Tape => {
@@ -78,7 +85,32 @@ pub fn execute(args: &Args, cached_monitors: Option<&[Monitor]>) -> Result<Outpu
     }
 }
 
-pub fn screenshot(args: &ScreenshotArgs, cached_monitors: Option<&[Monitor]>) -> Result<PathBuf> {
+#[derive(Debug, Clone)]
+pub struct ScreenshotCapture {
+    pub path: PathBuf,
+    pub width: u32,
+    pub height: u32,
+    pub format: String,
+}
+
+fn save_jpeg(rgba: RgbaImage, path: &Path, quality: u8) -> Result<(u32, u32)> {
+    let width = rgba.width();
+    let height = rgba.height();
+    let rgb = DynamicImage::ImageRgba8(rgba).into_rgb8();
+    let file = File::create(path).with_context(|| format!("创建 JPEG 失败: {}", path.display()))?;
+    let mut writer = BufWriter::new(file);
+    let q = quality.clamp(1, 100);
+    let mut encoder = JpegEncoder::new_with_quality(&mut writer, q);
+    encoder
+        .encode(rgb.as_raw(), width, height, ColorType::Rgb8.into())
+        .with_context(|| format!("JPEG 编码失败: {}", path.display()))?;
+    Ok((width, height))
+}
+
+pub fn screenshot(
+    args: &ScreenshotArgs,
+    cached_monitors: Option<&[Monitor]>,
+) -> Result<ScreenshotCapture> {
     let to = Path::new(&args.to);
     let start = Instant::now();
     let owned_monitors;
@@ -98,6 +130,8 @@ pub fn screenshot(args: &ScreenshotArgs, cached_monitors: Option<&[Monitor]>) ->
     let image = target
         .capture_image()
         .map_err(|e| anyhow::anyhow!(e.to_string()))?;
+    let width = image.width();
+    let height = image.height();
     let timestamp = SystemTime::now()
         .duration_since(SystemTime::UNIX_EPOCH)?
         .as_millis();
@@ -106,17 +140,38 @@ pub fn screenshot(args: &ScreenshotArgs, cached_monitors: Option<&[Monitor]>) ->
             .friendly_name()
             .map_err(|e| anyhow::anyhow!(e.to_string()))?,
     );
-    let filename = format!("screenshot-{monitor_name}-{timestamp}.png");
+
+    let format = args.format.to_ascii_lowercase();
+    let (ext, format_label) = match format.as_str() {
+        "png" => ("png", "png"),
+        "jpg" | "jpeg" => ("jpg", "jpg"),
+        other => bail!("不支持的截图格式: {other}（仅 jpg/png）"),
+    };
+    let filename = format!("screenshot-{monitor_name}-{timestamp}.{ext}");
     let output_path = to.join(&filename);
-    image
-        .save(&output_path)
-        .map_err(|e| anyhow::anyhow!(e.to_string()))?;
+
+    match format_label {
+        "png" => {
+            image
+                .save(&output_path)
+                .map_err(|e| anyhow::anyhow!(e.to_string()))?;
+        }
+        _ => {
+            save_jpeg(image, &output_path, args.quality.unwrap_or(80))?;
+        }
+    }
+
     eprintln!(
-        "screenshot saved: {} ({:?})",
+        "screenshot saved: {} ({:?}, {width}x{height}, {format_label})",
         output_path.display(),
         start.elapsed()
     );
-    Ok(output_path)
+    Ok(ScreenshotCapture {
+        path: output_path,
+        width,
+        height,
+        format: format_label.to_string(),
+    })
 }
 
 pub fn list_monitors(cached_monitors: Option<&[Monitor]>) -> Result<Vec<MonitorInfo>> {

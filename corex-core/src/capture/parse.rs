@@ -8,6 +8,8 @@ pub fn parse_args(parsed: Args, ctx: &InvokeContext<'_>) -> Args {
     match parsed {
         Args::Screenshot(args) => Args::Screenshot(ScreenshotArgs {
             to: ctx.parse(&args.to),
+            format: args.format,
+            quality: args.quality,
             description: args.description,
         }),
         Args::Crop(args) => Args::Crop(CropArgs {

@@ -6,7 +6,7 @@ use crate::utils::verifier;
 /// capture 子命令（截图/录屏）
 #[derive(Debug, Parser, Clone, Serialize, Deserialize)]
 pub enum Args {
-    /// 截取主显示器并保存 PNG
+    /// 截取主显示器并保存（默认 PNG；可用 format=jpg）
     Screenshot(ScreenshotArgs),
     /// 录屏（预留，未实现）
     Tape,
@@ -24,9 +24,33 @@ pub enum Args {
 pub struct ScreenshotArgs {
     #[arg(short, long, value_parser = verifier::path)]
     pub to: String,
+    /// 输出格式：png（默认，无损）或 jpg
+    #[arg(long, default_value = "png")]
+    #[serde(default = "default_screenshot_format")]
+    pub format: String,
+    /// JPEG 质量 1–100；仅 format=jpg 时使用，PNG 勿传
+    #[arg(long)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub quality: Option<u8>,
     #[arg(help = "任务描述")]
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub description: Option<String>,
+}
+
+fn default_screenshot_format() -> String {
+    "png".to_string()
+}
+
+impl ScreenshotArgs {
+    /// 仅指定输出目录；默认 PNG，不携带 JPEG quality
+    pub fn new(to: impl Into<String>) -> Self {
+        Self {
+            to: to.into(),
+            format: default_screenshot_format(),
+            quality: None,
+            description: None,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Parser)]
@@ -100,10 +124,7 @@ mod tests {
 
     #[test]
     fn screenshot_args_roundtrip() {
-        let args = Args::Screenshot(ScreenshotArgs {
-            to: "C:/out".to_string(),
-            description: None,
-        });
+        let args = Args::Screenshot(ScreenshotArgs::new("C:/out"));
         let v = serde_json::to_value(&args).unwrap();
         let back: Args = serde_json::from_value(v).unwrap();
         assert!(matches!(back, Args::Screenshot(_)));
