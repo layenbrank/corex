@@ -3,20 +3,20 @@
   "evals": [
     {
       "id": 1,
-      "prompt": "在 corex 里新增一个 hash 模块，支持 sha256 摘要，要能 CLI 调用也能被 pipeline invoke",
-      "expected_output": "创建 hash/ 目录（schema+service+mod），注册 Cargo feature、lib.rs、command、invoke/registry，含 execute/run 分离与测试",
+      "prompt": "在 corex 里新增一个 hash 动作，支持 sha256 摘要，要能被 Shortcut YAML 和 Daemon invoke 调用",
+      "expected_output": "创建 crates/registry/src/builtin/hash.rs，实现 Action（如 hash.sha256），注册 act-hash feature + builtin/mod.rs，含测试；不创建旧 invoke/registry 或 command/mod.rs",
       "files": []
     },
     {
       "id": 2,
-      "prompt": "把 i-thinking 的 utils/pdf.rs 里读 PDF 页数的功能迁到 corex，模块名用 morph 的子命令还是新模块你帮我判断",
-      "expected_output": "分析是否应扩展 morph 或新建模块，按 Invoke 契约实现，说明 Tauri 侧如何改为 invoke 调用",
+      "prompt": "把外部项目 utils/pdf.rs 里读 PDF 页数的功能迁到 corex，是扩展 morph 还是新 Action 你帮我判断",
+      "expected_output": "分析是否扩展 builtin/morph.rs 或新建 builtin；按 Action trait + act-* feature 实现，说明调用方用 Invoke action id 或 Shortcut YAML",
       "files": []
     },
     {
       "id": 3,
-      "prompt": "给 corex 加一个仅 CLI 的 doctor 命令，检查环境依赖但不走 IPC",
-      "expected_output": "实现非 Invoke 模块：无 registry 注册，仅 command/mod.rs + feature，文档说明与 daemon 的区别",
+      "prompt": "给 corex CLI 加一个 doctor 子命令，检查环境依赖，不需要注册为 Action",
+      "expected_output": "在 bins/cli 增加 clap 子命令（非 registry Action）；说明与 builtin Action 的区别，不走 act-* feature",
       "files": []
     }
   ]
