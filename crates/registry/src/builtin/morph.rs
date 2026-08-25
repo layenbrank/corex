@@ -10,7 +10,7 @@ use corex_core::{
     Value,
 };
 use lopdf::{dictionary, Document as LopdfDoc, Object as LopdfObj, ObjectId as LopdfId};
-use std::collections::{BTreeMap, HashSet, VecDeque};
+use std::collections::{HashSet, VecDeque};
 use std::path::Path;
 use std::sync::Arc;
 
