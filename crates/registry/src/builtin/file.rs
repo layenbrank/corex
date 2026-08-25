@@ -71,12 +71,12 @@ impl Action for FileWrite {
     ) -> Result<Value, ActionError> {
         let map = params
             .as_map()
-            .ok_or_else(|| ActionError::InvalidParams("需要 map 参数".into()))?;
+            .ok_or_else(|| ActionError::InvalidParams("需要 map 参数".to_string()))?;
         let path = require_path(&params, "path")?;
         let content = map
             .get("content")
             .and_then(|v| v.as_str())
-            .ok_or_else(|| ActionError::MissingParam("content".into()))?;
+            .ok_or_else(|| ActionError::MissingParam("content".to_string()))?;
         let create_dirs = map
             .get("create_dirs")
             .and_then(|v| v.as_bool())

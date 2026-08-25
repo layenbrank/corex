@@ -33,11 +33,11 @@ impl Action for NotifySend {
     ) -> Result<Value, ActionError> {
         let map = params
             .as_map()
-            .ok_or_else(|| ActionError::InvalidParams("需要 map 参数".into()))?;
+            .ok_or_else(|| ActionError::InvalidParams("需要 map 参数".to_string()))?;
         let summary = map
             .get("summary")
             .and_then(|v| v.as_str())
-            .ok_or_else(|| ActionError::MissingParam("summary".into()))?;
+            .ok_or_else(|| ActionError::MissingParam("summary".to_string()))?;
         let body = map
             .get("body")
             .and_then(|v| v.as_str())

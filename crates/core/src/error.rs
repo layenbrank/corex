@@ -34,12 +34,12 @@ pub enum ActionError {
 }
 
 impl ActionError {
-    pub fn execution(msg: impl Into<String>) -> Self {
-        Self::ExecutionFailed(msg.into())
+    pub fn execution(msg: impl AsRef<str>) -> Self {
+        Self::ExecutionFailed(msg.as_ref().to_string())
     }
 
-    pub fn other(msg: impl Into<String>) -> Self {
-        Self::Other(msg.into())
+    pub fn other(msg: impl AsRef<str>) -> Self {
+        Self::Other(msg.as_ref().to_string())
     }
 }
 

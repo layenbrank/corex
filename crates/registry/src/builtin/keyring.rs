@@ -11,15 +11,15 @@ use std::sync::Arc;
 fn entry(params: &Value) -> Result<keyring::Entry, ActionError> {
     let map = params
         .as_map()
-        .ok_or_else(|| ActionError::InvalidParams("需要 map 参数".into()))?;
+        .ok_or_else(|| ActionError::InvalidParams("需要 map 参数".to_string()))?;
     let service = map
         .get("service")
         .and_then(|v| v.as_str())
-        .ok_or_else(|| ActionError::MissingParam("service".into()))?;
+        .ok_or_else(|| ActionError::MissingParam("service".to_string()))?;
     let user = map
         .get("user")
         .and_then(|v| v.as_str())
-        .ok_or_else(|| ActionError::MissingParam("user".into()))?;
+        .ok_or_else(|| ActionError::MissingParam("user".to_string()))?;
     keyring::Entry::new(service, user)
         .map_err(|e| ActionError::execution(format!("创建 keyring entry 失败: {e}")))
 }
@@ -80,7 +80,7 @@ impl Action for KeyringSet {
             .as_map()
             .and_then(|m| m.get("password"))
             .and_then(|v| v.as_str())
-            .ok_or_else(|| ActionError::MissingParam("password".into()))?;
+            .ok_or_else(|| ActionError::MissingParam("password".to_string()))?;
         let entry = entry(&params)?;
         entry
             .set_password(password)

@@ -40,12 +40,12 @@ impl Action for ShellRun {
     ) -> Result<Value, ActionError> {
         let map = params
             .as_map()
-            .ok_or_else(|| ActionError::InvalidParams("需要 map 参数".into()))?;
+            .ok_or_else(|| ActionError::InvalidParams("需要 map 参数".to_string()))?;
 
         let command = map
             .get("command")
             .and_then(|v| v.as_str())
-            .ok_or_else(|| ActionError::MissingParam("command".into()))?;
+            .ok_or_else(|| ActionError::MissingParam("command".to_string()))?;
 
         let use_shell = map
             .get("shell")

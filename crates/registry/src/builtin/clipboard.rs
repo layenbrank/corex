@@ -57,7 +57,7 @@ impl Action for ClipboardSet {
             .as_map()
             .and_then(|m| m.get("text"))
             .and_then(|v| v.as_str())
-            .ok_or_else(|| ActionError::MissingParam("text".into()))?;
+            .ok_or_else(|| ActionError::MissingParam("text".to_string()))?;
         let mut clipboard = arboard::Clipboard::new()
             .map_err(|e| ActionError::execution(format!("打开剪贴板失败: {e}")))?;
         clipboard
