@@ -5,7 +5,7 @@ use clap::Parser;
 use corex_core::{ExecutionContext, RuntimeConfig, Value};
 use corex_engine::{ExecutionHistory, Pipeline, Shortcut};
 use corex_ipc::protocol::{Request, Response, RpcError};
-use corex_ipc::UnixSocketTransport;
+use corex_ipc::{default_endpoint, serve_platform};
 use corex_registry::ActionRegistry;
 use fs2::FileExt;
 use std::collections::BTreeMap;
@@ -18,8 +18,8 @@ use tracing::{error, info, warn};
 #[derive(Parser, Debug)]
 #[command(name = "corex-daemon", version, about = "Corex background daemon")]
 struct Args {
-    /// Override socket path
-    #[arg(long)]
+    /// Override IPC endpoint (Unix socket path, or Windows named pipe e.g. \\.\pipe\corex)
+    #[arg(long, alias = "pipe")]
     socket: Option<PathBuf>,
 
     /// Override shortcuts directory
@@ -46,9 +46,9 @@ async fn main() -> Result<()> {
 
     let data = data_dir()?;
     let config = load_runtime_config(args.config.as_deref())?;
-    let socket = args
+    let endpoint = args
         .socket
-        .unwrap_or_else(|| data.join("corex.sock"));
+        .unwrap_or_else(|| default_endpoint(&data));
     let lock_path = data.join("corex.lock");
     let shortcuts_dir = args
         .shortcuts
@@ -93,16 +93,19 @@ async fn main() -> Result<()> {
         // Best-effort: remove socket so serve loop errors out / clients fail fast.
     });
 
-    info!(socket = %socket.display(), "corex-daemon 启动");
+    info!(endpoint = %endpoint.display(), "corex-daemon 启动");
 
     let state_serve = Arc::clone(&state);
-    let result = UnixSocketTransport::serve(&socket, move |req| {
+    let result = serve_platform(&endpoint, move |req| {
         let state = Arc::clone(&state_serve);
         async move { handle_request(&state, req).await }
     })
     .await;
 
-    let _ = std::fs::remove_file(&socket);
+    #[cfg(unix)]
+    {
+        let _ = std::fs::remove_file(&endpoint);
+    }
     info!("corex-daemon 已退出");
     result.context("IPC 服务异常")?;
     Ok(())

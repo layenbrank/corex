@@ -4,4 +4,12 @@ pub mod protocol;
 pub mod transport;
 
 pub use protocol::{Request, Response, RpcError};
-pub use transport::{Transport, UnixSocketTransport};
+pub use transport::{
+    default_endpoint, platform_transport, serve_platform, PlatformTransport, Transport,
+    TransportError,
+};
+
+#[cfg(unix)]
+pub use transport::UnixSocketTransport;
+#[cfg(windows)]
+pub use transport::NamedPipeTransport;

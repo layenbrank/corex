@@ -4,15 +4,14 @@
 - 按用户提供的 forge 企业级方案重构，**项目名保持 corex**
 - 交付范围 **P0–P5 全量**
 - Daemon 二进制 **`corex-daemon`**（破坏性，不再使用 `corex-serve`）
-- 计划内置（shell/http/clipboard/notify/file/template/cron/keyring）+ **全部现有业务模块** 均为内置 Action
-- Feature Gate（编译期）+ config.toml 运行时禁用
+- 内置 Action（shell/http/… + 原业务模块）+ Feature Gate + 运行时禁用
 
-## Current State (pre-refactor)
-- Workspace: `corex-core`(lib `cx`) + `corex` + `corex-serve` + `corex-capture` + `pdfium`
-- 无 Action trait；`invoke/registry.rs` 静态 match
-- Pipeline v3: YAML `module`+`action`+`params`，占位符 `${var.*}` / `${steps.*}`
-- IPC: Windows Named Pipe only，协议 `type:invoke|shutdown`
-- i-thinking 依赖 `corex-serve.exe` + `--pipe`（本重构将破坏）
+## Current State (post-refactor)
+- Workspace: `crates/{core,engine,registry,ipc,plugin-sdk}` + `bins/{cli,daemon}` + `pdfium`
+- Action trait + `crates/registry` builtins（`act-*` features）
+- Shortcut YAML：`action` + `params`，占位符 `{{var}}` / `{{input.x}}`
+- IPC：Unix socket（Linux/macOS）+ Windows Named Pipe（`\\.\pipe\corex`），NDJSON `Request`/`Response`
+- 旧 monolith 目录已删除
 
 ## Crate Mapping (forge → corex)
 | 方案 | 本仓库 |
@@ -33,35 +32,25 @@
 | shade | `shade.convert` |
 | compression | `compression.compress` / `compression.decompress` |
 | generate | `generate.path` / `generate.uuid` / `generate.cvid` |
-| exec | `shell.run`（与计划 shell 合并）或 `exec.run` |
+| exec | `shell.run` / `exec.run` |
 | engine (Bing) | `suggest.bing` |
-| bootstrap | `bootstrap.env` / `bootstrap.inspect` / `bootstrap.force` |
-| capture | `capture.screenshot` / `capture.clipboard` / `capture.crop` / … |
-| codec | `codec.base64.encode` / `codec.base64.decode` / `codec.hash.md5` |
+| bootstrap | `bootstrap.env` / … |
+| capture | `capture.screenshot` / … |
+| codec | `codec.base64.encode` / … |
 | scan | `scan.os` |
-| morph | `morph.*`（保留各 PDF action） |
-| schedule/watch | 引擎 triggers / CLI 子命令，非 Action |
-
-## Plan Builtins (new)
-| Action id | Feature |
-|-----------|---------|
-| `shell.run` | act-shell |
-| `http.request` | act-http |
-| `clipboard.get` / `clipboard.set` | act-clipboard |
-| `notify.send` | act-notify |
-| `file.read` / `file.write` / `file.copy` / `file.delete` | act-file |
-| `template.render` | act-template |
-| `cron.schedule` | act-cron |
-| `keyring.get` / `keyring.set` | act-keyring |
+| morph | `morph.*` |
 
 ## Technical Decisions
 | Decision | Rationale |
 |----------|-----------|
-| 先建新树再删旧 crate | 破坏性允许，避免半吊子双轨长期并存 |
-| exec → 可映射为 shell.run 的脚本模式 | 减少重复；保留 `exec.run` 别名注册同一实现若需要兼容 |
-| 版本保持 workspace 3.x → bump 到 4.0.0 | 破坏性公共 API/二进制改名 |
+| 新树落地后删除旧 crate | 避免双轨；P4 迁移完成后清理 |
+| Windows 默认 `\\.\pipe\corex` | 兼容旧 Tauri/sidecar 习惯；Unix 用 data-dir `corex.sock` |
+| REPL 为 CLI 子命令非 Action | 交互层，不进入 registry |
+| 版本 4.0.0 | 破坏性公共 API/二进制改名 |
+
+## Remaining
+- **Windows CI**：实机验证 Named Pipe `serve` / client `send`（Linux 仅 cfg 编译）
 
 ## Resources
-- 用户架构方案（消息正文）
-- `docs/architecture.md`, `docs/pipeline-v3.md`, `docs/ipc-protocol.md`
-- `.agents/skills/corex-add-module/SKILL.md`（重构后需改写）
+- `docs/architecture.md`, `docs/breaking-changes-v4.md`
+- `.agents/skills/corex-add-module/SKILL.md`（已改写为 v4 Action）

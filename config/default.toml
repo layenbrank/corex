@@ -1,7 +1,8 @@
 # Corex default runtime configuration
 
 [daemon]
-# Unix socket path (relative paths are under the data directory)
+# IPC endpoint: Unix socket path (relative = under data dir) or Windows named pipe
+# Windows default is \\.\pipe\corex when unset at runtime
 socket_path = "corex.sock"
 # Singleton lock file
 lock_path = "corex.lock"
