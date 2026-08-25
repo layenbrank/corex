@@ -13,9 +13,9 @@
 ### Test Results
 | Test | Expected | Actual | Status |
 |------|----------|--------|--------|
-| cargo build -p corex -p corex-daemon | success | （本会话验证中） | 🔄 |
-| cargo test --workspace | pass | （本会话验证中） | 🔄 |
-| Windows Named Pipe | serve/send NDJSON | 需 Windows CI | ⏭ |
+| cargo build -p corex -p corex-daemon | success | success | ✅ |
+| cargo test --workspace | all pass | all pass | ✅ |
+| Windows Named Pipe | serve/send NDJSON | 需 Windows CI（本机无 windows target） | ⏭ |
 
 ## Session: 2026-08-25 — P3 WASM + P5 hardening
 
