@@ -79,7 +79,8 @@ impl Transport for NamedPipeTransport {
     async fn send(&mut self, request: &Request) -> Result<Response, TransportError> {
         use interprocess::os::windows::named_pipe::{pipe_mode, tokio::DuplexPipeStream};
 
-        let conn = DuplexPipeStream::<pipe_mode::Bytes>::connect_by_path(&self.path)
+        // interprocess::ToWtf16 实现于 PathBuf / &Path / &str，不包含 &PathBuf
+        let conn = DuplexPipeStream::<pipe_mode::Bytes>::connect_by_path(self.path.as_path())
             .await
             .map_err(|e| TransportError::Connect(format!("{}: {e}", self.path.display())))?;
 
