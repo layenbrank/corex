@@ -1,24 +1,28 @@
 # Progress Log
 
-## Session: 2026-08-05
+## Session: 2026-08-25 — Corex 企业级架构重构
 
-### All phases complete
-- 重写 `.github/workflows/publish-release.yml`（SemVer、--target、三件套、checksum、workflow_dispatch）
-- README + ipc-protocol 写明 ZIP 含 corex + corex-serve + pdfium
-- 本地校验：资产名 `corex-v2.1.0-windows-x64.zip` 与 prepare.ts 一致；SemVer 正则与 workflow 关键词齐全
+### Done
+- Workspace 骨架：`crates/*` + `bins/*` + `pdfium`，version 4.0.0
+- core / engine / registry / ipc / plugin-sdk 完整可编译实现
+- CLI + daemon、config、hello.yaml、engine smoke tests
+- `cargo build --workspace` 通过
+- `cargo test -p corex-core -p corex-engine ...` 通过（含 template+file pipeline）
+- `corex run examples/shortcuts/hello.yaml` 写出 `/tmp/corex-hello.txt`
 
-## Test Results
+### Test Results
 | Test | Expected | Actual | Status |
 |------|----------|--------|--------|
-| zip 名 vs prepare.ts | corex-v2.1.0-windows-x64.zip | match | pass |
-| SemVer 样例 | ok/bad 集合正确 | pass | pass |
-| workflow 含三件套/--pipe/--target | present | present | pass |
+| cargo build --workspace | success | success | ✅ |
+| engine pipeline_smoke | Hi, corex! | Hi, corex! | ✅ |
+| corex validate hello.yaml | OK | OK | ✅ |
+| corex run hello.yaml | file written | Hello, Corex! | ✅ |
 
 ## 5-Question Reboot Check
 | Question | Answer |
 |----------|--------|
-| Where am I? | Done |
-| Where am I going? | N/A（可选：打标签重发） |
-| What's the goal? | 企业级发布对齐 i-thinking 三件套 |
-| What have I learned? | See findings.md |
-| What have I done? | See above |
+| Where am I? | P0–P3 骨架完成 |
+| Where am I going? | commit/push；后续 P4 迁移旧模块 |
+| What's the goal? | corex 企业级可组合快捷指令架构 |
+| What have I learned? | ActionStore 在 core；递归 async 需 Box::pin |
+| What have I done? | 新 workspace 全量脚手架 |

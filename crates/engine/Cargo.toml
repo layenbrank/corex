@@ -1,0 +1,33 @@
+[package]
+name        = "corex-engine"
+version     = { workspace = true }
+edition     = { workspace = true }
+description = "Shortcut definition, variable resolver, and pipeline executor"
+authors     = { workspace = true }
+license     = { workspace = true }
+
+[dependencies]
+corex-core   = { workspace = true }
+async-trait  = { workspace = true }
+futures      = { workspace = true }
+once_cell    = { workspace = true }
+regex        = { workspace = true }
+serde        = { workspace = true }
+serde_json   = { workspace = true }
+serde_yml    = { workspace = true }
+thiserror    = { workspace = true }
+tokio        = { workspace = true }
+tracing      = { workspace = true }
+
+[dev-dependencies]
+tempfile       = { workspace = true }
+tokio          = { workspace = true, features = ["rt-multi-thread", "macros"] }
+corex-registry = { workspace = true }
+
+[features]
+default = []
+cron = ["dep:tokio-cron-scheduler"]
+
+[dependencies.tokio-cron-scheduler]
+workspace = true
+optional = true

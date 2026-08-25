@@ -1,0 +1,27 @@
+[package]
+name        = "corex-daemon"
+version     = { workspace = true }
+edition     = { workspace = true }
+description = "Corex background daemon — IPC server for shortcuts & actions"
+authors     = { workspace = true }
+license     = { workspace = true }
+
+[[bin]]
+name = "corex-daemon"
+path = "src/main.rs"
+
+[dependencies]
+corex-core     = { workspace = true }
+corex-engine   = { workspace = true }
+corex-registry = { workspace = true, features = ["full"] }
+corex-ipc      = { workspace = true }
+anyhow         = { workspace = true }
+clap           = { workspace = true }
+directories    = { workspace = true }
+serde          = { workspace = true }
+serde_json     = { workspace = true }
+tokio          = { workspace = true }
+toml           = { workspace = true }
+tracing        = { workspace = true }
+tracing-subscriber = { workspace = true }
+fs2            = { workspace = true }

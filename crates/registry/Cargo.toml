@@ -1,0 +1,47 @@
+[package]
+name        = "corex-registry"
+version     = { workspace = true }
+edition     = { workspace = true }
+description = "Action registry and builtin actions"
+authors     = { workspace = true }
+license     = { workspace = true }
+
+[features]
+default = ["full"]
+full = [
+  "act-shell",
+  "act-http",
+  "act-clipboard",
+  "act-notify",
+  "act-file",
+  "act-template",
+  "act-cron",
+  "act-keyring",
+  "wasm",
+]
+act-shell     = []
+act-http      = ["dep:reqwest"]
+act-clipboard = ["dep:arboard"]
+act-notify    = ["dep:notify-rust"]
+act-file      = []
+act-template  = ["dep:minijinja"]
+act-cron      = []
+act-keyring   = ["dep:keyring"]
+wasm          = []
+
+[dependencies]
+corex-core   = { workspace = true }
+async-trait  = { workspace = true }
+serde        = { workspace = true }
+serde_json   = { workspace = true }
+tokio        = { workspace = true }
+tracing      = { workspace = true }
+reqwest      = { workspace = true, optional = true }
+arboard      = { workspace = true, optional = true }
+notify-rust  = { workspace = true, optional = true }
+minijinja    = { workspace = true, optional = true }
+keyring      = { workspace = true, optional = true }
+
+[dev-dependencies]
+tempfile     = { workspace = true }
+tokio        = { workspace = true, features = ["rt-multi-thread", "macros"] }

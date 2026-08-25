@@ -1,77 +1,62 @@
 [workspace]
-members  = ["corex", "corex-core", "corex-capture", "corex-serve", "pdfium"]
+members  = ["crates/*", "bins/*", "pdfium"]
 resolver = "2"
 
 [workspace.package]
-version     = "3.0.0"
-edition     = "2024"
-description = "corex-cli"
+version     = "4.0.0"
+edition     = "2021"
+description = "corex — composable shortcut / action runtime"
 authors     = ["layen"]
+license     = "MIT"
 
 [workspace.dependencies]
-anyhow = "1.0.104"
-chrono = { version = "0.4.45", features = ["serde"] }
-clap = { version = "4.6.4", features = ["derive"] }
-cron = "0.17.0"
-crossterm = "0.29.0"
-dialoguer = "0.12.0"
-dirs = "6.0.0"
-glob = "0.3.4"
-indicatif = "0.18.6"
-notify-rust = "4.18.0"
-regex = "1.13.1"
-serde = { version = "1.0.229", features = ["derive"] }
-serde_json = "1.0.151"
-serde_yml = "0.0.11"
-tokio = { version = "1.53.1", features = [
-  "rt-multi-thread",
-  "macros",
-  "fs",
-  "sync",
-] }
-uuid = { version = "1.24.0", features = ["v4"] }
-walkdir = "2.5.0"
-zip = "8.6.0"
-flate2 = "1.1"
-tar = "0.4"
-sevenz-rust2 = { version = "0.21", default-features = false, features = [
-  "compress",
-  "aes256",
-  "util",
-] }
-image = "0.25.10"
-xcap = "0.9.7"
-rand = "0.10.2"
-base64 = "0.23.0"
-md-5 = "0.11"
-sysinfo = "0.39.6"
-arboard = "3.4"
-lopdf = "0.44.0"
-docx-rs = "0.4.22"
-rust_xlsxwriter = "0.96.0"
-pdfium-render = { version = "0.9.3", default-features = false, features = [
-  "image_latest",
-  # 须与 assets/pdfium/VERSION 一致（当前 7881）；勿单独升 latest 而忘记 VERSION/DLL
-  "pdfium_7881",
-  "thread_safe",
-] }
-tracing = "0.1"
-tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
-thiserror = "2.0.19"
-figment = { version = "0.10", features = ["yaml", "env"] }
-petgraph = "0.8"
-tokio-stream = "0.1.19"
-futures = "0.3.33"
-assert_cmd = "2.0"
-predicates = "3.1"
-tempfile = "3.27.0"
-reqwest = { version = "0.13.4", default-features = false, features = [
-  "blocking",
-  "json",
-  "query",
-  "rustls",
-] }
+# Internal crates
+corex-core       = { path = "crates/core" }
+corex-engine     = { path = "crates/engine" }
+corex-registry   = { path = "crates/registry" }
+corex-ipc        = { path = "crates/ipc" }
+corex-plugin-sdk = { path = "crates/plugin-sdk" }
 
+# Async / runtime
+tokio            = { version = "1.53", features = ["rt-multi-thread", "macros", "fs", "sync", "io-util", "net", "process", "signal", "time"] }
+async-trait      = "0.1"
+futures          = "0.3"
+tokio-cron-scheduler = "0.13"
+fs2              = "0.4"
+
+# Serialization
+serde            = { version = "1.0", features = ["derive"] }
+serde_json       = "1.0"
+serde_yml        = "0.0.12"
+toml             = "0.8"
+
+# Error / logging
+anyhow           = "1.0"
+thiserror        = "2.0"
+tracing          = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+
+# CLI / util
+clap             = { version = "4.5", features = ["derive"] }
+regex            = "1.11"
+once_cell        = "1.20"
+directories      = "5.0"
+dirs             = "6.0"
+uuid             = { version = "1.11", features = ["v4"] }
+chrono           = { version = "0.4", features = ["serde"] }
+tempfile         = "3.14"
+
+# Builtin action deps
+reqwest          = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+arboard          = "3.4"
+notify-rust      = "4.11"
+minijinja        = "2.5"
+keyring          = "3.6"
+interprocess     = { version = "2.2", features = ["tokio"] }
+
+# Test
+assert_cmd       = "2.0"
+predicates       = "3.1"
 
 [profile.release]
 opt-level     = 3

@@ -1,0 +1,25 @@
+# Corex default runtime configuration
+
+[daemon]
+# Unix socket path (relative paths are under the data directory)
+socket_path = "corex.sock"
+# Singleton lock file
+lock_path = "corex.lock"
+
+[plugins]
+# Plugin directory (relative to data dir, or absolute)
+plugin_dir = "plugins"
+# Disable entire plugins by id
+disabled = []
+# Disable individual action ids (e.g. "shell.run")
+disabled_actions = []
+
+[logging]
+level = "info"
+json = false
+
+[runtime]
+# Max parallel steps in a parallel block
+max_parallel = 8
+# Default step timeout in seconds (0 = none)
+step_timeout_secs = 0

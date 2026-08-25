@@ -1,0 +1,35 @@
+package corex:plugin-sdk@0.1.0;
+
+/// JSON-encoded dynamic value (matches host `corex_core::Value` via JSON).
+type json = string;
+
+interface types {
+    record action-meta {
+        id: string,
+        name: string,
+        description: string,
+    }
+
+    record exec-result {
+        ok: bool,
+        /// JSON-encoded Value on success, or error message on failure.
+        payload: json,
+    }
+}
+
+interface action {
+    use types.{action-meta, exec-result};
+
+    /// Return static metadata for this plugin action.
+    meta: func() -> action-meta;
+
+    /// Validate JSON-encoded params. Empty string means ok; otherwise error message.
+    validate: func(params: json) -> string;
+
+    /// Execute with JSON params and JSON-encoded execution context snapshot.
+    execute: func(params: json, ctx: json) -> exec-result;
+}
+
+world corex-action {
+    export action;
+}
