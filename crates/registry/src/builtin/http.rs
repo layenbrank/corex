@@ -35,12 +35,12 @@ impl Action for HttpRequest {
     ) -> Result<Value, ActionError> {
         let map = params
             .as_map()
-            .ok_or_else(|| ActionError::InvalidParams("需要 map 参数".into()))?;
+            .ok_or_else(|| ActionError::InvalidParams("需要 map 参数".to_string()))?;
 
         let url = map
             .get("url")
             .and_then(|v| v.as_str())
-            .ok_or_else(|| ActionError::MissingParam("url".into()))?;
+            .ok_or_else(|| ActionError::MissingParam("url".to_string()))?;
         let method = map
             .get("method")
             .and_then(|v| v.as_str())

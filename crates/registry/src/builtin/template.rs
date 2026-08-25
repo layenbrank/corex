@@ -33,11 +33,11 @@ impl Action for TemplateRender {
     ) -> Result<Value, ActionError> {
         let map = params
             .as_map()
-            .ok_or_else(|| ActionError::InvalidParams("需要 map 参数".into()))?;
+            .ok_or_else(|| ActionError::InvalidParams("需要 map 参数".to_string()))?;
         let template = map
             .get("template")
             .and_then(|v| v.as_str())
-            .ok_or_else(|| ActionError::MissingParam("template".into()))?;
+            .ok_or_else(|| ActionError::MissingParam("template".to_string()))?;
 
         let mut env = minijinja::Environment::new();
         env.add_template("tpl", template)

@@ -34,11 +34,11 @@ impl Action for CronSchedule {
     ) -> Result<Value, ActionError> {
         let map = params
             .as_map()
-            .ok_or_else(|| ActionError::InvalidParams("需要 map 参数".into()))?;
+            .ok_or_else(|| ActionError::InvalidParams("需要 map 参数".to_string()))?;
         let expr = map
             .get("expr")
             .and_then(|v| v.as_str())
-            .ok_or_else(|| ActionError::MissingParam("expr".into()))?;
+            .ok_or_else(|| ActionError::MissingParam("expr".to_string()))?;
         let shortcut = map
             .get("shortcut")
             .and_then(|v| v.as_str())

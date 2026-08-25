@@ -1,4 +1,4 @@
-//! Control-flow tests: if / repeat.
+//! Control-flow tests: if / repeat / parallel.
 
 use corex_core::{ExecutionContext, RuntimeConfig};
 use corex_engine::{Pipeline, Shortcut};
@@ -95,6 +95,12 @@ steps:
     );
 
     let shortcut = Shortcut::from_yaml_str(&yaml).unwrap();
+    // Debug: ensure as_var parsed
+    match &shortcut.steps[0] {
+        corex_engine::Step::Repeat(r) => assert_eq!(r.repeat.as_var, "i"),
+        other => panic!("expected repeat, got {other:?}"),
+    }
+
     let pipeline = Pipeline::new(registry());
     pipeline
         .execute(&shortcut, ExecutionContext::new(RuntimeConfig::default()))

@@ -8,8 +8,6 @@ license     = { workspace = true }
 
 [features]
 default = ["full"]
-# P0–P3 builtins + WASM. Legacy business modules (copy/morph/…) are optional
-# features for the P4 migration agent — not enabled in `full` until that work compiles.
 full = [
   "act-shell",
   "act-http",
@@ -19,6 +17,18 @@ full = [
   "act-template",
   "act-cron",
   "act-keyring",
+  "act-copy",
+  "act-scrub",
+  "act-shade",
+  "act-compression",
+  "act-generate",
+  "act-exec",
+  "act-suggest",
+  "act-bootstrap",
+  "act-codec",
+  "act-scan",
+  "act-capture",
+  "act-morph",
   "wasm",
 ]
 act-shell       = []
@@ -32,7 +42,7 @@ act-keyring     = ["dep:keyring"]
 act-copy        = ["dep:walkdir", "dep:glob"]
 act-scrub       = ["dep:walkdir"]
 act-shade       = ["dep:image", "dep:walkdir"]
-act-compression = ["dep:zip", "dep:walkdir", "dep:flate2", "dep:tar", "dep:sevenz-rust2", "dep:glob"]
+act-compression = ["dep:zip", "dep:walkdir", "dep:flate2", "dep:tar", "dep:glob"]
 act-generate    = ["dep:uuid", "dep:rand", "dep:walkdir", "dep:glob"]
 act-exec        = []
 act-suggest     = ["dep:reqwest", "dep:rand"]
@@ -66,7 +76,6 @@ image         = { workspace = true, optional = true }
 zip           = { workspace = true, optional = true }
 flate2        = { workspace = true, optional = true }
 tar           = { workspace = true, optional = true }
-sevenz-rust2  = { workspace = true, optional = true }
 rand          = { workspace = true, optional = true }
 uuid          = { workspace = true, optional = true }
 lopdf         = { workspace = true, optional = true }

@@ -7,7 +7,7 @@ use std::path::PathBuf;
 pub fn require_map(params: &Value) -> Result<&BTreeMap<String, Value>, ActionError> {
     params
         .as_map()
-        .ok_or_else(|| ActionError::InvalidParams("需要 map 参数".into()))
+        .ok_or_else(|| ActionError::InvalidParams("需要 map 参数".to_string()))
 }
 
 pub fn require_str(map: &BTreeMap<String, Value>, key: &str) -> Result<String, ActionError> {
