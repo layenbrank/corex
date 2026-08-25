@@ -1,0 +1,29 @@
+name: hello
+description: Sample shortcut — render a greeting and write it to a file
+version: "1.0"
+
+inputs:
+  - name: who
+    description: Who to greet
+    required: false
+    default: "world"
+
+variables:
+  greeting_prefix: "Hello"
+
+steps:
+  - id: greet
+    action: template.render
+    params:
+      template: "{{ greeting_prefix }}, {{ who }}!"
+      context:
+        greeting_prefix: "{{greeting_prefix}}"
+        who: "{{input.who}}"
+    save_to: message
+
+  - id: write
+    action: file.write
+    params:
+      path: "/tmp/corex-hello.txt"
+      content: "{{message}}"
+      create_dirs: true
