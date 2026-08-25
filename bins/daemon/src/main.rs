@@ -3,7 +3,7 @@
 use anyhow::{bail, Context, Result};
 use clap::Parser;
 use corex_core::{ExecutionContext, RuntimeConfig, Value};
-use corex_engine::{Pipeline, Shortcut};
+use corex_engine::{ExecutionHistory, Pipeline, Shortcut};
 use corex_ipc::protocol::{Request, Response, RpcError};
 use corex_ipc::UnixSocketTransport;
 use corex_registry::ActionRegistry;
@@ -35,6 +35,7 @@ struct DaemonState {
     registry: Arc<ActionRegistry>,
     config: RuntimeConfig,
     shortcuts_dir: PathBuf,
+    history: Option<ExecutionHistory>,
     shutdown: AtomicBool,
 }
 
@@ -67,16 +68,19 @@ async fn main() -> Result<()> {
         } else {
             data.join(&config.plugins.plugin_dir)
         };
-        match corex_registry::discovery::discover(&plugin_dir) {
+        match corex_registry::discovery::discover(&plugin_dir, &mut registry) {
             Ok(found) => info!(count = found.len(), "插件发现完成"),
             Err(e) => warn!(error = %e, "插件发现失败"),
         }
     }
 
+    let history = open_history(&data, &config)?;
+
     let state = Arc::new(DaemonState {
         registry: Arc::new(registry),
         config,
         shortcuts_dir,
+        history,
         shutdown: AtomicBool::new(false),
     });
 
@@ -173,7 +177,10 @@ async fn run_shortcut(
     };
     let shortcut = Shortcut::from_yaml_file(&file)?;
     let ctx = ExecutionContext::new(state.config.clone()).with_input(input);
-    let pipeline = Pipeline::new(state.registry.clone());
+    let mut pipeline = Pipeline::new(state.registry.clone());
+    if let Some(history) = &state.history {
+        pipeline = pipeline.with_history(history.clone());
+    }
     Ok(pipeline.execute(&shortcut, ctx).await?)
 }
 
@@ -244,6 +251,20 @@ fn data_dir() -> Result<PathBuf> {
     Ok(base)
 }
 
+fn open_history(data: &Path, config: &RuntimeConfig) -> Result<Option<ExecutionHistory>> {
+    if !config.history.enabled {
+        return Ok(None);
+    }
+    let path = if config.history.file.is_absolute() {
+        config.history.file.clone()
+    } else {
+        data.join(&config.history.file)
+    };
+    Ok(Some(
+        ExecutionHistory::open(path).context("无法打开执行历史文件")?,
+    ))
+}
+
 fn load_runtime_config(path: Option<&Path>) -> Result<RuntimeConfig> {
     let candidates: Vec<PathBuf> = path
         .map(|p| vec![p.to_path_buf()])
@@ -273,6 +294,8 @@ struct ConfigFile {
     #[serde(default)]
     plugins: Option<corex_core::PluginConfig>,
     #[serde(default)]
+    history: Option<corex_core::HistoryConfig>,
+    #[serde(default)]
     runtime: Option<RuntimeSection>,
 }
 
@@ -289,6 +312,9 @@ impl ConfigFile {
         let mut cfg = RuntimeConfig::default();
         if let Some(p) = self.plugins {
             cfg.plugins = p;
+        }
+        if let Some(h) = self.history {
+            cfg.history = h;
         }
         if let Some(r) = self.runtime {
             if let Some(m) = r.max_parallel {

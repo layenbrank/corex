@@ -96,3 +96,17 @@ impl ActionStore for ActionRegistry {
         self.list()
     }
 }
+
+#[cfg(test)]
+mod feature_smoke {
+    #[test]
+    fn always() {
+        assert!(true);
+    }
+
+    #[cfg(feature = "act-codec")]
+    #[test]
+    fn codec_feature_on() {
+        assert!(true);
+    }
+}

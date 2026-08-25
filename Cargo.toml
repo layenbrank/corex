@@ -53,6 +53,22 @@ notify-rust      = "4.11"
 minijinja        = "2.5"
 keyring          = "3.6"
 interprocess     = { version = "2.2", features = ["tokio"] }
+walkdir          = "2.5"
+glob             = "0.3"
+base64           = "0.22"
+md-5             = "0.10"
+sysinfo          = "0.33"
+image            = { version = "0.25", default-features = false, features = ["png", "jpeg", "webp", "bmp", "gif", "tiff"] }
+zip              = { version = "2.2", default-features = false, features = ["deflate"] }
+flate2           = "1.0"
+tar              = "0.4"
+sevenz-rust2     = { version = "0.13", default-features = false, features = ["util"] }
+rand             = "0.8"
+lopdf            = "0.34"
+
+# WASM plugins (optional; enabled via corex-registry `wasm` feature)
+wasmtime         = { version = "34.0.2", default-features = false, features = ["component-model", "async", "cranelift", "runtime", "cache"] }
+wasmtime-wasi    = { version = "34.0.2" }
 
 # Test
 assert_cmd       = "2.0"

@@ -1,6 +1,6 @@
 {
 	"$schema": "https://schema.tauri.app/config/2/capability",
-	"description": "默认权限（含 corex-serve sidecar）",
+	"description": "默认权限（含 corex-daemon sidecar）",
 	"identifier": "default",
 	"permissions": [
 		"core:default",
@@ -11,8 +11,8 @@
 		{
 			"allow": [
 				{
-					"args": ["--pipe", "\\\\.\\pipe\\corex"],
-					"name": "binaries/corex-serve",
+					"args": ["--socket", "corex.sock"],
+					"name": "binaries/corex-daemon",
 					"sidecar": true
 				}
 			],
@@ -21,7 +21,7 @@
 		{
 			"allow": [
 				{
-					"name": "binaries/corex-serve",
+					"name": "binaries/corex-daemon",
 					"sidecar": true
 				}
 			],

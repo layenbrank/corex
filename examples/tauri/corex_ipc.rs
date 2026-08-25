@@ -24,7 +24,7 @@
 //!
 //! #[cfg_attr(mobile, tauri::mobile_entry_point)]
 //! pub fn run() {
-//!     // 应用启动时拉起 corex-serve（sidecar 或同目录二进制）
+//!     // 应用启动时拉起 corex-daemon（sidecar 或同目录二进制）
 //!     let _ = corex_ipc::spawn_daemon(corex_ipc::daemon_exe_path());
 //!
 //!     tauri::Builder::default()
@@ -47,12 +47,12 @@
 //! 配套文件见同目录 `README.md`：
 //! - `tauri.conf.json` / `capabilities/default.json` — sidecar 配置
 //! - `lib.rs` — 托盘 + 快捷键完整 wiring
-//! - `scripts/copy-corex-serve.mjs` — 构建前复制 sidecar 二进制
+//! - `scripts/copy-corex-daemon.mjs` — 构建前复制 sidecar 二进制
 //!
-//! 1. 将 `corex-serve.exe` 放入 Tauri 资源 / sidecar（或 PATH 可找到）
-//! 2. 先单独验证：`cargo run -p corex-serve` + `cargo run -p corex-core --example ipc --features serve`
+//! 1. 将 `corex-daemon.exe` 放入 Tauri 资源 / sidecar（或 PATH 可找到）
+//! 2. 先单独验证：`cargo run -p corex-daemon` + `cargo run -p corex-core --example ipc --features serve`
 //!
-//! ## 协议（与 corex-serve 一致）
+//! ## 协议（与 corex-daemon 一致）
 //!
 //! 请求：`{"type":"invoke","id":1,"module":"capture","action":"screenshot","args":{"to":"C:/out"}}\n`
 //! 响应：`{"id":1,"ok":true,"path":"...","ms":87}\n`
@@ -68,8 +68,8 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
-/// 默认 Named Pipe 名称（与 corex-serve 一致）
-pub const PIPE_NAME: &str = r"\\.\pipe\corex";
+/// 默认 Unix socket 名称（与 corex-daemon 一致）
+pub const PIPE_NAME: &str = r"corex.sock";
 
 static REQUEST_ID: AtomicU64 = AtomicU64::new(1);
 
@@ -87,25 +87,25 @@ pub struct Response {
     pub error: Option<String>,
 }
 
-/// 返回 sidecar / 同目录下的 corex-serve 路径，按实际打包方式修改
+/// 返回 sidecar / 同目录下的 corex-daemon 路径，按实际打包方式修改
 pub fn daemon_exe_path() -> PathBuf {
-    // 示例：与主程序同目录的 corex-serve.exe
+    // 示例：与主程序同目录的 corex-daemon.exe
     std::env::current_exe()
         .ok()
-        .and_then(|p| p.parent().map(|d| d.join("corex-serve.exe")))
-        .unwrap_or_else(|| PathBuf::from("corex-serve.exe"))
+        .and_then(|p| p.parent().map(|d| d.join("corex-daemon.exe")))
+        .unwrap_or_else(|| PathBuf::from("corex-daemon.exe"))
 }
 
-/// 启动 corex-serve Daemon（应用启动时调用一次）
+/// 启动 corex-daemon Daemon（应用启动时调用一次）
 pub fn spawn_daemon(exe: impl AsRef<Path>) -> Result<Child, String> {
     Command::new(exe.as_ref())
-        .arg("--pipe")
+        .arg("--socket")
         .arg(PIPE_NAME)
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null())
         .spawn()
-        .map_err(|e| format!("启动 corex-serve 失败: {e}"))
+        .map_err(|e| format!("启动 corex-daemon 失败: {e}"))
 }
 
 /// 调用任意 corex 模块（线格式：可选 action / format / algorithm + 扁平 args）
@@ -151,7 +151,7 @@ pub fn screenshot(to: impl AsRef<str>) -> Result<String, String> {
     }
 }
 
-/// 探测 Named Pipe 是否可连接（不发送业务请求）
+/// 探测 Unix socket 是否可连接（不发送业务请求）
 pub fn is_ready() -> bool {
     #[cfg(windows)]
     {
@@ -176,7 +176,7 @@ pub fn shutdown() -> Result<(), String> {
     }
     #[cfg(not(windows))]
     {
-        Err("corex IPC 当前仅支持 Windows Named Pipe".to_string())
+        Err("corex IPC 当前仅支持 Windows Unix socket".to_string())
     }
 }
 
@@ -198,7 +198,7 @@ fn exchange(request_json: &str) -> Result<Response, String> {
     #[cfg(not(windows))]
     {
         let _ = request_json;
-        Err("corex IPC 当前仅支持 Windows Named Pipe".to_string())
+        Err("corex IPC 当前仅支持 Windows Unix socket".to_string())
     }
 }
 

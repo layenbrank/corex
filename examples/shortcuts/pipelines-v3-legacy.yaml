@@ -1,3 +1,7 @@
+# LEGACY Pipeline v3 example (NOT valid for corex v4 Shortcut engine).
+# See hello.yaml for the current Shortcut format.
+# Migration notes: docs/breaking-changes-v4.md
+
 # Corex Pipeline v3
 # version 必须为 3
 # 变量：${var.*} ${env.*} ${steps.id.artifact.path}

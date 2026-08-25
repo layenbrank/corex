@@ -40,3 +40,16 @@ jobs:
 
       - name: Test workspace (debug)
         run: cargo test --workspace --locked --verbose
+
+      - name: Verify daemon binary name
+        shell: pwsh
+        run: |
+          if (-not (Test-Path 'target/debug/corex-daemon.exe')) {
+            Write-Error 'expected target/debug/corex-daemon.exe'
+            exit 1
+          }
+          if (Test-Path 'target/debug/corex-serve.exe') {
+            Write-Error 'obsolete corex-serve.exe should not be built'
+            exit 1
+          }
+          Write-Host 'corex-daemon artifact OK'

@@ -15,14 +15,14 @@
 		]
 	},
 	"build": {
-		"beforeBuildCommand": "node scripts/copy-corex-serve.mjs",
+		"beforeBuildCommand": "node scripts/copy-corex-daemon.mjs",
 		"beforeDevCommand": "",
 		"devUrl": "http://localhost:1420",
 		"frontendDist": "../dist"
 	},
 	"bundle": {
 		"active": true,
-		"externalBin": ["binaries/corex-serve"],
+		"externalBin": ["binaries/corex-daemon"],
 		"resources": [],
 		"targets": "all"
 	},

@@ -6,7 +6,7 @@
 //! - `corex_ipc.rs`          → src-tauri/src/corex_ipc.rs
 //! - `tauri.conf.json`       → src-tauri/tauri.conf.json（合并 bundle 段）
 //! - `capabilities/default.json` → src-tauri/capabilities/default.json（合并 permissions）
-//! - `scripts/copy-corex-serve.mjs` → 项目根 scripts/
+//! - `scripts/copy-corex-daemon.mjs` → 项目根 scripts/
 
 mod corex_ipc;
 
@@ -60,23 +60,23 @@ fn setup_app(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-/// 通过 Tauri sidecar 启动 corex-serve
+/// 通过 Tauri sidecar 启动 corex-daemon
 fn spawn_corex_sidecar(app: &AppHandle) -> Result<(), String> {
     let sidecar = app
         .shell()
-        .sidecar("binaries/corex-serve")
+        .sidecar("binaries/corex-daemon")
         .map_err(|e| format!("创建 sidecar 命令失败: {e}"))?
-        .args(["--pipe", corex_ipc::PIPE_NAME]);
+        .args(["--socket", corex_ipc::PIPE_NAME]);
 
     let (mut rx, _child) = sidecar
         .spawn()
-        .map_err(|e| format!("启动 corex-serve 失败: {e}"))?;
+        .map_err(|e| format!("启动 corex-daemon 失败: {e}"))?;
 
     let app_handle = app.clone();
     tauri::async_runtime::spawn(async move {
         while let Some(event) = rx.recv().await {
             if let CommandEvent::Error(err) = event {
-                eprintln!("[corex-serve] {err}");
+                eprintln!("[corex-daemon] {err}");
             }
         }
         let _ = app_handle;
