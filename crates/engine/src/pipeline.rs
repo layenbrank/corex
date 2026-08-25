@@ -269,18 +269,67 @@ impl Pipeline {
         ctx: &mut ExecutionContext,
         default_on_error: OnError,
     ) -> Result<Value, EngineError> {
-        // Sequential fallback that preserves shared context mutations.
-        // Concurrent JoinSet needs all Action futures to be Send (deferred).
+        use futures::stream::{self, StreamExt};
+
         let max = step
             .max_concurrency
             .unwrap_or(ctx.config.max_parallel)
             .max(1);
-        debug!(id = %step.id, max, children = step.parallel.len(), "执行 parallel（顺序兼容模式）");
-        let mut outputs = Vec::new();
-        for child in &step.parallel {
-            let v = Box::pin(self.execute_step(child, ctx, default_on_error)).await?;
-            outputs.push(v);
+        let children = step.parallel.len();
+
+        // Shared-context sequential path when concurrency is 1.
+        if max <= 1 || children <= 1 {
+            debug!(id = %step.id, max, children, "执行 parallel（顺序模式）");
+            let mut outputs = Vec::new();
+            for child in &step.parallel {
+                let v = Box::pin(self.execute_step(child, ctx, default_on_error)).await?;
+                outputs.push(v);
+            }
+            let result = Value::List(outputs);
+            ctx.set_step_output(&step.id, result.clone());
+            return Ok(result);
         }
+
+        // Concurrent on the current task via buffer_unordered (no Send/JoinSet required).
+        // Each branch clones context; step_outputs / variables are merged afterward.
+        debug!(id = %step.id, max, children, "执行 parallel（并发 buffer_unordered）");
+        let store = Arc::clone(&self.store);
+        let base_ctx = ctx.clone();
+
+        let mut results: Vec<(usize, ExecutionContext, Value)> = stream::iter(
+            step.parallel
+                .iter()
+                .cloned()
+                .enumerate()
+                .map(|(idx, child)| {
+                    let store = Arc::clone(&store);
+                    let mut branch_ctx = base_ctx.clone();
+                    async move {
+                        let pipeline = Pipeline::new(store);
+                        let value = Box::pin(pipeline.execute_step(
+                            &child,
+                            &mut branch_ctx,
+                            default_on_error,
+                        ))
+                        .await?;
+                        Ok::<_, EngineError>((idx, branch_ctx, value))
+                    }
+                }),
+        )
+        .buffer_unordered(max)
+        .collect::<Vec<_>>()
+        .await
+        .into_iter()
+        .collect::<Result<Vec<_>, _>>()?;
+
+        results.sort_by_key(|(idx, _, _)| *idx);
+
+        let mut outputs = Vec::with_capacity(children);
+        for (_idx, branch_ctx, value) in results {
+            ctx.merge_from_branch(&branch_ctx);
+            outputs.push(value);
+        }
+
         let result = Value::List(outputs);
         ctx.set_step_output(&step.id, result.clone());
         Ok(result)

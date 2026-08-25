@@ -13,7 +13,6 @@ use corex_core::{
 use flate2::read::GzDecoder;
 use flate2::write::GzEncoder;
 use flate2::Compression;
-use std::collections::BTreeMap;
 use std::fs::File;
 use std::io::copy as io_copy;
 use std::path::{Path, PathBuf};
@@ -274,6 +273,7 @@ pub fn register(registry: &mut ActionRegistry) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::collections::BTreeMap;
     use corex_core::ExecutionContext;
     use tempfile::tempdir;
 

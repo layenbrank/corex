@@ -7,7 +7,7 @@ use corex_core::{
     Action, ActionCategory, ActionError, ActionMeta, ExecutionContext, ParamSchema, SchemaType,
     Value,
 };
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::sync::Arc;
 use walkdir::WalkDir;
 

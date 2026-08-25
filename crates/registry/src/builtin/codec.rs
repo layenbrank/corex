@@ -1,6 +1,6 @@
 //! Codec actions: base64 encode/decode and md5 hash.
 
-use crate::builtin::util::{ensure_parent, opt_str, require_map, require_str};
+use crate::builtin::util::{ensure_parent, opt_str, require_map};
 use crate::ActionRegistry;
 use async_trait::async_trait;
 use base64::{engine::general_purpose::STANDARD, Engine};
