@@ -3,7 +3,7 @@
 use anyhow::{bail, Context, Result};
 use clap::{Parser, Subcommand};
 use corex_core::{ExecutionContext, RuntimeConfig, Value};
-use corex_engine::{Pipeline, Shortcut};
+use corex_engine::{ExecutionHistory, Pipeline, Shortcut};
 use corex_ipc::protocol::{Request, Response};
 use corex_ipc::transport::{Transport, UnixSocketTransport};
 use corex_registry::ActionRegistry;
@@ -156,6 +156,8 @@ struct RuntimeConfigWrapper {
     #[serde(default)]
     plugins: Option<corex_core::PluginConfig>,
     #[serde(default)]
+    history: Option<corex_core::HistoryConfig>,
+    #[serde(default)]
     runtime: Option<RuntimeSection>,
 }
 
@@ -172,6 +174,9 @@ impl RuntimeConfigWrapper {
         let mut cfg = RuntimeConfig::default();
         if let Some(p) = self.plugins {
             cfg.plugins = p;
+        }
+        if let Some(h) = self.history {
+            cfg.history = h;
         }
         if let Some(r) = self.runtime {
             if let Some(m) = r.max_parallel {
@@ -221,10 +226,19 @@ async fn cmd_run(target: &str, inputs: &[String], dir: Option<&Path>) -> Result<
     let shortcut = Shortcut::from_yaml_file(&path)?;
     let input = parse_inputs(inputs)?;
     let config = load_runtime_config();
-    let ctx = ExecutionContext::new(config).with_input(input);
+    let ctx = ExecutionContext::new(config.clone()).with_input(input);
 
     let registry = Arc::new(build_registry());
-    let pipeline = Pipeline::new(registry);
+    let mut pipeline = Pipeline::new(registry);
+    if config.history.enabled {
+        let hist_path = if config.history.file.is_absolute() {
+            config.history.file.clone()
+        } else {
+            data_dir()?.join(&config.history.file)
+        };
+        let history = ExecutionHistory::open(hist_path).context("无法打开执行历史")?;
+        pipeline = pipeline.with_history(history);
+    }
     let result = pipeline.execute(&shortcut, ctx).await?;
     println!("{}", serde_json::to_string_pretty(&result.to_json())?);
     Ok(())

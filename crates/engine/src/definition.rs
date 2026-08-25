@@ -108,9 +108,9 @@ pub struct RepeatSpec {
     /// Expression resolving to a list, e.g. `"{{items}}"`.
     #[serde(default)]
     pub each: Option<String>,
-    #[serde(default = "default_item_var")]
+    #[serde(default = "default_item_var", rename = "as")]
     pub as_var: String,
-    #[serde(default = "default_index_var")]
+    #[serde(default = "default_index_var", rename = "index")]
     pub index_var: String,
 }
 

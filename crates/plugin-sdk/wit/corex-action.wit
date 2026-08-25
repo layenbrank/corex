@@ -17,6 +17,7 @@ interface types {
     }
 }
 
+/// Third-party plugin action surface: static meta + validate + execute.
 interface action {
     use types.{action-meta, exec-result};
 

@@ -23,11 +23,41 @@ fn default_plugin_dir() -> PathBuf {
     PathBuf::from("plugins")
 }
 
+/// Append-only execution history settings.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HistoryConfig {
+    /// When true, pipeline executions are recorded to JSONL.
+    #[serde(default = "default_history_enabled")]
+    pub enabled: bool,
+    /// File name or path relative to the data directory.
+    #[serde(default = "default_history_file")]
+    pub file: PathBuf,
+}
+
+fn default_history_enabled() -> bool {
+    true
+}
+
+fn default_history_file() -> PathBuf {
+    PathBuf::from("history.jsonl")
+}
+
+impl Default for HistoryConfig {
+    fn default() -> Self {
+        Self {
+            enabled: default_history_enabled(),
+            file: default_history_file(),
+        }
+    }
+}
+
 /// Runtime knobs loaded from `config/default.toml` (and overrides).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RuntimeConfig {
     #[serde(default)]
     pub plugins: PluginConfig,
+    #[serde(default)]
+    pub history: HistoryConfig,
     #[serde(default = "default_max_parallel")]
     pub max_parallel: usize,
     #[serde(default)]
@@ -42,6 +72,7 @@ impl Default for RuntimeConfig {
     fn default() -> Self {
         Self {
             plugins: PluginConfig::default(),
+            history: HistoryConfig::default(),
             max_parallel: default_max_parallel(),
             step_timeout_secs: 0,
         }
@@ -113,5 +144,23 @@ impl ExecutionContext {
 
     pub fn get_step_output(&self, step_id: &str) -> Option<&Value> {
         self.step_outputs.get(step_id)
+    }
+
+    /// Merge outputs (and newly written variables) from a parallel branch context.
+    ///
+    /// Branch `step_outputs` always win for colliding keys. Variables present in
+    /// `other` that differ from `self` are copied over (last-writer-wins by call order).
+    pub fn merge_from_branch(&mut self, other: &ExecutionContext) {
+        for (k, v) in &other.step_outputs {
+            self.step_outputs.insert(k.clone(), v.clone());
+        }
+        for (k, v) in &other.variables {
+            match self.variables.get(k) {
+                Some(existing) if existing == v => {}
+                _ => {
+                    self.variables.insert(k.clone(), v.clone());
+                }
+            }
+        }
     }
 }

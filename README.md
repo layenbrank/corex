@@ -1,98 +1,95 @@
 # CoreX
 
-一个面向 H5+ 应用构建的自动化任务调度 CLI 工具，支持文件复制、目录清理、路径生成、压缩打包、Pipeline 编排、cron 定时任务与文件变更监听（watch）。
+可组合的快捷指令（Shortcut）/ Action 运行时：YAML 定义流水线，内置与 WASM 插件提供动作，CLI 与 Daemon 共用同一套引擎。
 
 ## 架构与 Tauri 集成
 
-Corex 从 Tauri 项目中独立拆分，重依赖（xcap、image、tokio 等）保留在本仓库。Tauri 作为瘦客户端，通过 Named Pipe 调用 `corex-serve` Daemon，**不**链回 `corex-core` 库。
+v4 将运行时拆为独立 crate；Tauri / 宿主通过 IPC 调用 **`corex-daemon`**，不直接链接业务库。
 
-**Workspace：** `corex-core`（库 `cx`）、`corex`（完整 CLI）、`corex-serve`（Daemon）、`corex-capture`（轻量截图 capture）。
+**Workspace：**
+
+| 路径 | 包名 | 说明 |
+|------|------|------|
+| `crates/core` | `corex-core` | Value / Action / ExecutionContext |
+| `crates/engine` | `corex-engine` | Shortcut YAML、Pipeline、历史 |
+| `crates/registry` | `corex-registry` | 内置 Action + WASM host |
+| `crates/ipc` | `corex-ipc` | Unix socket 协议 |
+| `crates/plugin-sdk` | `corex-plugin-sdk` | WIT 契约 |
+| `bins/cli` | `corex` | CLI |
+| `bins/daemon` | `corex-daemon` | 后台 Daemon |
+| `pdfium` | `pdfium` | 可选 native DLL 辅助 |
 
 | 文档 | 说明 |
 |------|------|
-| [docs/architecture-and-tauri-integration.md](docs/architecture-and-tauri-integration.md) | 架构总览、四阶段改动、快速开始 |
-| [docs/architecture.md](docs/architecture.md) | Feature 体系、serve 模块深度 |
-| [docs/pipeline-v3.md](docs/pipeline-v3.md) | Pipeline v3 配置、watch / schedule 字段 |
-| [docs/breaking-changes.md](docs/breaking-changes.md) | v0.3+ IPC / capture 破坏性变更 |
-| [docs/ipc-protocol.md](docs/ipc-protocol.md) | Named Pipe JSON 协议 |
-| [docs/tauri-integration.md](docs/tauri-integration.md) | Tauri 2 完整接入指南 |
-| [examples/tauri/](examples/tauri/) | 可复制的 Tauri 示例代码 |
+| [docs/architecture.md](docs/architecture.md) | **v4 架构**（crate 布局与执行模型） |
+| [docs/breaking-changes-v4.md](docs/breaking-changes-v4.md) | **v4 破坏性变更**（serve→daemon、YAML、Action ID） |
+| [plugins/README.md](plugins/README.md) | 第三方 WASM 插件 |
+| [docs/architecture-and-tauri-integration.md](docs/architecture-and-tauri-integration.md) | 历史总览（部分仍写 corex-serve） |
+| [docs/tauri-integration.md](docs/tauri-integration.md) | Tauri 接入（请改用 corex-daemon） |
+| [examples/tauri/](examples/tauri/) | Tauri 示例代码 |
+| [examples/shortcuts/](examples/shortcuts/) | Shortcut YAML 示例 |
 
 ### Daemon 与 IPC
 
-```powershell
-# 启动 Daemon（默认 \\.\pipe\corex）
-cargo run -p corex-serve
+```bash
+# 启动 Daemon（默认 <data-dir>/corex.sock）
+cargo run -p corex-daemon
 
-# 验证 IPC（另开终端，Daemon 运行中）
-cargo run -p corex-core --example ipc --features serve -- C:\Temp\screenshots
+# CLI 控制
+corex daemon status
+corex daemon stop
 ```
 
-协议与 args 格式见 [docs/ipc-protocol.md](docs/ipc-protocol.md)。
+协议见 `corex-ipc`（`ping` / `run_shortcut` / `invoke` / …）。破坏性说明见 [breaking-changes-v4.md](docs/breaking-changes-v4.md)。
 
 ---
 
 ## 快速开始
 
-```powershell
-# 查看所有命令
+```bash
+# 查看命令
 corex --help
 
-# 执行单个命令
-corex copy --from ./src --to ./dist --excludes "node_modules,*.log"
+# 运行 Shortcut（名称或 YAML 路径）
+corex run examples/shortcuts/hello.yaml
+corex run hello --input who=Corex
 
-# 执行 Pipeline
-corex pipeline --config pipelines.yaml
+# 列出快捷指令 / 动作
+corex list
+corex actions
 
-# 交互式选择 Pipeline
-corex schedule run
+# 校验 / 创建
+corex validate examples/shortcuts/hello.yaml
+corex create my-shortcut
 
-# 定时调度（守护进程）
-corex schedule cron
-
-# 文件变更监听（Vite 风格 dev watch）
-corex watch run --immediate
+# Daemon
+corex daemon run
 ```
 
 ---
 
-## 命令一览
+## 命令一览（v4 CLI）
 
-| 命令                                | 说明                      |
-| ----------------------------------- | ------------------------- |
-| `corex copy`                        | 复制文件或目录            |
-| `corex scrub`                       | 清理指定名称的文件/目录   |
-| `corex generate path`               | 扫描目录并生成路径列表    |
-| `corex generate uuid`               | 生成 UUID                 |
-| `corex generate cvid`               | 生成安全 CVID（GUID v4 大写 hex） |
-| `corex engine suggestion`           | Bing 搜索建议             |
-| `corex exec run`                    | 运行外部脚本并解析 JSON 返回值 |
-| `corex compression compress zip`    | 压缩（Zip / tar.gz / 7z） |
-| `corex compression decompress zip`  | 解压归档                  |
-| `corex codec encode/decode/hash`    | Base64 编解码、MD5 摘要   |
-| `corex scan os`                     | 采集 OS / CPU / 内存信息  |
-| `corex morph`                       | PDF 处理（14 子命令）     |
-| `corex capture screenshot/…`        | 捕获（screenshot/tape/monitors/windows/crop/clipboard） |
-| `corex shade`                       | 图片格式转换 / 压缩       |
-| `corex bootstrap env/inspect/force` | 环境初始化与检查          |
-| `corex pipeline`                    | 执行 YAML 定义的 Pipeline |
-| `corex schedule run/generate/cron`  | 任务调度器                |
-| `corex watch run`                 | 文件变更监听，debounce 后重跑 Pipeline |
+| 命令 | 说明 |
+|------|------|
+| `corex run` | 执行 Shortcut |
+| `corex list` | 列出 Shortcut |
+| `corex actions` | 列出已注册 Action |
+| `corex create` | 创建 Shortcut 脚手架 |
+| `corex validate` | 校验 YAML |
+| `corex daemon` | start / stop / status / run |
+
+> 旧版 `corex copy` / `pipeline` / `morph` 等子命令对应业务模块将在 P4 以 Action 形式迁入；下文「文件复制」等章节保留作历史参考。
 
 ### 独立 Binary
 
-| Binary        | 说明                                      |
-| ------------- | ----------------------------------------- |
-| `corex`       | 完整 CLI（`features = all`）              |
-| `corex-serve` | Named Pipe Daemon，供 Tauri sidecar 使用  |
-| `corex-capture` | 轻量 capture，等价 `corex capture screenshot --to`（不进 Release ZIP） |
+| Binary | 说明 |
+|--------|------|
+| `corex` | CLI |
+| `corex-daemon` | Unix socket Daemon（Tauri / 宿主 sidecar） |
 
-完整 CLI 截图请使用 `corex capture screenshot --to`；`corex-capture` 为轻量独立 binary。
-
-```powershell
-cargo build -p corex-serve --release
-cargo run -p corex-capture -- --to C:\Temp\screenshots
-corex capture screenshot --to C:\Temp\screenshots
+```bash
+cargo build -p corex -p corex-daemon --release
 ```
 
 ### GitHub Release（Windows x64）
@@ -102,10 +99,10 @@ corex capture screenshot --to C:\Temp\screenshots
 | 文件 | 用途 |
 |------|------|
 | `corex.exe` | CLI |
-| `corex-serve.exe` | Tauri sidecar（Named Pipe Daemon） |
-| `pdfium.dll` | PDF/morph 运行时 |
+| `corex-daemon.exe` | sidecar Daemon |
+| `pdfium.dll` | PDF 运行时（若仍捆绑） |
 
-另附 `.zip.sha256` 与 `SHA256SUMS.txt`。i-thinking 的 `prepare.ts` 从该资产下载并 stage `corex-serve` + `pdfium.dll`。
+另附 `.zip.sha256` 与 `SHA256SUMS.txt`。
 
 ---
 

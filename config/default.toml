@@ -14,6 +14,11 @@ disabled = []
 # Disable individual action ids (e.g. "shell.run")
 disabled_actions = []
 
+[history]
+# Append-only JSONL under the data directory
+enabled = true
+file = "history.jsonl"
+
 [logging]
 level = "info"
 json = false

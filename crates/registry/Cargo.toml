@@ -8,6 +8,8 @@ license     = { workspace = true }
 
 [features]
 default = ["full"]
+# P0–P3 builtins + WASM. Legacy business modules (copy/morph/…) are optional
+# features for the P4 migration agent — not enabled in `full` until that work compiles.
 full = [
   "act-shell",
   "act-http",
@@ -19,29 +21,56 @@ full = [
   "act-keyring",
   "wasm",
 ]
-act-shell     = []
-act-http      = ["dep:reqwest"]
-act-clipboard = ["dep:arboard"]
-act-notify    = ["dep:notify-rust"]
-act-file      = []
-act-template  = ["dep:minijinja"]
-act-cron      = []
-act-keyring   = ["dep:keyring"]
-wasm          = []
+act-shell       = []
+act-http        = ["dep:reqwest"]
+act-clipboard   = ["dep:arboard"]
+act-notify      = ["dep:notify-rust"]
+act-file        = []
+act-template    = ["dep:minijinja"]
+act-cron        = []
+act-keyring     = ["dep:keyring"]
+act-copy        = ["dep:walkdir", "dep:glob"]
+act-scrub       = ["dep:walkdir"]
+act-shade       = ["dep:image", "dep:walkdir"]
+act-compression = ["dep:zip", "dep:walkdir", "dep:flate2", "dep:tar", "dep:sevenz-rust2", "dep:glob"]
+act-generate    = ["dep:uuid", "dep:rand", "dep:walkdir", "dep:glob"]
+act-exec        = []
+act-suggest     = ["dep:reqwest", "dep:rand"]
+act-bootstrap   = []
+act-codec       = ["dep:base64", "dep:md-5"]
+act-scan        = ["dep:sysinfo"]
+act-capture     = ["dep:image", "dep:base64", "dep:arboard"]
+act-morph       = ["dep:lopdf", "dep:base64"]
+wasm            = ["dep:wasmtime", "dep:wasmtime-wasi"]
 
 [dependencies]
-corex-core   = { workspace = true }
-async-trait  = { workspace = true }
-serde        = { workspace = true }
-serde_json   = { workspace = true }
-tokio        = { workspace = true }
-tracing      = { workspace = true }
-reqwest      = { workspace = true, optional = true }
-arboard      = { workspace = true, optional = true }
-notify-rust  = { workspace = true, optional = true }
-minijinja    = { workspace = true, optional = true }
-keyring      = { workspace = true, optional = true }
+corex-core    = { workspace = true }
+async-trait   = { workspace = true }
+serde         = { workspace = true }
+serde_json    = { workspace = true }
+tokio         = { workspace = true }
+tracing       = { workspace = true }
+reqwest       = { workspace = true, optional = true }
+arboard       = { workspace = true, optional = true }
+notify-rust   = { workspace = true, optional = true }
+minijinja     = { workspace = true, optional = true }
+keyring       = { workspace = true, optional = true }
+wasmtime      = { workspace = true, optional = true }
+wasmtime-wasi = { workspace = true, optional = true }
+walkdir       = { workspace = true, optional = true }
+glob          = { workspace = true, optional = true }
+base64        = { workspace = true, optional = true }
+md-5          = { workspace = true, optional = true }
+sysinfo       = { workspace = true, optional = true }
+image         = { workspace = true, optional = true }
+zip           = { workspace = true, optional = true }
+flate2        = { workspace = true, optional = true }
+tar           = { workspace = true, optional = true }
+sevenz-rust2  = { workspace = true, optional = true }
+rand          = { workspace = true, optional = true }
+uuid          = { workspace = true, optional = true }
+lopdf         = { workspace = true, optional = true }
 
 [dev-dependencies]
-tempfile     = { workspace = true }
-tokio        = { workspace = true, features = ["rt-multi-thread", "macros"] }
+tempfile = { workspace = true }
+tokio    = { workspace = true, features = ["rt-multi-thread", "macros"] }

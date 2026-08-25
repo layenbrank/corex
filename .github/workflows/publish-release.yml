@@ -3,13 +3,13 @@ name: Publish Release
 # 企业级 Windows x64 发版（供 i-thinking / Tauri 消费）
 # - SemVer tag 与 workspace.package.version 强制对齐
 # - 渠道：stable | alpha | beta | rc（由 tag 后缀决定）
-# - ZIP 三件套：corex.exe + corex-serve.exe + pdfium.dll
+# - ZIP：corex.exe + corex-daemon.exe + pdfium.dll（若存在）
 # - 资产名：corex-{tag}-windows-x64.zip（prepare.ts 约定）
 #
 # 发布示例：
 #   # bump workspace.package.version 后：
-#   git tag v2.1.0 && git push --tags
-#   git tag v2.1.0-beta.1 && git push --tags
+#   git tag v4.0.0 && git push --tags
+#   git tag v4.0.0-beta.1 && git push --tags
 #   # 或 Actions → Publish Release → workflow_dispatch 指定 tag
 
 on:
@@ -19,7 +19,7 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: Tag to publish (e.g. v2.1.0 / v2.1.0-beta.1); required when not on a tag push
+        description: Tag to publish (e.g. v4.0.0 / v4.0.0-beta.1); required when not on a tag push
         required: false
         type: string
       draft:
@@ -121,9 +121,10 @@ jobs:
         shell: pwsh
         run: pwsh -File scripts/download-pdfium.ps1
 
-      - name: Build workspace (release)
+      - name: Build release binaries
         shell: pwsh
-        run: cargo build --workspace --release --locked --target $env:RUST_TARGET --verbose
+        run: |
+          cargo build -p corex -p corex-daemon -p pdfium --release --locked --target $env:RUST_TARGET --verbose
 
       - name: Test workspace (release)
         shell: pwsh
@@ -133,7 +134,7 @@ jobs:
         shell: pwsh
         run: |
           $dir = $env:TARGET_DIR
-          $required = @('corex.exe', 'corex-serve.exe', 'pdfium.dll')
+          $required = @('corex.exe', 'corex-daemon.exe')
           foreach ($name in $required) {
             $path = Join-Path $dir $name
             if (-not (Test-Path $path)) {
@@ -145,17 +146,25 @@ jobs:
             Write-Host "OK $name ($([math]::Round($sizeMb, 2)) MB)"
           }
 
-          $serve = Join-Path $dir 'corex-serve.exe'
-          $help = & $serve --help 2>&1 | Out-String
-          if ($help -notmatch '--pipe') {
-            Write-Error "corex-serve.exe is not a Named Pipe daemon (missing --pipe). Output:`n$help"
+          $pdfium = Join-Path $dir 'pdfium.dll'
+          if (Test-Path $pdfium) {
+            $sizeMb = (Get-Item $pdfium).Length / 1MB
+            Write-Host "OK pdfium.dll ($([math]::Round($sizeMb, 2)) MB)"
+          } else {
+            Write-Warning "pdfium.dll not found under $dir (optional until morph lands)"
+          }
+
+          $daemon = Join-Path $dir 'corex-daemon.exe'
+          $help = & $daemon --help 2>&1 | Out-String
+          if ($help -notmatch '--socket') {
+            Write-Error "corex-daemon.exe is not the IPC daemon (missing --socket). Output:`n$help"
             exit 1
           }
           if ($help -match '<COMMAND>') {
-            Write-Error "corex-serve.exe looks like the CLI (found <COMMAND>). Refusing to package."
+            Write-Error "corex-daemon.exe looks like the CLI (found <COMMAND>). Refusing to package."
             exit 1
           }
-          Write-Host "corex-serve daemon check OK (--pipe present)"
+          Write-Host "corex-daemon check OK (--socket present)"
 
           $cli = Join-Path $dir 'corex.exe'
           $cliHelp = & $cli --help 2>&1 | Out-String
@@ -179,8 +188,11 @@ jobs:
           New-Item -ItemType Directory -Force -Path $out | Out-Null
 
           Copy-Item (Join-Path $dir 'corex.exe') $pkg
-          Copy-Item (Join-Path $dir 'corex-serve.exe') $pkg
-          Copy-Item (Join-Path $dir 'pdfium.dll') $pkg
+          Copy-Item (Join-Path $dir 'corex-daemon.exe') $pkg
+          $pdfium = Join-Path $dir 'pdfium.dll'
+          if (Test-Path $pdfium) {
+            Copy-Item $pdfium $pkg
+          }
 
           if (Test-Path 'README.md') { Copy-Item README.md $pkg }
           if (Test-Path 'LICENSE') { Copy-Item LICENSE $pkg }
@@ -245,11 +257,11 @@ jobs:
             ### Build
             - Rust: ${{ steps.build_info.outputs.rust_version }}
             - Cargo: ${{ steps.build_info.outputs.cargo_version }}
-            - `cargo build --workspace --release --locked --target x86_64-pc-windows-msvc`
+            - `cargo build -p corex -p corex-daemon -p pdfium --release --locked --target x86_64-pc-windows-msvc`
 
             ### Artifacts (i-thinking / Tauri)
-            - `${{ steps.meta.outputs.zip_name }}` — `corex.exe` (CLI) + `corex-serve.exe` (sidecar) + `pdfium.dll`（解压后同目录）
-            - `${{ steps.meta.outputs.zip_name }}.sha256` — ZIP SHA-256（prepare.ts 校验）
+            - `${{ steps.meta.outputs.zip_name }}` — `corex.exe` (CLI) + `corex-daemon.exe` (sidecar) + `pdfium.dll`（若存在；解压后同目录）
+            - `${{ steps.meta.outputs.zip_name }}.sha256` — ZIP SHA-256
             - `SHA256SUMS.txt` — 包内文件与 ZIP 校验清单
 
             ### Full commit

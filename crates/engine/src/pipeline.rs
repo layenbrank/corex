@@ -2,19 +2,31 @@
 
 use crate::control_flow::evaluate_condition;
 use crate::definition::{ActionStep, IfStep, OnError, ParallelStep, RepeatStep, Shortcut, Step};
+use crate::history::{ExecutionHistory, HistoryEntry};
 use crate::resolver::Resolver;
 use corex_core::{ActionStore, EngineError, ExecutionContext, Value};
 use std::sync::Arc;
+use std::time::SystemTime;
 use tracing::{debug, error, info, warn};
 
 /// Executes a [`Shortcut`] against an [`ActionStore`].
 pub struct Pipeline {
     store: Arc<dyn ActionStore>,
+    history: Option<ExecutionHistory>,
 }
 
 impl Pipeline {
     pub fn new(store: Arc<dyn ActionStore>) -> Self {
-        Self { store }
+        Self {
+            store,
+            history: None,
+        }
+    }
+
+    /// Enable append-only JSONL recording for each [`Self::execute`] call.
+    pub fn with_history(mut self, history: ExecutionHistory) -> Self {
+        self.history = Some(history);
+        self
     }
 
     /// Execute an entire shortcut.
@@ -23,6 +35,8 @@ impl Pipeline {
         shortcut: &Shortcut,
         mut ctx: ExecutionContext,
     ) -> Result<Value, EngineError> {
+        let started = SystemTime::now();
+
         // Seed variables from shortcut defaults.
         for (k, v) in &shortcut.variables {
             let resolved = Resolver::resolve_value(v, &ctx)?;
@@ -35,10 +49,12 @@ impl Pipeline {
                     let resolved = Resolver::resolve_value(default, &ctx)?;
                     ctx.input.insert(decl.name.clone(), resolved);
                 } else if decl.required {
-                    return Err(EngineError::UndefinedVariable(format!(
+                    let err = EngineError::UndefinedVariable(format!(
                         "input.{}",
                         decl.name
-                    )));
+                    ));
+                    self.record_history(shortcut, started, Err(&err));
+                    return Err(err);
                 }
             }
         }
@@ -51,13 +67,30 @@ impl Pipeline {
         match result {
             Ok(v) => {
                 info!(name = %shortcut.name, "快捷指令执行完成");
+                self.record_history(shortcut, started, Ok(()));
                 Ok(v)
             }
             Err(e) => {
                 error!(name = %shortcut.name, error = %e, "快捷指令执行失败");
+                self.record_history(shortcut, started, Err(&e));
                 Err(e)
             }
         }
+    }
+
+    fn record_history(
+        &self,
+        shortcut: &Shortcut,
+        started: SystemTime,
+        outcome: Result<(), &EngineError>,
+    ) {
+        let Some(history) = &self.history else {
+            return;
+        };
+        let ended = SystemTime::now();
+        let result = outcome.map_err(|e| e.to_string());
+        let entry = HistoryEntry::new(&shortcut.name, started, ended, result);
+        history.record_best_effort(&entry);
     }
 
     /// Execute with per-step resilience using each step's `on_error` / `retry`.
@@ -237,7 +270,7 @@ impl Pipeline {
         default_on_error: OnError,
     ) -> Result<Value, EngineError> {
         // Sequential fallback that preserves shared context mutations.
-        // A true concurrent executor needs per-branch context merge (later).
+        // Concurrent JoinSet needs all Action futures to be Send (deferred).
         let max = step
             .max_concurrency
             .unwrap_or(ctx.config.max_parallel)

@@ -1,28 +1,30 @@
 # Progress Log
 
-## Session: 2026-08-25 — Corex 企业级架构重构
+## Session: 2026-08-25 — P3 WASM + P5 hardening
 
 ### Done
-- Workspace 骨架：`crates/*` + `bins/*` + `pdfium`，version 4.0.0
-- core / engine / registry / ipc / plugin-sdk 完整可编译实现
-- CLI + daemon、config、hello.yaml、engine smoke tests
-- `cargo build --workspace` 通过
-- `cargo test -p corex-core -p corex-engine ...` 通过（含 template+file pipeline）
-- `corex run examples/shortcuts/hello.yaml` 写出 `/tmp/corex-hello.txt`
+- P3: wasmtime 34 behind `wasm` feature；`WasmPluginHost`（Engine async+component model、WasiCtxBuilder、Linker）
+- P3: discovery 扫描 `*.wasm` 并尝试 load；失败 log/skip；`plugins/README.md`
+- P5: `ExecutionHistory` JSONL；Pipeline `with_history`；CLI/daemon 接线；`history_smoke`
+- P5: `docs/architecture.md`、`docs/breaking-changes-v4.md`、README workspace/`corex-daemon`
+- P5: publish-release + build-and-test → `corex` + `corex-daemon`；tauri 示例改名
+- 旧 `pipelines.yaml` → `examples/shortcuts/pipelines-v3-legacy.yaml`
+- 旧 monolith 目录保留（P4 仍可能引用）
 
 ### Test Results
 | Test | Expected | Actual | Status |
 |------|----------|--------|--------|
-| cargo build --workspace | success | success | ✅ |
-| engine pipeline_smoke | Hi, corex! | Hi, corex! | ✅ |
-| corex validate hello.yaml | OK | OK | ✅ |
-| corex run hello.yaml | file written | Hello, Corex! | ✅ |
+| cargo build -p corex -p corex-daemon | success | success | ✅ |
+| history_smoke | JSONL ok/fail | pass | ✅ |
+| pipeline_smoke | Hi, corex! | pass | ✅ |
+| control_flow | if/repeat/parallel | pass | ✅ |
+| P4 act-morph/full | compile | 未纳入 full（另一 agent） | ⏭ |
 
 ## 5-Question Reboot Check
 | Question | Answer |
 |----------|--------|
-| Where am I? | P0–P3 骨架完成 |
-| Where am I going? | commit/push；后续 P4 迁移旧模块 |
+| Where am I? | P3+P5 完成并待 push |
+| Where am I going? | 另一 agent 完成 P4 后再删旧 crate |
 | What's the goal? | corex 企业级可组合快捷指令架构 |
-| What have I learned? | ActionStore 在 core；递归 async 需 Box::pin |
-| What have I done? | 新 workspace 全量脚手架 |
+| What have I learned? | wasmtime-wasi 34 在 `p2`；Action future 非 Send 时不宜 JoinSet |
+| What have I done? | WASM host 骨架 + 历史/文档/CI |
