@@ -27,12 +27,12 @@ examples/
 | `corex-core` | 核心类型与 `Action` / `ActionStore` trait |
 | `corex-engine` | Shortcut 定义、`{{var}}` 解析、控制流、执行历史 |
 | `corex-registry` | 内置动作 +（可选）`WasmPluginHost` 发现/加载 |
-| `corex-ipc` | Daemon 协议（`Request` / `Response`）与 Unix socket |
+| `corex-ipc` | Daemon 协议（`Request` / `Response`）；Unix socket / Windows Named Pipe |
 | `corex-plugin-sdk` | WIT world `corex-action`（`meta` / `validate` / `execute`） |
-| `corex` | CLI：`run` / `list` / `actions` / `create` / `validate` / `daemon` |
+| `corex` | CLI：`run` / `list` / `actions` / `create` / `validate` / `repl` / `daemon` |
 | `corex-daemon` | 长驻进程：注册动作、发现插件、执行 Shortcut、IPC |
 
-旧 monolith（`corex/`、`corex-core/` 根目录包、`corex-serve/`、`corex-capture/`）已移出 workspace；业务模块迁入 Action 见迁移计划（P4）。
+旧 monolith（根目录 `corex/`、`corex-core/`、`corex-serve/`、`corex-capture/`）已删除；业务以 `crates/registry` 内置 Action 形式提供。
 
 ## 执行模型
 
@@ -58,7 +58,8 @@ Value 结果  +  可选 history.jsonl
 | 模式 | 入口 | 说明 |
 |------|------|------|
 | CLI | `corex run <name\|path>` | 进程内加载 registry + Pipeline |
-| Daemon | `corex-daemon` / `corex daemon run` | Unix socket（默认 `<data-dir>/corex.sock`） |
+| Daemon | `corex-daemon` / `corex daemon run` | Unix：`<data-dir>/corex.sock`；Windows：`\\.\pipe\corex` |
+| REPL | `corex repl` | 交互：`help` / `actions` / `list` / `run` / `quit` |
 
 数据目录默认由 `directories` 解析为平台 project data（fallback `.corex/`）。
 

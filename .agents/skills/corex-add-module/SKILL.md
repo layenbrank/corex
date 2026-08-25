@@ -1,273 +1,267 @@
 ---
 name: corex-add-module
-description: "在 corex-core 中新增业务模块的标准流程。当用户提到「新增模块」「添加命令」「迁移到 corex」「实现 invoke」「注册 CLI/IPC/Pipeline」「补全功能模块」或要在 corex 里加类似 copy/codec/scan 的能力时，务必使用本 skill。适用于从外部项目迁入可移植逻辑，或从零实现新的 CLI + Daemon IPC + Pipeline step。"
-argument-hint: "<模块名> [--invoke-only|--cli-only]"
+description: "在 corex v4 中新增内置 Action 的标准流程。当用户提到「新增模块」「添加命令」「迁移到 corex」「实现 Action」「注册 builtin」「补全功能模块」或要在 corex 里加类似 copy/codec/scan 的能力时，务必使用本 skill。适用于从外部项目迁入可移植逻辑，或从零实现新的 Action（CLI run / Daemon IPC / Shortcut YAML 共用）。"
+argument-hint: "<action-name> [--feature-only]"
 allowed-tools: ["Read", "Glob", "Grep", "Edit", "Write", "Shell"]
 ---
 
-# Corex 新增模块
+# Corex 新增 Action（v4）
 
-在 `corex-core` 中按统一契约添加业务模块，使其可被 **CLI**、**Pipeline invoke**、**corex-serve IPC** 调用（按需）。
+在 **`crates/registry`** 中按统一契约添加内置 Action，使其可被：
 
-## 开始前：确认模块类型
+- **CLI**：`corex run` / `corex actions` / `corex repl`
+- **Daemon IPC**：`Request::Invoke` / `RunShortcut`
+- **Shortcut YAML**：`steps[].action: foo.bar`
 
-| 类型 | 典型例子 | 需要 invoke/registry？ | 需要 command/mod.rs？ |
-|------|----------|------------------------|----------------------|
-| **Invoke 业务模块** | copy, codec, scan, morph | 是 | 是 |
-| **编排/调度模块** | pipeline, schedule | 否（内部调用 invoke） | 是 |
-| **仅 Daemon 胶水** | serve | 否 | 否 |
+> 旧架构（`corex-core/src/<module>/` + `invoke/registry.rs` match + `command/mod.rs` clap 树）**已删除**，不要再往那套路径加代码。
 
-绝大多数新功能属于 **Invoke 业务模块**。若用户未说明，默认按此类型实现。
+## 开始前：确认类型
 
-## 标准目录结构
+| 类型 | 典型例子 | 做法 |
+|------|----------|------|
+| **内置 Action** | copy, codec, scan, template | `crates/registry/src/builtin/<name>.rs` + feature |
+| **WASM 插件** | 第三方 `.wasm` | `plugins/` + WIT（见 `corex-plugin-sdk`） |
+| **仅引擎控制流** | if / repeat / parallel | 改 `crates/engine`，不是 Action |
+
+绝大多数新功能属于 **内置 Action**。
+
+## 标准文件布局
 
 ```
-corex-core/src/<module>/
-├── mod.rs       # pub mod schema; pub mod service; [pub mod parse;] pub use service::run;
-├── schema.rs    # Args（clap::Parser + serde Serialize/Deserialize）
-├── service.rs   # execute() 纯业务 + run() CLI 包装
-└── parse.rs     # 可选：Pipeline 占位符 ${var.*} / ${steps.*}
+crates/registry/
+├── Cargo.toml                 # act-<name> feature + deps
+└── src/
+    └── builtin/
+        ├── mod.rs             # pub mod + register_all 调用
+        └── <name>.rs          # Action impl + register()
 ```
 
 **命名约定：**
-- 模块目录：`snake_case`（如 `codec`、`scan`）
-- CLI 子命令：与模块名一致的小写（`corex codec ...`）
-- IPC `module` 字段：与目录名一致（`"codec"`）
+
+- 源文件：`snake_case`（如 `codec.rs`、`template.rs`）
+- Cargo feature：`act-<name>`（如 `act-codec`、`act-template`）
+- Action ID：点分命名 `domain.verb`（如 `template.render`、`codec.base64.encode`）
 
 ## 执行流程
 
 ```
-用户请求新增模块
+用户请求新增 Action
     │
     ▼
-[1] 读 docs/architecture.md 确认契约
+[1] 读 docs/architecture.md 确认契约与现有 ID
     │
     ▼
-[2] 选参考模块（见下表）并阅读其实现
+[2] 选参考实现（见下表）并阅读
     │
     ▼
-[3] 创建 schema.rs + service.rs + mod.rs [+ parse.rs]
+[3] 新建 crates/registry/src/builtin/<name>.rs
     │
     ▼
-[4] 注册 Cargo feature + lib.rs + command/mod.rs
+[4] 在 builtin/mod.rs 注册 mod + register_all
     │
     ▼
-[5] 若需 Pipeline/IPC：注册 invoke/registry.rs
+[5] 在 Cargo.toml 加 act-<name>，并按需加入 full
     │
     ▼
-[6] 写测试 + cargo build/test 验证
+[6] 写测试 + cargo test / build 验证
     │
     ▼
-[7] 更新文档（仅当用户要求或模块对外可见时）
+[7] 更新文档（仅当用户要求或对外可见时）
 ```
 
-### 参考模块速查
+### 参考实现速查
 
-| 场景 | 参考模块 | 原因 |
-|------|----------|------|
-| 返回 JSON 数据、无文件输出 | `scan` | `into_invoke_result()` + IPC data |
-| 返回文件路径 | `copy` | `Output { path }` + `path_result` |
-| 路径 + 文本双输出 | `codec` | `into_invoke_result()` 组合 path/text |
-| 需要 Pipeline 变量替换 | `copy` / `codec` | `parse.rs` + `parse_args` |
-| 子命令嵌套（操作→算法→参数） | `codec` | `Args` enum + `Subcommand` |
-| 无输出副作用 | `bootstrap` | `InvokeResult::default()` |
-| Daemon 特殊状态 | `capture` | `ctx.cached_monitors()` |
+| 场景 | 参考 | 原因 |
+|------|------|------|
+| 简单字符串/数据变换 | `template` | 单 Action、`ParamSchema`、MiniJinja |
+| 文件路径读写 | `file` | 多 Action（read/write/copy/delete） |
+| HTTP / 外部 IO | `http` / `shell` | 可选依赖 + async |
+| 从旧 monolith 迁入 | `copy` / `codec` / `scan` | 已迁移的业务模块形态 |
+| 平台相关（剪贴板等） | `clipboard` / `capture` | feature + 可选 crate |
 
-详细模板见 [references/templates.md](references/templates.md)；完整检查清单见 [references/checklist.md](references/checklist.md)。
+详细模板见 [references/templates.md](references/templates.md)；检查清单见 [references/checklist.md](references/checklist.md)。
 
-## 各层职责（不可混淆）
-
-| 层 | 文件 | 职责 |
-|----|------|------|
-| Schema | `schema.rs` | 仅参数定义；`#[derive(Parser, Serialize, Deserialize)]` |
-| Parse | `parse.rs` | 占位符解析；**不做**业务逻辑 |
-| Execute | `service.rs::execute` | 纯业务；**禁止** `println!` |
-| Run | `service.rs::run` | `execute` + 人类可读输出 |
-| Invoke | `invoke/registry.rs` | `decode_json` → `parse_args?` → `execute` → `InvokeResult` |
-
-### execute / run 模式
+## Action 实现契约
 
 ```rust
-#[derive(Debug, Clone)]
-pub struct Output {
-    pub path: PathBuf,           // 或 Option<PathBuf>、自定义字段
-}
+use crate::ActionRegistry;
+use async_trait::async_trait;
+use corex_core::{
+    Action, ActionCategory, ActionError, ActionMeta, ExecutionContext, ParamSchema, SchemaType,
+    Value,
+};
+use std::sync::Arc;
 
-/// CLI 入口
-pub fn run(args: &Args) -> Result<()> {
-    let out = execute(args)?;
-    println!("✅ {}", out.path.display());
-    Ok(())
-}
+pub struct FooBar;
 
-/// Pipeline / IPC 复用
-pub fn execute(args: &Args) -> Result<Output> {
-    // 纯业务，无 println
-}
-```
+#[async_trait]
+impl Action for FooBar {
+    fn meta(&self) -> ActionMeta {
+        ActionMeta::new(
+            "foo.bar",           // Action ID
+            "Foo Bar",
+            "一句话说明",
+            ActionCategory::Data,
+        )
+        .with_params(vec![
+            ParamSchema::new("input", SchemaType::Str, true),
+        ])
+    }
 
-## Schema 要求
-
-1. **必须**同时 derive `clap::Parser` 与 `serde::{Serialize, Deserialize}`，以便 CLI 与 JSON IPC 共用。
-2. 有子命令时用 `enum Args` + `#[command(subcommand)]`（参考 `codec`、`capture`）。
-3. IPC args 使用**线格式**（小写路由 + 扁平 flags）：
-
-```json
-{"module":"scan","action":"os","args":{}}
-{"module":"capture","action":"screenshot","args":{"to":"C:/out"}}
-{"module":"codec","action":"encode","algorithm":"base64","args":{"input":"aGVsbG8="}}
-```
-
-**禁止**在 args 内嵌套 PascalCase 子命令或 `scheme`。
-
-4. 路径参数优先用 `crate::utils::paths` 中的校验（`validate_read_file`、`validate_write_path`）。
-
-## Invoke 注册（registry.rs）
-
-在 `invoke()` match 和 `known_modules()` 各加一处，并用 `#[cfg(feature = "<module>")]` 包裹：
-
-```rust
-#[cfg(feature = "my_module")]
-"my_module" => invoke_my_module(args, ctx),
-
-fn invoke_my_module(args: Value, ctx: &InvokeContext<'_>) -> Result<InvokeResult> {
-    let raw: crate::my_module::schema::Args = decode_json(args, "my_module")?;
-    let args = crate::my_module::parse_args(raw, ctx); // 无占位符可省略
-    let output = crate::my_module::service::execute(&args)?;
-    Ok(output.into_invoke_result()) // 或 path_result / path_str_result
-}
-```
-
-### InvokeResult 映射
-
-| 输出类型 | registry 写法 |
-|----------|---------------|
-| 文件路径 `PathBuf` | `path_result(output.path)` |
-| `Option<PathBuf>` | `optional_path_result(output.path)` |
-| `Option<String>` 路径 | `path_str_result(output.path)` |
-| 纯 JSON 数据 | `output.into_invoke_result()` |
-| 路径 + 侧车 data | `path_str_result(...).with_ipc_data(output.data)` |
-| 无返回值 | `Ok(InvokeResult::default())` |
-
-`known_modules()` 用于 Pipeline 配置校验（`pipeline/config.rs`），漏注册会导致 pipeline step 校验失败。
-
-## Cargo Feature 注册
-
-编辑 `corex-core/Cargo.toml`：
-
-1. **模块 feature**（声明外部依赖）：
-   ```toml
-   my_module = ["dep:some-crate"]
-   ```
-
-2. **加入聚合 feature**（按需要）：
-   - `command` — 完整 CLI
-   - `invoke` — Pipeline / 统一调用层
-   - `daemon` — corex-serve（不含 pipeline/schedule）
-
-3. 在 `[dependencies]` 添加 `some-crate = { ... }`（若为新依赖）。
-
-4. 若模块产出文件且会被 pipeline 下游消费，确认是否需加入 `invoke` feature 列表。
-
-## lib.rs 与 command/mod.rs
-
-**lib.rs：**
-```rust
-#[cfg(feature = "my_module")]
-pub mod my_module;
-```
-
-**command/mod.rs：**
-- `use crate::my_module;`
-- `Commands` enum 加 variant（带 `#[cfg(feature = "my_module")]`）
-- `dispatch()` match 加分支 → `my_module::run(&a)`
-
-## parse.rs（Pipeline 占位符）
-
-仅当 Args 含路径/字符串且需在 Pipeline 中引用 `${var.x}` / `${steps.prev.path}` 时添加：
-
-```rust
-pub fn parse_args(parsed: Args, ctx: &InvokeContext<'_>) -> Args {
-    Args {
-        path: ctx.parse(&parsed.path),
-        // 其余字段原样透传
-        ..parsed
+    async fn execute(
+        &self,
+        params: Value,
+        _ctx: &mut ExecutionContext,
+    ) -> Result<Value, ActionError> {
+        let map = params
+            .as_map()
+            .ok_or_else(|| ActionError::InvalidParams("需要 map 参数".into()))?;
+        let input = map
+            .get("input")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| ActionError::MissingParam("input".into()))?;
+        // 纯业务；禁止 println!
+        Ok(Value::Str(input.to_string()))
     }
 }
+
+pub fn register(registry: &mut ActionRegistry) {
+    registry.register(Arc::new(FooBar));
+}
 ```
 
-`scan`、`bootstrap` 等无路径占位需求的模块可省略 `parse.rs`，registry 直接 `execute(&raw)`。
+### 要点
+
+| 项 | 要求 |
+|----|------|
+| ID | 全局唯一点分 ID，如 `foo.bar` |
+| `execute` | 无 `println!` / `eprintln!`；返回 `Value` |
+| 参数 | 用 `Value` map；校验用 `ActionError::*` |
+| 多动作 | 同一文件多个 struct，或多个 `register` 调用 |
+| 占位符 | Shortcut YAML 的 `{{var}}` 由 **engine** 在调用前解析，Action 收到已展开值 |
+
+## 注册：`builtin/mod.rs`
+
+```rust
+#[cfg(feature = "act-foo")]
+pub mod foo;
+
+pub fn register_all(registry: &mut ActionRegistry) {
+    #[cfg(feature = "act-foo")]
+    foo::register(registry);
+}
+```
+
+## Cargo feature：`crates/registry/Cargo.toml`
+
+```toml
+[features]
+full = [
+  # ...
+  "act-foo",
+]
+act-foo = ["dep:some-crate"]   # 无新依赖则 act-foo = []
+
+[dependencies]
+some-crate = { workspace = true, optional = true }
+```
+
+- 新依赖先写入 **workspace** `Cargo.toml` 的 `[workspace.dependencies]`，再在 registry 中 `optional = true`。
+- 未稳定前可不进 `full`，用 `cargo test -p corex-registry --features act-foo` 验证。
+
+## 不再使用的旧路径（禁止）
+
+| 旧做法 | 状态 |
+|--------|------|
+| `corex-core/src/<module>/{schema,service,parse}.rs` | 已删除 |
+| `invoke/registry.rs` 静态 match / `known_modules()` | 已删除 |
+| `command/mod.rs` clap 子命令树 | 已删除（CLI 用 Shortcut / Action，非每模块子命令） |
+| `corex-serve` / Named Pipe 旧协议 `module`+`action` | 已删除；现用 `corex-daemon` + `corex-ipc` |
+
+## Shortcut YAML 用法
+
+```yaml
+name: demo-foo
+steps:
+  - id: step1
+    action: foo.bar
+    params:
+      input: "{{input.text}}"
+    save_to: out
+```
+
+```bash
+corex run demo-foo --input text=hello
+corex actions   # 应列出 foo.bar
+```
+
+## IPC（Daemon）
+
+```json
+{"type":"invoke","id":1,"action":"foo.bar","params":{"input":"hello"}}
+```
 
 ## 测试
 
 至少覆盖：
 
-1. **单元测试** — `service.rs` 内 `#[cfg(test)]` 或 `corex-core/tests/`
-2. **invoke 集成** — `tests/invoke_modules.rs` 加一条 `invoke("my_module", json!(...))` 测试
-3. **CLI smoke** — `cargo run -p corex -- my_module --help`
+1. **单元测试** — `builtin/<name>.rs` 内 `#[cfg(test)]` 或 `crates/registry` tests
+2. **Registry 可见** — `register_builtins` 后 `contains("foo.bar")`
+3. **构建**
 
-```powershell
-cargo build -p corex-core --features my_module
-cargo test -p corex-core --features invoke
-cargo build --workspace
+```bash
+cargo test -p corex-registry --features act-foo
+cargo build -p corex -p corex-daemon
+cargo test --workspace
 ```
 
-## 从外部项目迁移
-
-参考 [补全 corex 功能模块](docs/architecture.md) 与历史迁移（codec/scan/morph）：
+## 从外部 / 旧 monolith 迁移
 
 **应迁移：** 纯 Rust 业务逻辑、无 UI/DB 依赖的工具函数。
 
-**不迁移：**
-- Tauri `#[tauri::command]` 胶水
-- SeaORM / 产品 CRUD
-- 窗口、托盘、emit 相关代码
+**不迁移：** Tauri command 胶水、SeaORM/CRUD、窗口/托盘。
 
-迁移步骤：
-1. 将 `utils/xxx.rs` 逻辑迁入 `service.rs::execute`
-2. clap 参数迁入 `schema.rs`
-3. Tauri 侧改为 `corex_ipc::invoke("module", args)` 薄调用
-4. 删除 Tauri 内重复业务代码
+步骤：
+
+1. 将业务逻辑迁入 `builtin/<name>.rs` 的 `Action::execute`
+2. 参数从 clap `Args` 改为 `Value` map + `ParamSchema`
+3. 注册 `act-<name>` + `builtin/mod.rs`
+4. Tauri / 调用方改为 Shortcut YAML 或 `Request::Invoke { action, params }`
 
 ## 常见错误
 
 | 症状 | 原因 | 修复 |
 |------|------|------|
-| `未知或未启用的模块` | registry 未注册或 feature 未启用 | 检查 registry + Cargo.toml |
-| Pipeline 校验失败 | `known_modules()` 缺项 | 补 registry |
-| IPC 参数解析失败 | JSON 结构与 Args 不一致 | 用 typed variant 格式 |
-| CLI 有输出、Pipeline 无输出 | 逻辑写在 `run` 而非 `execute` | 下沉到 `execute` |
-| daemon 编译失败 | 新模块未加入 `daemon` feature | 更新 Cargo.toml |
+| `动作未注册` | feature 未开或未 `register` | 查 `act-*` + `register_all` |
+| CLI 有、daemon 无 | daemon 未开对应 feature | daemon 依赖 `corex-registry` 的 `full` |
+| 编译失败（可选依赖） | feature 未声明 `dep:` | 修正 `Cargo.toml` |
+| 仍改 `invoke/registry` | 用了旧 skill | 改走 `builtin/<name>.rs` |
 
 ## 输出给用户
 
-完成实现后，用以下格式汇报：
-
 ```markdown
-## 新增模块：`<name>`
+## 新增 Action：`<id>`
 
-**类型：** Invoke 业务模块
-**文件：** `corex-core/src/<name>/`（列出新建/修改文件）
+**Feature：** `act-<name>`
+**文件：** `crates/registry/src/builtin/<name>.rs`
 
-### CLI
-corex <name> ...
+### Shortcut
+- action: <id>
+  params: ...
 
 ### IPC
-{"type":"invoke","id":1,"module":"<name>","args":{...}}
+{"type":"invoke","id":1,"action":"<id>","params":{...}}
 
-### Pipeline step
-- module: <name>
-- args: ...
-
-### 验证命令
-cargo test -p corex-core --features invoke
+### 验证
+cargo test -p corex-registry --features act-<name>
+cargo build -p corex -p corex-daemon
 ```
 
 ## 相关文档
 
-- [docs/architecture.md](../../../docs/architecture.md) — 模块契约与 feature 树
-- [docs/ipc-protocol.md](../../../docs/ipc-protocol.md) — IPC typed 协议
-- [docs/pipeline-v3.md](../../../docs/pipeline-v3.md) — Pipeline step 配置
+- [docs/architecture.md](../../../docs/architecture.md) — v4 workspace 与执行模型
+- [docs/breaking-changes-v4.md](../../../docs/breaking-changes-v4.md) — 破坏性变更
+- [plugins/README.md](../../../plugins/README.md) — WASM 插件（非内置 Action）
 
 ## 相关 Skill
 

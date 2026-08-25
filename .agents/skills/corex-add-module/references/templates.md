@@ -1,192 +1,150 @@
-# 代码模板
+# 代码模板（v4 Action）
 
-将 `<module>`、`<Module>`、`<描述>` 替换为实际值。
+将 `<name>`、`<id>`、`<描述>` 替换为实际值。
 
-## mod.rs
-
-```rust
-pub mod schema;
-pub mod service;
-// pub mod parse;  // 需要 Pipeline 占位符时取消注释
-
-pub use service::run;
-// pub use parse::parse_args;
-```
-
-## schema.rs（单子命令）
+## builtin/<name>.rs（单 Action）
 
 ```rust
-use clap::Parser;
-use serde::{Deserialize, Serialize};
+//! `<id>` — <描述>
 
-/// <描述>
-#[derive(Debug, Parser, Clone, Serialize, Deserialize)]
-pub struct Args {
-    /// 输入路径
-    #[arg(value_parser = crate::utils::verifier::path)]
-    pub input: String,
-}
-```
+use crate::ActionRegistry;
+use async_trait::async_trait;
+use corex_core::{
+    Action, ActionCategory, ActionError, ActionMeta, ExecutionContext, ParamSchema, SchemaType,
+    Value,
+};
+use std::sync::Arc;
 
-## schema.rs（多子命令）
+pub struct FooBar;
 
-```rust
-use clap::{Parser, Subcommand};
-use serde::{Deserialize, Serialize};
+#[async_trait]
+impl Action for FooBar {
+    fn meta(&self) -> ActionMeta {
+        ActionMeta::new(
+            "<id>",
+            "Foo Bar",
+            "<描述>",
+            ActionCategory::Data,
+        )
+        .with_params(vec![
+            ParamSchema::new("input", SchemaType::Str, true),
+        ])
+    }
 
-#[derive(Debug, Parser, Clone, Serialize, Deserialize)]
-pub enum Args {
-    /// 子命令 A
-    ActionA(ActionAArgs),
-    /// 子命令 B
-    ActionB(ActionBArgs),
-}
-
-#[derive(Debug, Parser, Clone, Serialize, Deserialize, Default)]
-pub struct ActionAArgs {
-    pub input: Option<String>,
-}
-```
-
-## service.rs（返回路径）
-
-```rust
-use std::path::PathBuf;
-
-use anyhow::Result;
-
-use crate::<module>::schema::Args;
-
-#[derive(Debug, Clone)]
-pub struct Output {
-    pub path: PathBuf,
+    async fn execute(
+        &self,
+        params: Value,
+        _ctx: &mut ExecutionContext,
+    ) -> Result<Value, ActionError> {
+        let map = params
+            .as_map()
+            .ok_or_else(|| ActionError::InvalidParams("需要 map 参数".into()))?;
+        let input = map
+            .get("input")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| ActionError::MissingParam("input".into()))?;
+        Ok(Value::Str(input.to_string()))
+    }
 }
 
-pub fn run(args: &Args) -> Result<()> {
-    let output = execute(args)?;
-    println!("✅ {}", output.path.display());
-    Ok(())
+pub fn register(registry: &mut ActionRegistry) {
+    registry.register(Arc::new(FooBar));
 }
 
-pub fn execute(args: &Args) -> Result<Output> {
-    // TODO: 业务逻辑
-    todo!()
-}
-```
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::collections::BTreeMap;
 
-## service.rs（返回 JSON 数据）
-
-```rust
-use anyhow::Result;
-use serde::Serialize;
-use serde_json::{Value, json};
-
-use crate::<module>::schema::Args;
-use crate::invoke::{Artifact, InvokeResult};
-
-#[derive(Debug, Serialize)]
-pub struct Data {
-    pub field: String,
-}
-
-pub fn run(args: &Args) -> Result<()> {
-    let data = execute(args)?;
-    println!("{}", serde_json::to_string_pretty(&data)?);
-    Ok(())
-}
-
-pub fn execute(args: &Args) -> Result<Data> {
-    todo!()
-}
-
-impl Data {
-    pub fn into_invoke_result(self) -> InvokeResult {
-        InvokeResult::from_artifact(Artifact::default().with_data("data", json!(self)))
+    #[tokio::test]
+    async fn executes() {
+        let action = FooBar;
+        let mut ctx = ExecutionContext::default();
+        let mut map = BTreeMap::new();
+        map.insert("input".into(), Value::Str("hi".into()));
+        let out = action.execute(Value::Map(map), &mut ctx).await.unwrap();
+        assert_eq!(out.as_str(), Some("hi"));
     }
 }
 ```
 
-## parse.rs
+## builtin/<name>.rs（多 Action）
 
 ```rust
-use crate::<module>::schema::Args;
-use crate::invoke::InvokeContext;
+pub struct FooEncode;
+pub struct FooDecode;
 
-pub fn parse_args(parsed: Args, ctx: &InvokeContext<'_>) -> Args {
-    Args {
-        input: ctx.parse(&parsed.input),
+#[async_trait]
+impl Action for FooEncode {
+    fn meta(&self) -> ActionMeta {
+        ActionMeta::new("foo.encode", "Foo Encode", "...", ActionCategory::Data)
     }
+    async fn execute(&self, params: Value, ctx: &mut ExecutionContext) -> Result<Value, ActionError> {
+        // ...
+        Ok(Value::Null)
+    }
+}
+
+#[async_trait]
+impl Action for FooDecode {
+    fn meta(&self) -> ActionMeta {
+        ActionMeta::new("foo.decode", "Foo Decode", "...", ActionCategory::Data)
+    }
+    async fn execute(&self, params: Value, ctx: &mut ExecutionContext) -> Result<Value, ActionError> {
+        // ...
+        Ok(Value::Null)
+    }
+}
+
+pub fn register(registry: &mut ActionRegistry) {
+    registry.register(Arc::new(FooEncode));
+    registry.register(Arc::new(FooDecode));
 }
 ```
 
-## invoke/registry.rs 片段
+## builtin/mod.rs 片段
 
 ```rust
-#[cfg(feature = "<module>")]
-"<module>" => invoke_<module>(args, ctx),
+#[cfg(feature = "act-<name>")]
+pub mod <name>;
 
-#[cfg(feature = "<module>")]
-fn invoke_<module>(args: Value, ctx: &InvokeContext<'_>) -> Result<InvokeResult> {
-    let raw: crate::<module>::schema::Args = decode_json(args, "<module>")?;
-    let args = crate::<module>::parse_args(raw, ctx); // 无 parse 时用 &raw
-    let output = crate::<module>::service::execute(&args)?;
-    Ok(output.into_invoke_result())
+pub fn register_all(registry: &mut ActionRegistry) {
+    #[cfg(feature = "act-<name>")]
+    <name>::register(registry);
 }
 ```
 
 ## Cargo.toml 片段
 
 ```toml
-# features 段
-<module> = ["dep:some-crate"]
-
-command = [
-    # ...existing...
-    "<module>",
+[features]
+full = [
+  # ...
+  "act-<name>",
 ]
+act-<name> = []                 # 或 ["dep:some-crate"]
 
-invoke = [
-    # ...existing...
-    "<module>",
-]
-
-daemon = [
-    # ...existing...
-    "<module>",
-]
-
-# dependencies 段
-some-crate = { version = "1", ... }
+[dependencies]
+# some-crate = { workspace = true, optional = true }
 ```
 
-## invoke 集成测试
+## Shortcut YAML
 
-```rust
-#[test]
-fn invoke_<module>_smoke() {
-    let ctx = cx::invoke::InvokeContext::empty();
-    let result = cx::invoke::invoke(
-        "<module>",
-        serde_json::json!({ /* typed Args */ }),
-        &ctx,
-    )
-    .expect("invoke <module>");
-    // assert path or data
-    assert!(result.data.is_some() || result.path_string().is_some());
-}
+```yaml
+name: demo-<name>
+description: ""
+inputs: []
+variables: {}
+steps:
+  - id: main
+    action: <id>
+    params:
+      input: "hello"
+    save_to: result
 ```
 
-## IPC 请求示例
+## IPC Invoke
 
 ```json
-{
-  "type": "invoke",
-  "id": 1,
-  "module": "<module>",
-  "args": {
-    "ActionA": {
-      "input": "hello"
-    }
-  }
-}
+{"type":"invoke","id":1,"action":"<id>","params":{"input":"hello"}}
 ```

@@ -1,29 +1,12 @@
-//! Transport abstraction and Unix socket implementation.
+//! Unix domain socket transport (newline-delimited JSON).
 
+use super::{Transport, TransportError};
 use crate::protocol::{Request, Response};
 use async_trait::async_trait;
 use std::path::{Path, PathBuf};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 
-/// Abstract IPC transport.
-#[async_trait]
-pub trait Transport: Send + Sync {
-    async fn send(&mut self, request: &Request) -> Result<Response, TransportError>;
-}
-
-#[derive(Debug, thiserror::Error)]
-pub enum TransportError {
-    #[error("连接失败: {0}")]
-    Connect(String),
-    #[error("IO 错误: {0}")]
-    Io(#[from] std::io::Error),
-    #[error("协议错误: {0}")]
-    Protocol(String),
-    #[error("未实现: {0}")]
-    Unsupported(String),
-}
-
-/// Newline-delimited JSON over a Unix domain socket (Unix).
+/// Newline-delimited JSON over a Unix domain socket.
 #[derive(Debug, Clone)]
 pub struct UnixSocketTransport {
     path: PathBuf,
@@ -39,7 +22,6 @@ impl UnixSocketTransport {
     }
 
     /// Serve connections: for each newline-delimited JSON request, call `handler`.
-    #[cfg(unix)]
     pub async fn serve<F, Fut>(path: &Path, mut handler: F) -> Result<(), TransportError>
     where
         F: FnMut(Request) -> Fut + Send,
@@ -81,22 +63,10 @@ impl UnixSocketTransport {
             }
         }
     }
-
-    #[cfg(not(unix))]
-    pub async fn serve<F, Fut>(_path: &Path, _handler: F) -> Result<(), TransportError>
-    where
-        F: FnMut(Request) -> Fut + Send,
-        Fut: std::future::Future<Output = Response> + Send,
-    {
-        Err(TransportError::Unsupported(
-            "非 Unix 平台请使用 Named Pipe / interprocess（后续）".into(),
-        ))
-    }
 }
 
 #[async_trait]
 impl Transport for UnixSocketTransport {
-    #[cfg(unix)]
     async fn send(&mut self, request: &Request) -> Result<Response, TransportError> {
         use tokio::net::UnixStream;
 
@@ -118,12 +88,5 @@ impl Transport for UnixSocketTransport {
         let resp: Response = serde_json::from_str(&line)
             .map_err(|e| TransportError::Protocol(format!("响应解析失败: {e}")))?;
         Ok(resp)
-    }
-
-    #[cfg(not(unix))]
-    async fn send(&mut self, _request: &Request) -> Result<Response, TransportError> {
-        Err(TransportError::Unsupported(
-            "非 Unix 平台 UnixSocketTransport::send 不可用".into(),
-        ))
     }
 }

@@ -1,11 +1,13 @@
 //! Corex CLI entrypoint.
 
+mod repl;
+
 use anyhow::{bail, Context, Result};
 use clap::{Parser, Subcommand};
 use corex_core::{ExecutionContext, RuntimeConfig, Value};
 use corex_engine::{ExecutionHistory, Pipeline, Shortcut};
 use corex_ipc::protocol::{Request, Response};
-use corex_ipc::transport::{Transport, UnixSocketTransport};
+use corex_ipc::{default_endpoint, platform_transport, Transport};
 use corex_registry::ActionRegistry;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -54,6 +56,8 @@ enum Commands {
     Validate {
         path: PathBuf,
     },
+    /// Interactive REPL
+    Repl,
     /// Daemon control
     Daemon {
         #[command(subcommand)]
@@ -84,6 +88,7 @@ async fn main() -> Result<()> {
         Commands::Actions => cmd_actions(),
         Commands::Create { name, dir } => cmd_create(&name, dir.or(cli.dir).as_deref()),
         Commands::Validate { path } => cmd_validate(&path),
+        Commands::Repl => repl::run(cli.dir).await,
         Commands::Daemon { command } => cmd_daemon(command).await,
     }
 }
@@ -119,8 +124,8 @@ fn shortcuts_dir(override_dir: Option<&Path>) -> Result<PathBuf> {
     Ok(d)
 }
 
-fn socket_path() -> Result<PathBuf> {
-    Ok(data_dir()?.join("corex.sock"))
+fn ipc_endpoint() -> Result<PathBuf> {
+    Ok(default_endpoint(&data_dir()?))
 }
 
 fn build_registry() -> ActionRegistry {
@@ -221,7 +226,7 @@ fn resolve_shortcut_path(target: &str, dir: Option<&Path>) -> Result<PathBuf> {
     bail!("快捷指令未找到: {target}");
 }
 
-async fn cmd_run(target: &str, inputs: &[String], dir: Option<&Path>) -> Result<()> {
+pub(crate) async fn cmd_run(target: &str, inputs: &[String], dir: Option<&Path>) -> Result<()> {
     let path = resolve_shortcut_path(target, dir)?;
     let shortcut = Shortcut::from_yaml_file(&path)?;
     let input = parse_inputs(inputs)?;
@@ -244,7 +249,7 @@ async fn cmd_run(target: &str, inputs: &[String], dir: Option<&Path>) -> Result<
     Ok(())
 }
 
-fn cmd_list(dir: Option<&Path>) -> Result<()> {
+pub(crate) fn cmd_list(dir: Option<&Path>) -> Result<()> {
     let base = shortcuts_dir(dir)?;
     let mut names = Vec::new();
     if base.exists() {
@@ -291,7 +296,7 @@ fn cmd_list(dir: Option<&Path>) -> Result<()> {
     Ok(())
 }
 
-fn cmd_actions() -> Result<()> {
+pub(crate) fn cmd_actions() -> Result<()> {
     let reg = build_registry();
     for meta in reg.list() {
         println!(
@@ -379,11 +384,9 @@ async fn cmd_daemon(cmd: DaemonCmd) -> Result<()> {
             Ok(())
         }
         DaemonCmd::Stop => {
-            let mut transport = UnixSocketTransport::new(socket_path()?);
-            match transport
-                .send(&Request::Shutdown { id: 1 })
-                .await
-            {
+            let endpoint = ipc_endpoint()?;
+            let mut transport = platform_transport(&endpoint);
+            match transport.send(&Request::Shutdown { id: 1 }).await {
                 Ok(Response::Bye { .. }) | Ok(Response::Ok { .. }) => {
                     println!("已发送 shutdown");
                     Ok(())
@@ -394,10 +397,11 @@ async fn cmd_daemon(cmd: DaemonCmd) -> Result<()> {
             }
         }
         DaemonCmd::Status => {
-            let mut transport = UnixSocketTransport::new(socket_path()?);
+            let endpoint = ipc_endpoint()?;
+            let mut transport = platform_transport(&endpoint);
             match transport.send(&Request::Ping { id: 1 }).await {
                 Ok(Response::Pong { .. }) => {
-                    println!("running ({})", socket_path()?.display());
+                    println!("running ({})", endpoint.display());
                     Ok(())
                 }
                 Ok(other) => {

@@ -1,30 +1,40 @@
 # Progress Log
 
+## Session: 2026-08-25 — Windows IPC + REPL + cleanup
+
+### Done
+- Windows Named Pipe：`NamedPipeTransport`（interprocess 2.x tokio）+ `default_endpoint` / `serve_platform`
+- CLI/daemon 按平台选 Unix socket 或 `\\.\pipe\corex`（`--socket` / `--pipe`）
+- `corex repl`：help / actions / list / run / quit
+- 删除旧 monolith：`corex/`、`corex-core/`、`corex-serve/`、`corex-capture/`（保留 `pdfium/`）
+- 重写 `.agents/skills/corex-add-module` 为 v4 Action（`builtin/<name>.rs` + `act-*`）
+- 规划文件标记 P0–P5 完成；剩余：Windows CI 实机验证 Named Pipe
+
+### Test Results
+| Test | Expected | Actual | Status |
+|------|----------|--------|--------|
+| cargo build -p corex -p corex-daemon | success | （本会话验证中） | 🔄 |
+| cargo test --workspace | pass | （本会话验证中） | 🔄 |
+| Windows Named Pipe | serve/send NDJSON | 需 Windows CI | ⏭ |
+
 ## Session: 2026-08-25 — P3 WASM + P5 hardening
 
 ### Done
-- P3: wasmtime 34 behind `wasm` feature；`WasmPluginHost`（Engine async+component model、WasiCtxBuilder、Linker）
-- P3: discovery 扫描 `*.wasm` 并尝试 load；失败 log/skip；`plugins/README.md`
-- P5: `ExecutionHistory` JSONL；Pipeline `with_history`；CLI/daemon 接线；`history_smoke`
-- P5: `docs/architecture.md`、`docs/breaking-changes-v4.md`、README workspace/`corex-daemon`
-- P5: publish-release + build-and-test → `corex` + `corex-daemon`；tauri 示例改名
-- 旧 `pipelines.yaml` → `examples/shortcuts/pipelines-v3-legacy.yaml`
-- 旧 monolith 目录保留（P4 仍可能引用）
+- P3: wasmtime 34 behind `wasm` feature；`WasmPluginHost`
+- P3: discovery 扫描 `*.wasm`；`plugins/README.md`
+- P5: `ExecutionHistory` JSONL；CLI/daemon；docs；CI → `corex` + `corex-daemon`
 
 ### Test Results
 | Test | Expected | Actual | Status |
 |------|----------|--------|--------|
 | cargo build -p corex -p corex-daemon | success | success | ✅ |
-| history_smoke | JSONL ok/fail | pass | ✅ |
-| pipeline_smoke | Hi, corex! | pass | ✅ |
-| control_flow | if/repeat/parallel | pass | ✅ |
-| P4 act-morph/full | compile | 未纳入 full（另一 agent） | ⏭ |
+| history_smoke / pipeline_smoke / control_flow | pass | pass | ✅ |
 
 ## 5-Question Reboot Check
 | Question | Answer |
 |----------|--------|
-| Where am I? | P3+P5 完成并待 push |
-| Where am I going? | 另一 agent 完成 P4 后再删旧 crate |
+| Where am I? | P0–P5 完成；收尾 IPC/REPL/清理 |
+| Where am I going? | Windows CI 验证 Named Pipe |
 | What's the goal? | corex 企业级可组合快捷指令架构 |
-| What have I learned? | wasmtime-wasi 34 在 `p2`；Action future 非 Send 时不宜 JoinSet |
-| What have I done? | WASM host 骨架 + 历史/文档/CI |
+| What have I learned? | interprocess named pipe 用 `&conn` 双半读写，无 into_split |
+| What have I done? | Named Pipe + REPL + 删旧 crate + skill/docs |
