@@ -453,7 +453,13 @@ async fn cmd_daemon(cmd: DaemonCmd) -> Result<()> {
         }
         DaemonCmd::Status => {
             let endpoint = ipc_endpoint()?;
-            let token = load_auth_token()?;
+            let token = match load_auth_token() {
+                Ok(t) => t,
+                Err(_) => {
+                    println!("stopped");
+                    return Ok(());
+                }
+            };
             let mut transport = platform_transport(&endpoint);
             let req = Request::Ping {
                 id: 1,
