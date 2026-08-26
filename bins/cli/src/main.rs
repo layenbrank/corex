@@ -7,7 +7,7 @@ use clap::{Parser, Subcommand};
 use corex_core::{DaemonConfig, ExecutionContext, LoggingConfig, RuntimeConfig, Value};
 use corex_engine::{ExecutionHistory, Pipeline, Shortcut};
 use corex_ipc::protocol::{Request, Response};
-use corex_ipc::{default_endpoint, platform_transport, Transport};
+use corex_ipc::{default_endpoint, platform_data_dir, platform_transport, Transport};
 use corex_registry::ActionRegistry;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -107,25 +107,17 @@ fn init_tracing(verbose: u8) {
         .try_init();
 }
 
-fn data_dir() -> Result<PathBuf> {
-    let base = directories::ProjectDirs::from("dev", "corex", "corex")
-        .map(|d| d.data_dir().to_path_buf())
-        .unwrap_or_else(|| PathBuf::from(".corex"));
-    std::fs::create_dir_all(&base)?;
-    Ok(base)
-}
-
 fn shortcuts_dir(override_dir: Option<&Path>) -> Result<PathBuf> {
     if let Some(d) = override_dir {
         return Ok(d.to_path_buf());
     }
-    let d = data_dir()?.join("shortcuts");
+    let d = platform_data_dir()?.join("shortcuts");
     std::fs::create_dir_all(&d)?;
     Ok(d)
 }
 
 fn ipc_endpoint() -> Result<PathBuf> {
-    let data = data_dir()?;
+    let data = platform_data_dir()?;
     let config = load_runtime_config();
     if let Some(p) = &config.daemon.socket_path {
         return Ok(resolve_data_relative(&data, p));
@@ -157,7 +149,7 @@ fn load_auth_token() -> Result<String> {
             return Ok(t);
         }
     }
-    let path = data_dir()?.join("token");
+    let path = platform_data_dir()?.join("token");
     let text = std::fs::read_to_string(&path)
         .with_context(|| format!("无法读取 auth token {}", path.display()))?;
     let token = text.trim().to_string();
@@ -178,7 +170,7 @@ fn build_registry() -> ActionRegistry {
 fn load_runtime_config() -> RuntimeConfig {
     let candidates = [
         PathBuf::from("config/default.toml"),
-        data_dir()
+        platform_data_dir()
             .map(|d| d.join("config.toml"))
             .unwrap_or_default(),
     ];
@@ -288,7 +280,7 @@ pub(crate) async fn cmd_run(target: &str, inputs: &[String], dir: Option<&Path>)
         let hist_path = if config.history.file.is_absolute() {
             config.history.file.clone()
         } else {
-            data_dir()?.join(&config.history.file)
+            platform_data_dir()?.join(&config.history.file)
         };
         let history = ExecutionHistory::open(hist_path).context("无法打开执行历史")?;
         pipeline = pipeline.with_history(history);

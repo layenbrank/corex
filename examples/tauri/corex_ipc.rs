@@ -113,7 +113,7 @@ pub fn auth_token() -> Result<String, String> {
 fn dirs_hint_token() -> Option<PathBuf> {
     // Best-effort: common Linux path; Windows/macOS hosts should set COREX_TOKEN.
     let home = std::env::var_os("HOME")?;
-    Some(PathBuf::from(home).join(".local/share/corex/corex/token"))
+    Some(PathBuf::from(home).join(".local/share/corex/token"))
 }
 
 /// Sidecar / sibling `corex-daemon` path (adjust for packing).

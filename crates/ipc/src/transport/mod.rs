@@ -38,6 +38,19 @@ pub enum TransportError {
     Unsupported(String),
 }
 
+/// Platform project data directory for corex.
+///
+/// Uses `ProjectDirs::from("dev", "", "corex")` so Windows resolves to
+/// `%AppData%\corex\data` (not `%AppData%\corex\corex\data`). Falls back to
+/// `.corex` when project dirs are unavailable. Creates the directory if needed.
+pub fn platform_data_dir() -> std::io::Result<PathBuf> {
+    let base = directories::ProjectDirs::from("dev", "", "corex")
+        .map(|d| d.data_dir().to_path_buf())
+        .unwrap_or_else(|| PathBuf::from(".corex"));
+    std::fs::create_dir_all(&base)?;
+    Ok(base)
+}
+
 /// Default IPC endpoint for the given data directory.
 ///
 /// - Unix: `<data_dir>/corex.sock`
