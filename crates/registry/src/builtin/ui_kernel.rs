@@ -3,8 +3,6 @@
 use corex_core::{ActionError, ExecutionContext, Value};
 use std::collections::BTreeMap;
 
-pub const MAX_SELECTOR_CHAIN: usize = 5;
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum WaitState {
     Present,
@@ -112,17 +110,18 @@ pub fn window_query_from_params(
     Ok(q)
 }
 
-/// Flat params or `selectors: [{...}, ...]` fallback chain (max 5).
+/// Flat params or `selectors: [{...}, ...]` fallback chain (length capped by runtime).
 pub fn selector_chain_from_params(
     map: &BTreeMap<String, Value>,
+    max_chain: usize,
 ) -> Result<Vec<ElementSelector>, ActionError> {
     if let Some(list) = map.get("selectors").and_then(|v| v.as_list()) {
         if list.is_empty() {
             return Err(ActionError::InvalidParams("selectors 不能为空".into()));
         }
-        if list.len() > MAX_SELECTOR_CHAIN {
+        if list.len() > max_chain {
             return Err(ActionError::InvalidParams(format!(
-                "selectors 最多 {MAX_SELECTOR_CHAIN} 条"
+                "selectors 最多 {max_chain} 条（可在 [runtime] 调整 ui_max_selector_chain / ui_profile）"
             )));
         }
         let mut out = Vec::with_capacity(list.len());
@@ -171,16 +170,97 @@ fn opt_str(map: &BTreeMap<String, Value>, key: &str) -> Option<String> {
     map.get(key).and_then(|v| v.as_str()).map(|s| s.to_string())
 }
 
+/// Suggested selector fallback chain (AutomationId → name+type → name → control_type).
+pub fn suggest_selectors(
+    automation_id: Option<&str>,
+    name: Option<&str>,
+    _class: Option<&str>,
+    control_type: Option<&str>,
+) -> Vec<ElementSelector> {
+    let mut out = Vec::new();
+    let ct = control_type.map(|s| s.to_string());
+    if let Some(aid) = automation_id.filter(|s| !s.is_empty()) {
+        out.push(ElementSelector {
+            automation_id: Some(aid.to_string()),
+            control_type: ct.clone(),
+            depth: 12,
+            ..Default::default()
+        });
+    }
+    if let Some(n) = name.filter(|s| !s.is_empty()) {
+        if let Some(ref ct_val) = ct {
+            out.push(ElementSelector {
+                name: Some(n.to_string()),
+                control_type: Some(ct_val.clone()),
+                depth: 12,
+                ..Default::default()
+            });
+        }
+        out.push(ElementSelector {
+            name: Some(n.to_string()),
+            depth: 12,
+            ..Default::default()
+        });
+    }
+    if out.is_empty() {
+        if let Some(ref ct_val) = ct {
+            out.push(ElementSelector {
+                control_type: Some(ct_val.clone()),
+                depth: 12,
+                ..Default::default()
+            });
+        }
+    }
+    out
+}
+
+/// YAML snippet for directive `selectors:` block.
+pub fn selector_chain_to_yaml(chain: &[ElementSelector]) -> String {
+    if chain.is_empty() {
+        return "selectors: []".into();
+    }
+    let mut lines = vec!["selectors:".into()];
+    for sel in chain {
+        lines.push("  -".into());
+        if let Some(aid) = &sel.automation_id {
+            lines.push(format!("      automation_id: {aid:?}"));
+        }
+        if let Some(n) = &sel.name {
+            lines.push(format!("      name: {n:?}"));
+        }
+        if let Some(n) = &sel.name_contains {
+            lines.push(format!("      name_contains: {n:?}"));
+        }
+        if let Some(ct) = &sel.control_type {
+            lines.push(format!("      control_type: {ct:?}"));
+        }
+    }
+    lines.join("\n")
+}
+
+#[cfg(test)]
+mod suggest_tests {
+    use super::*;
+
+    #[test]
+    fn suggest_prefers_automation_id() {
+        let chain = suggest_selectors(Some("btnOk"), Some("OK"), None, Some("button"));
+        assert!(!chain.is_empty());
+        assert_eq!(chain[0].automation_id.as_deref(), Some("btnOk"));
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use corex_core::MAX_SELECTOR_CHAIN;
 
     #[test]
     fn selector_chain_from_flat_params() {
         let mut m = BTreeMap::new();
         m.insert("name".into(), Value::Str("进入微信".into()));
         m.insert("control_type".into(), Value::Str("Button".into()));
-        let chain = selector_chain_from_params(&m).unwrap();
+        let chain = selector_chain_from_params(&m, MAX_SELECTOR_CHAIN).unwrap();
         assert_eq!(chain.len(), 1);
         assert_eq!(chain[0].name.as_deref(), Some("进入微信"));
     }
@@ -189,7 +269,22 @@ mod tests {
     fn selector_chain_rejects_empty() {
         let mut m = BTreeMap::new();
         m.insert("selectors".into(), Value::List(vec![]));
-        assert!(selector_chain_from_params(&m).is_err());
+        assert!(selector_chain_from_params(&m, MAX_SELECTOR_CHAIN).is_err());
+    }
+
+    #[test]
+    fn selector_chain_respects_runtime_cap() {
+        let mut m = BTreeMap::new();
+        m.insert(
+            "selectors".into(),
+            Value::List(vec![
+                Value::Map(BTreeMap::from([("name".into(), Value::Str("a".into()))])),
+                Value::Map(BTreeMap::from([("name".into(), Value::Str("b".into()))])),
+                Value::Map(BTreeMap::from([("name".into(), Value::Str("c".into()))])),
+            ]),
+        );
+        assert!(selector_chain_from_params(&m, 2).is_err());
+        assert_eq!(selector_chain_from_params(&m, 3).unwrap().len(), 3);
     }
 
     #[test]

@@ -2,6 +2,12 @@
 
 pub mod builtin;
 
+#[cfg(feature = "act-ui")]
+pub mod ui_probe;
+
+#[cfg(all(feature = "act-ui", windows))]
+pub mod ui_pick;
+
 #[cfg(feature = "wasm")]
 pub mod discovery;
 #[cfg(feature = "wasm")]

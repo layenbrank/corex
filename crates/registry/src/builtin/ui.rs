@@ -290,7 +290,7 @@ pub fn register(registry: &mut ActionRegistry) {
 }
 
 #[cfg(windows)]
-mod win {
+pub(crate) mod win {
     use super::*;
     use std::ffi::OsString;
     use std::os::windows::ffi::OsStringExt;
@@ -583,24 +583,160 @@ mod win {
         Ok(Value::Map(out))
     }
 
-    fn elem_to_map(el: &uiautomation::UIElement) -> BTreeMap<String, Value> {
+    fn format_control_type(el: &uiautomation::UIElement) -> Option<String> {
+        if let Ok(lct) = el.get_localized_control_type() {
+            let s = lct.trim();
+            if !s.is_empty() {
+                return Some(s.to_ascii_lowercase());
+            }
+        }
+        el.get_control_type()
+            .ok()
+            .map(control_type_enum_name)
+    }
+
+    fn control_type_enum_name(ct: uiautomation::types::ControlType) -> String {
+        use uiautomation::types::ControlType;
+        match ct {
+            ControlType::Button => "button",
+            ControlType::Edit => "edit",
+            ControlType::Text => "text",
+            ControlType::Window => "window",
+            ControlType::Pane => "pane",
+            ControlType::List => "list",
+            ControlType::ListItem => "listitem",
+            ControlType::Menu => "menu",
+            ControlType::MenuItem => "menuitem",
+            ControlType::CheckBox => "checkbox",
+            ControlType::ComboBox => "combobox",
+            ControlType::Tab => "tab",
+            ControlType::TabItem => "tabitem",
+            ControlType::Tree => "tree",
+            ControlType::TreeItem => "treeitem",
+            ControlType::Document => "document",
+            ControlType::Hyperlink => "hyperlink",
+            ControlType::ToolBar => "toolbar",
+            ControlType::ToolTip => "tooltip",
+            ControlType::Image => "image",
+            ControlType::Group => "group",
+            ControlType::TitleBar => "titlebar",
+            ControlType::Custom => "custom",
+            _ => "unknown",
+        }
+        .into()
+    }
+
+    pub(crate) fn elem_to_map(el: &uiautomation::UIElement) -> BTreeMap<String, Value> {
         let mut m = BTreeMap::new();
         if let Ok(h) = el.get_native_window_handle() {
             let raw: isize = h.into();
             m.insert("hwnd".into(), Value::Int(raw as i64));
         }
         if let Ok(n) = el.get_name() {
-            m.insert("name".into(), Value::Str(n));
+            if !n.is_empty() {
+                m.insert("name".into(), Value::Str(n));
+            }
         }
         if let Ok(aid) = el.get_automation_id() {
-            m.insert("automation_id".into(), Value::Str(aid));
+            if !aid.is_empty() {
+                m.insert("automation_id".into(), Value::Str(aid));
+            }
         }
-        if let Ok(ct) = el.get_control_type() {
-            m.insert("control_type".into(), Value::Str(format!("{ct:?}")));
+        if let Some(ct) = format_control_type(el) {
+            m.insert("control_type".into(), Value::Str(ct));
         }
         if let Ok(cn) = el.get_classname() {
-            m.insert("class".into(), Value::Str(cn));
+            if !cn.is_empty() {
+                m.insert("class".into(), Value::Str(cn));
+            }
         }
+        if let Ok(rect) = el.get_bounding_rectangle() {
+            let w = rect.get_width().max(0);
+            let h = rect.get_height().max(0);
+            if w > 0 || h > 0 {
+                let mut bounds = BTreeMap::new();
+                bounds.insert("x".into(), Value::Int(rect.get_left() as i64));
+                bounds.insert("y".into(), Value::Int(rect.get_top() as i64));
+                bounds.insert("width".into(), Value::Int(w as i64));
+                bounds.insert("height".into(), Value::Int(h as i64));
+                m.insert("bounds".into(), Value::Map(bounds));
+            }
+        }
+        let enabled = el.is_enabled().unwrap_or(false);
+        m.insert("enabled".into(), Value::Bool(enabled));
+        let offscreen = el.is_offscreen().unwrap_or(true);
+        m.insert("clickable".into(), Value::Bool(enabled && !offscreen));
+        m
+    }
+
+    pub(crate) fn element_at_point(x: i32, y: i32) -> Result<uiautomation::UIElement, ActionError> {
+        let auto = uiautomation::UIAutomation::new()
+            .map_err(|e| ActionError::execution(format!("UIAutomation 初始化失败: {e}")))?;
+        let pt = uiautomation::types::Point::new(x, y);
+        auto.element_from_point(pt)
+            .map_err(|e| ActionError::execution(format!("ElementFromPoint ({x},{y}) 失败: {e}")))
+    }
+
+    /// Walk ancestors until native HWND matches `scope_hwnd`.
+    pub(crate) fn element_in_scope(
+        el: &uiautomation::UIElement,
+        scope_hwnd: i64,
+    ) -> Result<bool, ActionError> {
+        let auto = uiautomation::UIAutomation::new()
+            .map_err(|e| ActionError::execution(format!("UIAutomation 初始化失败: {e}")))?;
+        let walker = auto
+            .get_control_view_walker()
+            .map_err(|e| ActionError::execution(format!("TreeWalker 失败: {e}")))?;
+        let mut current = el.clone();
+        for _ in 0..48 {
+            if let Ok(h) = current.get_native_window_handle() {
+                let raw: isize = h.into();
+                if raw as i64 == scope_hwnd {
+                    return Ok(true);
+                }
+            }
+            match walker.get_parent(&current) {
+                Ok(parent) => current = parent,
+                Err(_) => break,
+            }
+        }
+        Ok(false)
+    }
+
+    pub(crate) fn element_map_with_selectors(
+        el: &uiautomation::UIElement,
+    ) -> BTreeMap<String, Value> {
+        use crate::builtin::ui_kernel::{selector_chain_to_yaml, suggest_selectors};
+        let mut m = elem_to_map(el);
+        let aid = m.get("automation_id").and_then(|v| v.as_str());
+        let name = m.get("name").and_then(|v| v.as_str());
+        let class = m.get("class").and_then(|v| v.as_str());
+        let ct = m.get("control_type").and_then(|v| v.as_str());
+        let chain = suggest_selectors(aid, name, class, ct);
+        let selectors: Vec<Value> = chain
+            .iter()
+            .map(|sel| {
+                let mut sm = BTreeMap::new();
+                if let Some(a) = &sel.automation_id {
+                    sm.insert("automation_id".into(), Value::Str(a.clone()));
+                }
+                if let Some(n) = &sel.name {
+                    sm.insert("name".into(), Value::Str(n.clone()));
+                }
+                if let Some(n) = &sel.name_contains {
+                    sm.insert("name_contains".into(), Value::Str(n.clone()));
+                }
+                if let Some(c) = &sel.control_type {
+                    sm.insert("control_type".into(), Value::Str(c.clone()));
+                }
+                Value::Map(sm)
+            })
+            .collect();
+        m.insert("selectors".into(), Value::List(selectors));
+        m.insert(
+            "selectors_yaml".into(),
+            Value::Str(selector_chain_to_yaml(&chain)),
+        );
         m
     }
 
@@ -792,10 +928,10 @@ mod win {
         let map = require_map(&params)?.clone();
         let exec_ctx = ctx.clone();
         let timeout_ms = opt_i64(&map, "timeout_ms", 3000).max(0) as u64;
-        let chain = selector_chain_from_params(&map)?;
+        let chain = selector_chain_from_params(&map, exec_ctx.ui_max_selector_chain())?;
         tokio::task::spawn_blocking(move || {
             let el = find_with_chain(&map, &exec_ctx, &chain, timeout_ms)?;
-            Ok(Value::Map(elem_to_map(&el)))
+            Ok(Value::Map(element_map_with_selectors(&el)))
         })
         .await
         .map_err(|e| ActionError::execution(format!("ui.element.find 失败: {e}")))?
@@ -808,14 +944,14 @@ mod win {
         let map = require_map(&params)?.clone();
         let exec_ctx = ctx.clone();
         let timeout_ms = opt_i64(&map, "timeout_ms", 2000).max(0) as u64;
-        let chain = selector_chain_from_params(&map)?;
+        let chain = selector_chain_from_params(&map, exec_ctx.ui_max_selector_chain())?;
         tokio::task::spawn_blocking(move || {
             let found = find_with_chain(&map, &exec_ctx, &chain, timeout_ms);
             let mut out = BTreeMap::new();
             match found {
                 Ok(el) => {
                     out.insert("found".into(), Value::Bool(true));
-                    out.insert("element".into(), Value::Map(elem_to_map(&el)));
+                    out.insert("element".into(), Value::Map(element_map_with_selectors(&el)));
                 }
                 Err(_) => {
                     out.insert("found".into(), Value::Bool(false));
@@ -835,7 +971,7 @@ mod win {
         let exec_ctx = ctx.clone();
         let timeout_ms = opt_i64(&map, "timeout_ms", 3000).max(0) as u64;
         let safe = crate::builtin::ui_kernel::opt_bool(&map, "safe", true);
-        let chain = selector_chain_from_params(&map)?;
+        let chain = selector_chain_from_params(&map, exec_ctx.ui_max_selector_chain())?;
         tokio::task::spawn_blocking(move || {
             let el = if safe {
                 wait_element_state(
@@ -874,7 +1010,7 @@ mod win {
             .max(1) as u64;
         let state = wait_state_from_params(&map)?;
         let poll = poll_interval_ms(&map, 200);
-        let chain = selector_chain_from_params(&map)?;
+        let chain = selector_chain_from_params(&map, exec_ctx.ui_max_selector_chain())?;
         tokio::task::spawn_blocking(move || {
             if state == WaitState::Absent {
                 let deadline = Instant::now() + Duration::from_millis(timeout_ms);
@@ -1039,6 +1175,11 @@ mod win {
             "down" => Some(0x28),
             "left" => Some(0x25),
             "right" => Some(0x27),
+            "home" => Some(0x24),
+            "end" => Some(0x23),
+            "pageup" | "pgup" => Some(0x21),
+            "pagedown" | "pgdn" => Some(0x22),
+            "insert" | "ins" => Some(0x2D),
             "f1" => Some(0x70),
             "f2" => Some(0x71),
             "f3" => Some(0x72),
