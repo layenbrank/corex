@@ -1,5 +1,5 @@
 name: hello
-description: Sample shortcut — render a greeting and write it to a file
+description: Sample Directive — render a greeting and write it to a file
 version: "1.0"
 
 inputs:

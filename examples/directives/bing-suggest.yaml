@@ -1,0 +1,66 @@
+# 等价于已移除的 suggest.bing（参数与行为对齐）
+# 运行: corex run bing-suggest --input qry=rust
+#       corex run bing-suggest --input qry=hello --input pt=page.home --input cp=5
+name: bing-suggest
+description: Bing 搜索建议（原 suggest.bing，基于 http.request）
+version: "1.0"
+
+inputs:
+  - name: qry
+    description: 查询词（原 qry，必填）
+    required: true
+  - name: pt
+    description: 页面类型
+    required: false
+    default: "page.home"
+  - name: cp
+    description: 光标位置；省略时与 qry 字符数相同
+    required: false
+  - name: csr
+    description: csr 参数
+    required: false
+    default: "1"
+  - name: pths
+    description: pths 参数
+    required: false
+    default: "1"
+  - name: cvid
+    description: 客户端 ID；省略时自动生成（generate.cvid）
+    required: false
+  - name: user_agent
+    description: User-Agent；省略时用默认值
+    required: false
+
+variables:
+  user_agent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+
+permissions:
+  network: true
+
+steps:
+  - id: gen_cvid
+    action: generate.cvid
+    save_to: auto_cvid
+
+  - id: build_url
+    action: template.render
+    params:
+      template: >-
+        https://cn.bing.com/AS/Suggestions?pt={{ pt | default('page.home') | urlencode }}&qry={{ qry | urlencode }}&cp={% if cp is defined and cp != '' %}{{ cp }}{% else %}{{ qry | length }}{% endif %}&csr={{ csr | default('1') | urlencode }}&pths={{ pths | default('1') | urlencode }}&cvid={% if cvid is defined and cvid != '' %}{{ cvid | urlencode }}{% else %}{{ auto_cvid | urlencode }}{% endif %}
+    save_to: request_url
+
+  - id: bing
+    action: http.request
+    params:
+      url: "{{request_url}}"
+      method: GET
+      headers:
+        User-Agent: "{{user_agent}}"
+        Accept: "application/json, text/plain, */*"
+    save_to: suggest
+
+  - id: parse_suggest
+    action: codec.json.parse
+    params:
+      text: "{{suggest.body}}"
+    save_to: suggest_json

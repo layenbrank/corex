@@ -9,7 +9,7 @@ inputs:
   - name: from
     description: Source file or directory
     required: false
-    default: "./examples/shortcuts/hello.yaml"
+    default: "./examples/directives/hello.yaml"
   - name: to
     description: Destination path
     required: false

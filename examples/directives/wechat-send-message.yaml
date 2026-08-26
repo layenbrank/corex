@@ -1,0 +1,119 @@
+# Legal / Compliance
+# - 仅用于已授权的本地自动化；勿用于未经同意的监控。
+# - 可能违反微信等第三方 ToS；生产环境勿默认同步本文件。
+# - Experimental / fragile：UI 布局与版本变化会导致失败。
+# - 手机端确认登录为人工环节；PC 侧仅点击「进入微信」并等待 UI 变化。
+# 详见 docs/compliance.md / docs/ui-automation.md
+#
+# 运行（必填 contact + message）：
+#   corex run wechat-send-message -i contact=文件传输助手 -i message=你好
+# 同步 data_dir 副本：%LOCALAPPDATA%\corex\directives\wechat-send-message.yaml
+name: wechat-send-message
+description: 打开微信并向联系人发送消息（Windows UI 自动化示例）
+version: '0.5'
+
+inputs:
+  - name: contact
+    description: 微信搜索框里要找的联系人/聊天名
+    required: true
+  - name: message
+    description: 要发送的文本
+    required: true
+  - name: wechat_path
+    description: WeChat.exe 路径
+    required: false
+    default: "C:\\Program Files\\Tencent\\WeChat\\WeChat.exe"
+  - name: auto_login
+    description: 探测到 4.x 登录壳时是否自动点击「进入微信」
+    required: false
+    default: true
+  - name: login_timeout_ms
+    description: 点击「进入微信」后等待手机确认的最长时间（毫秒）
+    required: false
+    default: 120000
+
+permissions:
+  shell: true
+  ui: true
+
+steps:
+  - id: launch
+    action: shell.run
+    params:
+      command: '{{input.wechat_path}}'
+      wait: detach
+      if_running: skip
+      if_running_window:
+        title_contains: '微信'
+        prefer_largest: true
+
+  - id: wait_wechat
+    action: ui.window.wait
+    params:
+      title_contains: '微信'
+      timeout_ms: 15000
+
+  - id: probe_login_shell
+    action: ui.element.exists
+    params:
+      title_contains: '微信'
+      selectors:
+        - name: '进入微信'
+          control_type: Button
+      timeout_ms: 2000
+    save_to: login_state
+
+  - id: login_branch
+    if:
+      eq: ['{{login_state.found}}', true]
+    then:
+      - id: click_enter_wechat
+        action: ui.element.click
+        when: '{{input.auto_login}}'
+        params:
+          title_contains: '微信'
+          selectors:
+            - name: '进入微信'
+              control_type: Button
+          safe: true
+
+      - id: wait_login_complete
+        action: ui.element.wait
+        params:
+          title_contains: '微信'
+          selectors:
+            - name: '进入微信'
+              control_type: Button
+          state: absent
+          timeout_ms: '{{input.login_timeout_ms}}'
+          poll_interval_ms: 500
+
+  - id: focus_main
+    action: ui.window.focus
+    params:
+      prefer_largest: true
+
+  - id: search_key
+    action: ui.key
+    params:
+      keys: 'Ctrl+F'
+
+  - id: type_contact
+    action: ui.type
+    params:
+      text: '{{input.contact}}'
+
+  - id: open_chat
+    action: ui.key
+    params:
+      keys: 'Enter'
+
+  - id: type_msg
+    action: ui.type
+    params:
+      text: '{{input.message}}'
+
+  - id: send
+    action: ui.key
+    params:
+      keys: 'Enter'

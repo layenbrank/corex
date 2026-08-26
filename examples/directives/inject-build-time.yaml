@@ -1,0 +1,44 @@
+# 场景 4：生成时间戳并写入 JSON / JS marker
+name: inject-build-time
+description: 更新 package.json 字段或 JS 占位 marker
+version: "1.0"
+
+inputs:
+  - name: json_path
+    required: false
+  - name: js_path
+    required: false
+  - name: format
+    required: false
+    default: "%Y-%m-%d %H:%M:%S"
+
+permissions:
+  filesystem: true
+
+steps:
+  - id: ts
+    action: generate.timestamp
+    params:
+      format: "{{format}}"
+    save_to: built_at
+
+  - id: patch_json
+    action: file.write
+    when:
+      ne: ["{{json_path}}", ""]
+    params:
+      path: "{{json_path}}"
+      mode: json_set
+      pointer: "buildTime"
+      value: "{{built_at.value}}"
+
+  - id: patch_js
+    action: file.write
+    when:
+      ne: ["{{js_path}}", ""]
+    params:
+      path: "{{js_path}}"
+      mode: replace_between
+      start: "/* COREX:BUILD_TIME:START */"
+      end: "/* COREX:BUILD_TIME:END */"
+      content: "{{built_at.value}}"

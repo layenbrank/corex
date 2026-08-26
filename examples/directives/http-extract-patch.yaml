@@ -1,0 +1,39 @@
+# 场景 2+3：HTTP → JSON 解析 → marker 局部写入
+name: http-extract-patch
+description: 拉取 JSON API 并 patch 到本地文件 marker 区域
+version: "1.0"
+
+inputs:
+  - name: url
+    required: true
+  - name: target
+    required: true
+  - name: pointer
+    required: false
+    default: "origin"
+
+permissions:
+  network: true
+  filesystem: true
+
+steps:
+  - id: fetch
+    action: http.request
+    params:
+      url: "{{url}}"
+    save_to: raw
+
+  - id: parse
+    action: codec.json.parse
+    params:
+      text: "{{raw.body}}"
+    save_to: parsed
+
+  - id: patch
+    action: file.write
+    params:
+      path: "{{target}}"
+      mode: replace_between
+      start: "<!-- COREX:START -->"
+      end: "<!-- COREX:END -->"
+      content: "{{parsed}}"

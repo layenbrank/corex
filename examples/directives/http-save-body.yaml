@@ -1,0 +1,31 @@
+# 场景 1：HTTP 响应写入文件
+# 运行: corex run http-save-body --input url=https://httpbin.org/get
+name: http-save-body
+description: HTTP GET 并将 body 写入文件
+version: "1.0"
+
+inputs:
+  - name: url
+    required: true
+  - name: out
+    required: false
+    default: "./http-body.txt"
+
+permissions:
+  network: true
+  filesystem: true
+
+steps:
+  - id: fetch
+    action: http.request
+    params:
+      url: "{{url}}"
+      method: GET
+    save_to: response
+
+  - id: save
+    action: file.write
+    params:
+      path: "{{out}}"
+      content: "{{response.body}}"
+      mode: overwrite
