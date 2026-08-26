@@ -99,6 +99,7 @@ windows = { version = "0.58", features = [
   "Foundation",
   "Win32_Foundation",
   "Win32_Graphics_Gdi",
+  "Win32_System_Console",
   "Win32_System_LibraryLoader",
   "Win32_UI_WindowsAndMessaging",
   "Win32_UI_Input_KeyboardAndMouse",

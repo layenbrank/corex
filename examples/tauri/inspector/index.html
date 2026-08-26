@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <title>Corex UI Inspector</title>
+  <style>
+    * { box-sizing: border-box; }
+    body { margin: 0; font-family: system-ui, sans-serif; display: grid; grid-template-columns: 240px 1fr 320px; height: 100vh; }
+    header { grid-column: 1 / -1; padding: 8px 12px; border-bottom: 1px solid #ddd; display: flex; gap: 8px; align-items: center; }
+    panel { display: block; overflow: auto; padding: 8px; border-right: 1px solid #eee; }
+    pre { white-space: pre-wrap; font-size: 12px; background: #f6f8fa; padding: 8px; border-radius: 4px; }
+    .tree-item { cursor: pointer; padding: 2px 4px; border-radius: 3px; }
+    .tree-item:hover { background: #eef; }
+    .tree-item.selected { background: #dbeafe; }
+    button { padding: 4px 10px; }
+  </style>
+</head>
+<body>
+  <header>
+    <strong>Corex UI Inspector</strong>
+    <button id="btn-refresh">刷新窗口</button>
+    <button id="btn-pick">Pick 模式</button>
+    <span id="status"></span>
+  </header>
+  <panel id="windows"><h3>窗口</h3><div id="window-list"></div></panel>
+  <panel id="tree"><h3>控件树</h3><div id="element-tree"></div></panel>
+  <panel id="props"><h3>属性</h3><pre id="detail">选择窗口或控件</pre></panel>
+  <script>
+    // Bind to Tauri invoke: inspector_list_windows / inspector_list_elements
+    const status = document.getElementById('status');
+    const windowList = document.getElementById('window-list');
+    const elementTree = document.getElementById('element-tree');
+    const detail = document.getElementById('detail');
+
+    async function invoke(cmd, args = {}) {
+      if (!window.__TAURI__) {
+        status.textContent = '（静态预览 — 需在 Tauri WebView 中运行）';
+        return null;
+      }
+      return window.__TAURI__.core.invoke(cmd, args);
+    }
+
+    document.getElementById('btn-refresh').onclick = async () => {
+      status.textContent = '加载窗口…';
+      const data = await invoke('inspector_list_windows');
+      if (!data?.windows) return;
+      windowList.innerHTML = '';
+      for (const w of data.windows) {
+        const div = document.createElement('div');
+        div.className = 'tree-item';
+        div.textContent = `${w.title} (${w.hwnd})`;
+        div.onclick = () => loadTree(w.hwnd, w.title);
+        windowList.appendChild(div);
+      }
+      status.textContent = '';
+    };
+
+    async function loadTree(hwnd, title) {
+      status.textContent = `加载 ${title}…`;
+      const data = await invoke('inspector_list_elements', { hwnd, depth: 4 });
+      elementTree.innerHTML = '';
+      const elements = data?.elements || [];
+      for (const el of elements) {
+        const div = document.createElement('div');
+        div.className = 'tree-item';
+        div.textContent = `${el.control_type || '?'} ${el.name || el.automation_id || ''}`;
+        div.onclick = () => { detail.textContent = JSON.stringify(el, null, 2); };
+        elementTree.appendChild(div);
+      }
+      status.textContent = '';
+    }
+
+    document.getElementById('btn-pick').onclick = () => {
+      status.textContent = 'Pick：请使用 corex ui element pick 或后续 IPC 集成';
+    };
+  </script>
+</body>
+</html>

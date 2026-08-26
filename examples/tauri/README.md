@@ -16,6 +16,8 @@
 | `capabilities/default.json` | 合并 `permissions` |
 | `Cargo.toml.snippet` | 合并到 `src-tauri/Cargo.toml` |
 | `scripts/copy-corex-daemon.mjs` | 项目根 `scripts/` |
+| `inspector/index.html` | Inspector WebView（可选） |
+| `inspector.rs` | Inspector 集成说明 |
 
 ## 构建 sidecar
 

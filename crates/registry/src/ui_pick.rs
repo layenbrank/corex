@@ -8,19 +8,20 @@ use std::sync::OnceLock;
 use uiautomation::types::Rect;
 use windows::Win32::Foundation::{COLORREF, HINSTANCE, HWND, LPARAM, LRESULT, WPARAM};
 use windows::Win32::Graphics::Gdi::CreateSolidBrush;
+use windows::Win32::System::Console::GetConsoleWindow;
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
-use windows::Win32::UI::Input::KeyboardAndMouse::{GetAsyncKeyState, VK_ESCAPE};
+use windows::Win32::UI::Input::KeyboardAndMouse::{GetAsyncKeyState, VK_ESCAPE, VK_LBUTTON};
 use windows::Win32::UI::WindowsAndMessaging::{
     CS_HREDRAW, CS_VREDRAW, CreateWindowExW, DefWindowProcW, DispatchMessageW, GetCursorPos,
-    GetMessageW, GWLP_USERDATA, HWND_TOPMOST, KillTimer, LWA_ALPHA, LoadCursorW, MSG,
-    PostQuitMessage, RegisterClassW, SetLayeredWindowAttributes, SetWindowLongPtrW, SetWindowPos,
-    SetWindowTextW, ShowWindow, TranslateMessage, WM_DESTROY, WM_LBUTTONUP, WM_TIMER, WNDCLASSW,
-    WNDPROC, WS_EX_LAYERED, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW, WS_EX_TOPMOST, WS_POPUP,
-    WS_VISIBLE, SWP_NOACTIVATE, SWP_SHOWWINDOW, SW_HIDE, SW_SHOWNA,
+    GetMessageW, GWLP_USERDATA, HWND_BOTTOM, HWND_TOPMOST, KillTimer, LoadCursorW, MSG,
+    PostQuitMessage, RegisterClassW, SetWindowLongPtrW, SetWindowPos, SetWindowTextW, ShowWindow,
+    TranslateMessage, WM_DESTROY, WM_TIMER, WNDCLASSW, WNDPROC, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW,
+    WS_EX_TOPMOST, WS_POPUP, SWP_NOACTIVATE, SWP_NOSIZE, SWP_NOMOVE, SWP_SHOWWINDOW, SW_HIDE,
+    SW_SHOWNA,
 };
 
 const BORDER_CLASS: &str = "CorexUiPickBorder";
-const OVERLAY_CLASS: &str = "CorexUiPickOverlay";
+const MSG_CLASS: &str = "CorexUiPickMsg";
 const TOOLTIP_CLASS: &str = "CorexUiPickTooltip";
 const BORDER_SIZE: i32 = 3;
 const PICK_TIMER_ID: usize = 1;
@@ -28,7 +29,7 @@ const POLL_MS: u32 = 16;
 
 struct PickClasses {
     border: Vec<u16>,
-    overlay: Vec<u16>,
+    msg: Vec<u16>,
     tooltip: Vec<u16>,
 }
 
@@ -41,7 +42,7 @@ fn wide(s: &str) -> Vec<u16> {
 fn init_pick_classes(instance: HINSTANCE) -> Result<(), ActionError> {
     PICK_CLASSES.get_or_init(|| PickClasses {
         border: wide(BORDER_CLASS),
-        overlay: wide(OVERLAY_CLASS),
+        msg: wide(MSG_CLASS),
         tooltip: wide(TOOLTIP_CLASS),
     });
 
@@ -65,7 +66,7 @@ fn init_pick_classes(instance: HINSTANCE) -> Result<(), ActionError> {
         };
         register(&classes.border, Some(static_wnd_proc));
         register(&classes.tooltip, Some(static_wnd_proc));
-        register(&classes.overlay, Some(overlay_wnd_proc));
+        register(&classes.msg, Some(msg_wnd_proc));
     }
     Ok(())
 }
@@ -82,7 +83,7 @@ unsafe extern "system" fn static_wnd_proc(
 struct PickUi {
     borders: [HWND; 4],
     tooltip: HWND,
-    overlay: HWND,
+    msg_hwnd: HWND,
 }
 
 impl PickUi {
@@ -90,7 +91,7 @@ impl PickUi {
         Self {
             borders: [HWND::default(); 4],
             tooltip: HWND::default(),
-            overlay: HWND::default(),
+            msg_hwnd: HWND::default(),
         }
     }
 
@@ -102,7 +103,7 @@ impl PickUi {
 
             let classes = PICK_CLASSES.get().expect("PICK_CLASSES");
             let ex = WS_EX_TOPMOST | WS_EX_NOACTIVATE | WS_EX_TOOLWINDOW;
-            let style = WS_POPUP | WS_VISIBLE;
+            let style = WS_POPUP;
 
             for i in 0..4 {
                 self.borders[i] = CreateWindowExW(
@@ -138,36 +139,21 @@ impl PickUi {
             )
             .map_err(|e| ActionError::execution(format!("CreateWindowExW tooltip: {e}")))?;
 
-            let vx = windows::Win32::UI::WindowsAndMessaging::GetSystemMetrics(
-                windows::Win32::UI::WindowsAndMessaging::SM_XVIRTUALSCREEN,
-            );
-            let vy = windows::Win32::UI::WindowsAndMessaging::GetSystemMetrics(
-                windows::Win32::UI::WindowsAndMessaging::SM_YVIRTUALSCREEN,
-            );
-            let vw = windows::Win32::UI::WindowsAndMessaging::GetSystemMetrics(
-                windows::Win32::UI::WindowsAndMessaging::SM_CXVIRTUALSCREEN,
-            );
-            let vh = windows::Win32::UI::WindowsAndMessaging::GetSystemMetrics(
-                windows::Win32::UI::WindowsAndMessaging::SM_CYVIRTUALSCREEN,
-            );
-
-            self.overlay = CreateWindowExW(
-                WS_EX_LAYERED | WS_EX_TOPMOST | WS_EX_NOACTIVATE | WS_EX_TOOLWINDOW,
-                windows::core::PCWSTR(classes.overlay.as_ptr()),
+            self.msg_hwnd = CreateWindowExW(
+                ex,
+                windows::core::PCWSTR(classes.msg.as_ptr()),
                 windows::core::PCWSTR::null(),
-                WS_POPUP | WS_VISIBLE,
-                vx,
-                vy,
-                vw,
-                vh,
+                style,
+                0,
+                0,
+                1,
+                1,
                 None,
                 None,
                 HINSTANCE(instance.0),
                 None,
             )
-            .map_err(|e| ActionError::execution(format!("CreateWindowExW overlay: {e}")))?;
-            SetLayeredWindowAttributes(self.overlay, COLORREF(0), 1, LWA_ALPHA)
-                .map_err(|e| ActionError::execution(format!("SetLayeredWindowAttributes: {e}")))?;
+            .map_err(|e| ActionError::execution(format!("CreateWindowExW msg: {e}")))?;
         }
         Ok(())
     }
@@ -254,8 +240,8 @@ impl PickUi {
             if !self.tooltip.is_invalid() {
                 let _ = windows::Win32::UI::WindowsAndMessaging::DestroyWindow(self.tooltip);
             }
-            if !self.overlay.is_invalid() {
-                let _ = windows::Win32::UI::WindowsAndMessaging::DestroyWindow(self.overlay);
+            if !self.msg_hwnd.is_invalid() {
+                let _ = windows::Win32::UI::WindowsAndMessaging::DestroyWindow(self.msg_hwnd);
             }
         }
     }
@@ -266,6 +252,7 @@ struct PickSession {
     scope_hwnd: Option<i64>,
     done: bool,
     cancelled: bool,
+    prev_lbutton_down: bool,
     result: Option<BTreeMap<String, Value>>,
 }
 
@@ -310,6 +297,18 @@ impl PickSession {
             }
             return Ok(());
         }
+
+        let lbutton_down =
+            unsafe { GetAsyncKeyState(VK_LBUTTON.0 as i32) as u16 & 0x8000 != 0 };
+        if lbutton_down && !self.prev_lbutton_down && !self.done {
+            if self.select_at_cursor().is_ok() {
+                unsafe {
+                    PostQuitMessage(0);
+                }
+            }
+        }
+        self.prev_lbutton_down = lbutton_down;
+
         if self.done {
             return Ok(());
         }
@@ -342,7 +341,7 @@ impl PickSession {
     }
 }
 
-unsafe extern "system" fn overlay_wnd_proc(
+unsafe extern "system" fn msg_wnd_proc(
     hwnd: HWND,
     msg: u32,
     wparam: WPARAM,
@@ -351,26 +350,34 @@ unsafe extern "system" fn overlay_wnd_proc(
     use windows::Win32::UI::WindowsAndMessaging::GetWindowLongPtrW;
 
     let session_ptr = unsafe { GetWindowLongPtrW(hwnd, GWLP_USERDATA) as *mut PickSession };
-    match msg {
-        WM_LBUTTONUP => {
-            if !session_ptr.is_null() {
-                if unsafe { (*session_ptr).select_at_cursor() }.is_ok() {
-                    unsafe { PostQuitMessage(0) };
-                }
-            }
-        }
-        WM_TIMER => {
-            if wparam.0 == PICK_TIMER_ID && !session_ptr.is_null() {
-                let _ = unsafe { (*session_ptr).on_tick() };
-            }
-        }
-        WM_DESTROY => unsafe { PostQuitMessage(0) },
-        _ => {}
+    if msg == WM_TIMER && wparam.0 == PICK_TIMER_ID && !session_ptr.is_null() {
+        let _ = unsafe { (*session_ptr).on_tick() };
+    }
+    if msg == WM_DESTROY {
+        unsafe { PostQuitMessage(0) };
     }
     unsafe { DefWindowProcW(hwnd, msg, wparam, lparam) }
 }
 
+fn push_console_to_back() {
+    unsafe {
+        let console = GetConsoleWindow();
+        if !console.is_invalid() {
+            let _ = SetWindowPos(
+                console,
+                HWND_BOTTOM,
+                0,
+                0,
+                0,
+                0,
+                SWP_NOACTIVATE | SWP_NOMOVE | SWP_NOSIZE,
+            );
+        }
+    }
+}
+
 fn run_pick_blocking(scope_hwnd: Option<i64>) -> Result<BTreeMap<String, Value>, ActionError> {
+    push_console_to_back();
     let mut ui = PickUi::new();
     ui.create()?;
     let mut session = PickSession {
@@ -378,17 +385,18 @@ fn run_pick_blocking(scope_hwnd: Option<i64>) -> Result<BTreeMap<String, Value>,
         scope_hwnd,
         done: false,
         cancelled: false,
+        prev_lbutton_down: false,
         result: None,
     };
 
     unsafe {
         SetWindowLongPtrW(
-            session.ui.overlay,
+            session.ui.msg_hwnd,
             GWLP_USERDATA,
             &mut session as *mut _ as isize,
         );
         let _ = windows::Win32::UI::WindowsAndMessaging::SetTimer(
-            session.ui.overlay,
+            session.ui.msg_hwnd,
             PICK_TIMER_ID,
             POLL_MS,
             None,
@@ -396,7 +404,7 @@ fn run_pick_blocking(scope_hwnd: Option<i64>) -> Result<BTreeMap<String, Value>,
     }
     session.on_tick()?;
 
-    eprintln!("corex ui pick: 移动鼠标高亮元素，左键选中，Esc 取消");
+    eprintln!("corex ui element pick: 移动鼠标高亮元素，左键选中，Esc 取消");
 
     let mut msg = MSG::default();
     loop {
@@ -411,8 +419,8 @@ fn run_pick_blocking(scope_hwnd: Option<i64>) -> Result<BTreeMap<String, Value>,
     }
 
     unsafe {
-        let _ = KillTimer(session.ui.overlay, PICK_TIMER_ID);
-        SetWindowLongPtrW(session.ui.overlay, GWLP_USERDATA, 0);
+        let _ = KillTimer(session.ui.msg_hwnd, PICK_TIMER_ID);
+        SetWindowLongPtrW(session.ui.msg_hwnd, GWLP_USERDATA, 0);
     }
     session.ui.hide_highlight();
     let ui = session.ui;

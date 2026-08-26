@@ -1,20 +1,42 @@
 //! `corex ui` — interactive element probe commands.
 
 use anyhow::{bail, Context, Result};
-use clap::Subcommand;
+use clap::{Subcommand, ValueEnum};
 use corex_core::{RuntimeConfig, Value, RUNTIME_CONFIG};
-use corex_registry::ui_probe;
+use corex_engine::{AuditEntry, ExecutionAudit};
+use corex_registry::ui_probe::{self, TreeFormat};
 use std::collections::BTreeMap;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
+use std::time::Instant;
 
 #[derive(Subcommand, Debug)]
 pub enum UiCommands {
+    /// Window-level probes
+    Window {
+        #[command(subcommand)]
+        cmd: WindowCmd,
+    },
+    /// In-window UIA element probes
+    Element {
+        #[command(subcommand)]
+        cmd: ElementCmd,
+    },
+}
+
+#[derive(Subcommand, Debug)]
+pub enum WindowCmd {
     /// List visible top-level windows
-    Windows,
-    /// List UIA elements under a window
-    List {
+    List,
+    /// List desktop shell icons
+    Desktop,
+}
+
+#[derive(Subcommand, Debug)]
+pub enum ElementCmd {
+    /// List UIA elements under a window (requires --hwnd or --title)
+    Tree {
         #[arg(long)]
         hwnd: Option<i64>,
         #[arg(long)]
@@ -23,9 +45,13 @@ pub enum UiCommands {
         depth: i64,
         #[arg(long, default_value = "50")]
         limit: i64,
+        #[arg(long, value_enum, default_value_t = OutputFormat::Flat)]
+        format: OutputFormat,
+        #[arg(long, help = "Redact element name fields in output")]
+        redact: bool,
     },
-    /// Find element by selector flags
-    Find {
+    /// Find element by selector flags (requires window scope)
+    Get {
         #[arg(long)]
         hwnd: Option<i64>,
         #[arg(long)]
@@ -40,13 +66,17 @@ pub enum UiCommands {
         control_type: Option<String>,
         #[arg(long, default_value = "3000")]
         timeout_ms: i64,
+        #[arg(long)]
+        redact: bool,
     },
     /// Hit-test at screen coordinates (no overlay)
-    At {
+    Point {
         #[arg(long)]
         x: i64,
         #[arg(long)]
         y: i64,
+        #[arg(long)]
+        redact: bool,
     },
     /// Interactive pick: hover highlight + click to capture selectors
     Pick {
@@ -54,28 +84,30 @@ pub enum UiCommands {
         scope_hwnd: Option<i64>,
         #[arg(long, help = "Copy selectors_yaml to clipboard (Windows clip.exe)")]
         copy_yaml: bool,
+        #[arg(long)]
+        redact: bool,
     },
 }
 
-fn load_runtime_config(data_dir: &Path) -> RuntimeConfig {
-    let candidates = [
-        PathBuf::from(RUNTIME_CONFIG),
-        data_dir.join("config.toml"),
-    ];
-    for path in candidates {
-        if path.exists() {
-            if let Ok(text) = std::fs::read_to_string(&path) {
-                if let Ok(cfg) = toml::from_str::<RuntimeSectionWrapper>(&text) {
-                    return cfg.into_runtime();
-                }
-            }
+#[derive(Debug, Clone, Copy, ValueEnum)]
+pub enum OutputFormat {
+    Flat,
+    Tree,
+}
+
+impl OutputFormat {
+    fn tree_format(self) -> TreeFormat {
+        match self {
+            OutputFormat::Flat => TreeFormat::Flat,
+            OutputFormat::Tree => TreeFormat::Tree,
         }
     }
-    RuntimeConfig::default()
 }
 
 #[derive(Debug, serde::Deserialize, Default)]
-struct RuntimeSectionWrapper {
+struct RuntimeConfigWrapper {
+    #[serde(default)]
+    plugins: Option<corex_core::PluginConfig>,
     #[serde(default)]
     runtime: Option<RuntimeSectionFields>,
 }
@@ -90,9 +122,29 @@ struct RuntimeSectionFields {
     ui_max_settle_ms: Option<u64>,
 }
 
-impl RuntimeSectionWrapper {
+fn load_runtime_config(data_dir: &Path) -> RuntimeConfig {
+    let candidates = [
+        PathBuf::from(RUNTIME_CONFIG),
+        data_dir.join("config.toml"),
+    ];
+    for path in candidates {
+        if path.exists() {
+            if let Ok(text) = std::fs::read_to_string(&path) {
+                if let Ok(cfg) = toml::from_str::<RuntimeConfigWrapper>(&text) {
+                    return cfg.into_runtime();
+                }
+            }
+        }
+    }
+    RuntimeConfig::default()
+}
+
+impl RuntimeConfigWrapper {
     fn into_runtime(self) -> RuntimeConfig {
         let mut cfg = RuntimeConfig::default();
+        if let Some(p) = self.plugins {
+            cfg.plugins = p;
+        }
         if let Some(r) = self.runtime {
             let overrides = corex_core::UiProfileOverrides {
                 max_selector_chain: r.ui_max_selector_chain,
@@ -124,8 +176,31 @@ fn scope_params(hwnd: Option<i64>, title: Option<String>) -> BTreeMap<String, Va
     m
 }
 
-fn print_value(v: &Value) -> Result<()> {
-    let json = v.to_json();
+fn redact_value(v: &mut Value) {
+    match v {
+        Value::Map(m) => {
+            if let Some(Value::Str(_)) = m.get_mut("name") {
+                m.insert("name".into(), Value::Str("***".into()));
+            }
+            for val in m.values_mut() {
+                redact_value(val);
+            }
+        }
+        Value::List(list) => {
+            for item in list {
+                redact_value(item);
+            }
+        }
+        _ => {}
+    }
+}
+
+fn print_value(v: &Value, redact: bool) -> Result<()> {
+    let mut out = v.clone();
+    if redact {
+        redact_value(&mut out);
+    }
+    let json = out.to_json();
     println!("{}", serde_json::to_string_pretty(&json)?);
     Ok(())
 }
@@ -146,89 +221,168 @@ fn copy_yaml_to_clipboard(yaml: &str) -> Result<()> {
     Ok(())
 }
 
+fn record_probe_audit(
+    data_dir: &Path,
+    action_id: &str,
+    duration_ms: u64,
+    result: Result<(), String>,
+) {
+    if let Ok(audit) = ExecutionAudit::under_data_dir(data_dir) {
+        let entry = AuditEntry::new("ui.probe", "probe", action_id, duration_ms, result, false);
+        let _ = audit.append(&entry);
+    }
+}
+
+async fn run_probe<F>(
+    data_dir: &Path,
+    config: &RuntimeConfig,
+    action_id: &str,
+    f: F,
+) -> Result<Value>
+where
+    F: std::future::Future<Output = Result<Value, corex_core::ActionError>>,
+{
+    ui_probe::check_probe_allowed(&config.plugins, action_id)
+        .map_err(|e| anyhow::anyhow!("{e}"))?;
+    let t0 = Instant::now();
+    let result = f.await;
+    let duration_ms = t0.elapsed().as_millis() as u64;
+    record_probe_audit(
+        data_dir,
+        action_id,
+        duration_ms,
+        result.as_ref().map(|_| ()).map_err(|e| e.to_string()),
+    );
+    result.map_err(|e| anyhow::anyhow!("{e}"))
+}
+
 pub async fn run(command: UiCommands, data_dir: &Path) -> Result<()> {
     let config = load_runtime_config(data_dir);
-    let ctx = ui_probe::probe_context(config);
+    let ctx = ui_probe::probe_context(config.clone());
 
     match command {
-        UiCommands::Windows => {
-            let v = ui_probe::probe_windows()
-                .await
-                .map_err(|e| anyhow::anyhow!("{e}"))?;
-            print_value(&v)?;
-        }
-        UiCommands::List {
-            hwnd,
-            title,
-            depth,
-            limit,
-        } => {
-            let mut params = scope_params(hwnd, title);
-            params.insert("depth".into(), Value::Int(depth));
-            params.insert("limit".into(), Value::Int(limit));
-            let v = ui_probe::probe_list(&ctx, params)
-                .await
-                .map_err(|e| anyhow::anyhow!("{e}"))?;
-            print_value(&v)?;
-        }
-        UiCommands::Find {
-            hwnd,
-            title,
-            name,
-            name_contains,
-            automation_id,
-            control_type,
-            timeout_ms,
-        } => {
-            let mut params = scope_params(hwnd, title);
-            if let Some(n) = name {
-                params.insert("name".into(), Value::Str(n));
+        UiCommands::Window { cmd } => match cmd {
+            WindowCmd::List => {
+                let v = run_probe(data_dir, &config, "ui.window.list", async {
+                    ui_probe::probe_windows().await
+                })
+                .await?;
+                print_value(&v, false)?;
             }
-            if let Some(n) = name_contains {
-                params.insert("name_contains".into(), Value::Str(n));
+            WindowCmd::Desktop => {
+                let v = run_probe(data_dir, &config, "ui.window.list", async {
+                    ui_probe::probe_desktop_icons().await
+                })
+                .await?;
+                print_value(&v, false)?;
             }
-            if let Some(a) = automation_id {
-                params.insert("automation_id".into(), Value::Str(a));
+        },
+        UiCommands::Element { cmd } => match cmd {
+            ElementCmd::Tree {
+                hwnd,
+                title,
+                depth,
+                limit,
+                format,
+                redact,
+            } => {
+                let mut params = scope_params(hwnd, title);
+                params.insert("depth".into(), Value::Int(depth));
+                params.insert("limit".into(), Value::Int(limit));
+                let fmt = format.tree_format();
+                let v = run_probe(data_dir, &config, "ui.element.list", async {
+                    ui_probe::probe_element_tree(&ctx, params, fmt).await
+                })
+                .await?;
+                print_value(&v, redact)?;
             }
-            if let Some(c) = control_type {
-                params.insert("control_type".into(), Value::Str(c));
+            ElementCmd::Get {
+                hwnd,
+                title,
+                name,
+                name_contains,
+                automation_id,
+                control_type,
+                timeout_ms,
+                redact,
+            } => {
+                let mut params = scope_params(hwnd, title);
+                if let Some(n) = name {
+                    params.insert("name".into(), Value::Str(n));
+                }
+                if let Some(n) = name_contains {
+                    params.insert("name_contains".into(), Value::Str(n));
+                }
+                if let Some(a) = automation_id {
+                    params.insert("automation_id".into(), Value::Str(a));
+                }
+                if let Some(c) = control_type {
+                    params.insert("control_type".into(), Value::Str(c));
+                }
+                params.insert("timeout_ms".into(), Value::Int(timeout_ms));
+                let v = run_probe(data_dir, &config, "ui.element.find", async {
+                    ui_probe::probe_element_get(&ctx, params).await
+                })
+                .await?;
+                print_value(&v, redact)?;
             }
-            params.insert("timeout_ms".into(), Value::Int(timeout_ms));
-            let v = ui_probe::probe_find(&ctx, params)
-                .await
-                .map_err(|e| anyhow::anyhow!("{e}"))?;
-            print_value(&v)?;
-        }
-        UiCommands::At { x, y } => {
-            let v = ui_probe::probe_at(x, y)
-                .await
-                .map_err(|e| anyhow::anyhow!("{e}"))?;
-            print_value(&v)?;
-        }
-        UiCommands::Pick {
-            scope_hwnd,
-            copy_yaml,
-        } => {
-            #[cfg(windows)]
-            {
-                let v = corex_registry::ui_pick::probe_pick(scope_hwnd)
-                    .await
-                    .map_err(|e| anyhow::anyhow!("{e}"))?;
-                if copy_yaml {
-                    if let Value::Map(m) = &v {
-                        if let Some(yaml) = m.get("selectors_yaml").and_then(|v| v.as_str()) {
-                            copy_yaml_to_clipboard(yaml)?;
+            ElementCmd::Point { x, y, redact } => {
+                let v = run_probe(data_dir, &config, "ui.element.find", async {
+                    ui_probe::probe_element_point(x, y).await
+                })
+                .await?;
+                print_value(&v, redact)?;
+            }
+            ElementCmd::Pick {
+                scope_hwnd,
+                copy_yaml,
+                redact,
+            } => {
+                #[cfg(windows)]
+                {
+                    let v = run_probe(data_dir, &config, "ui.element.find", async {
+                        corex_registry::ui_pick::probe_pick(scope_hwnd).await
+                    })
+                    .await?;
+                    if copy_yaml {
+                        if let Value::Map(m) = &v {
+                            if let Some(yaml) = m.get("selectors_yaml").and_then(|v| v.as_str()) {
+                                copy_yaml_to_clipboard(yaml)?;
+                            }
                         }
                     }
+                    print_value(&v, redact)?;
                 }
-                print_value(&v)?;
+                #[cfg(not(windows))]
+                {
+                    let _ = (scope_hwnd, copy_yaml, redact);
+                    bail!("ui element pick 需要 Windows");
+                }
             }
-            #[cfg(not(windows))]
-            {
-                let _ = (scope_hwnd, copy_yaml);
-                bail!("ui pick 需要 Windows");
-            }
-        }
+        },
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn redact_masks_names() {
+        let mut m = BTreeMap::new();
+        m.insert("name".into(), Value::Str("secret".into()));
+        m.insert(
+            "children".into(),
+            Value::List(vec![Value::Map(BTreeMap::from([(
+                "name".into(),
+                Value::Str("child".into()),
+            )]))]),
+        );
+        let mut v = Value::Map(m);
+        redact_value(&mut v);
+        if let Value::Map(m) = v {
+            assert_eq!(m.get("name").and_then(|v| v.as_str()), Some("***"));
+        }
+    }
 }

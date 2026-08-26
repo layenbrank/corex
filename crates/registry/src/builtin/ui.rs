@@ -301,8 +301,9 @@ pub(crate) mod win {
         VIRTUAL_KEY,
     };
     use windows::Win32::UI::WindowsAndMessaging::{
-        EnumWindows, GetClassNameW, GetWindowRect, GetWindowTextLengthW, GetWindowTextW,
-        GetWindowThreadProcessId, IsWindow, IsWindowVisible, SetCursorPos, SetForegroundWindow,
+        EnumWindows, FindWindowW, GetClassNameW, GetWindowRect, GetWindowTextLengthW,
+        GetWindowTextW, GetWindowThreadProcessId, IsWindow, IsWindowVisible, SetCursorPos,
+        SetForegroundWindow,
     };
 
     fn hwnd_to_i64(hwnd: HWND) -> i64 {
@@ -453,6 +454,78 @@ pub(crate) mod win {
                 ),
             )
         })
+    }
+
+    /// Probe-only scope: explicit `--hwnd` / `--title` in params; no session fallback.
+    fn resolve_probe_scope_hwnd(map: &BTreeMap<String, Value>) -> Result<HWND, ActionError> {
+        use crate::builtin::ui_kernel::probe_scope_explicit;
+        probe_scope_explicit(map)?;
+        let q = WindowQuery {
+            hwnd: map.get("hwnd").and_then(|v| v.as_i64()),
+            title_contains: map.get("title_contains").and_then(|v| v.as_str()).map(|s| s.to_string()),
+            class_name: map.get("class_name").and_then(|v| v.as_str()).map(|s| s.to_string()),
+            visible_only: map
+                .get("visible_only")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(true),
+            prefer_largest: false,
+            title_excludes: Vec::new(),
+        };
+        find_window(&q).ok_or_else(|| {
+            ActionError::ui(
+                "ui_wrong_window",
+                format!(
+                    "未找到窗口: {}",
+                    q.title_contains.unwrap_or_else(|| format!("hwnd={:?}", q.hwnd))
+                ),
+            )
+        })
+    }
+
+    fn ancestor_map(el: &uiautomation::UIElement) -> BTreeMap<String, Value> {
+        let mut m = BTreeMap::new();
+        if let Ok(n) = el.get_name() {
+            if !n.is_empty() {
+                m.insert("name".into(), Value::Str(n));
+            }
+        }
+        if let Ok(aid) = el.get_automation_id() {
+            if !aid.is_empty() {
+                m.insert("automation_id".into(), Value::Str(aid));
+            }
+        }
+        if let Some(ct) = format_control_type(el) {
+            m.insert("control_type".into(), Value::Str(ct));
+        }
+        m
+    }
+
+    fn collect_ancestors(el: &uiautomation::UIElement) -> Vec<BTreeMap<String, Value>> {
+        let auto = match uiautomation::UIAutomation::new() {
+            Ok(a) => a,
+            Err(_) => return Vec::new(),
+        };
+        let walker = match auto.get_control_view_walker() {
+            Ok(w) => w,
+            Err(_) => return Vec::new(),
+        };
+        let mut current = el.clone();
+        let mut chain = Vec::new();
+        for _ in 0..12 {
+            match walker.get_parent(&current) {
+                Ok(parent) => {
+                    let m = ancestor_map(&parent);
+                    if m.is_empty() {
+                        break;
+                    }
+                    chain.push(m);
+                    current = parent;
+                }
+                Err(_) => break,
+            }
+        }
+        chain.reverse();
+        chain
     }
 
     pub async fn ui_window_list_impl() -> Result<Value, ActionError> {
@@ -627,6 +700,13 @@ pub(crate) mod win {
     }
 
     pub(crate) fn elem_to_map(el: &uiautomation::UIElement) -> BTreeMap<String, Value> {
+        elem_to_map_with_options(el, true)
+    }
+
+    pub(crate) fn elem_to_map_with_options(
+        el: &uiautomation::UIElement,
+        include_ancestors: bool,
+    ) -> BTreeMap<String, Value> {
         let mut m = BTreeMap::new();
         if let Ok(h) = el.get_native_window_handle() {
             let raw: isize = h.into();
@@ -666,6 +746,15 @@ pub(crate) mod win {
         m.insert("enabled".into(), Value::Bool(enabled));
         let offscreen = el.is_offscreen().unwrap_or(true);
         m.insert("clickable".into(), Value::Bool(enabled && !offscreen));
+        if include_ancestors {
+            let ancestors: Vec<Value> = collect_ancestors(el)
+                .into_iter()
+                .map(Value::Map)
+                .collect();
+            if !ancestors.is_empty() {
+                m.insert("ancestors".into(), Value::List(ancestors));
+            }
+        }
         m
     }
 
@@ -728,6 +817,9 @@ pub(crate) mod win {
                 }
                 if let Some(c) = &sel.control_type {
                     sm.insert("control_type".into(), Value::Str(c.clone()));
+                }
+                if let Some(c) = &sel.class {
+                    sm.insert("class".into(), Value::Str(c.clone()));
                 }
                 Value::Map(sm)
             })
@@ -793,6 +885,12 @@ pub(crate) mod win {
                 Ok(el.get_automation_id().map(|id| id == want).unwrap_or(false))
             }));
         }
+        if let Some(class) = &sel.class {
+            let want = class.clone();
+            matcher = matcher.filter_fn(Box::new(move |el: &uiautomation::UIElement| {
+                Ok(el.get_classname().map(|c| c == want).unwrap_or(false))
+            }));
+        }
         Ok(matcher)
     }
 
@@ -815,6 +913,49 @@ pub(crate) mod win {
             .map_err(|e| ActionError::execution(format!("ElementFromHandle 失败: {e}")))?;
         matcher = matcher.from(root);
         apply_selector(matcher, sel)
+    }
+
+    fn build_matcher_for_probe(
+        map: &BTreeMap<String, Value>,
+        sel: &ElementSelector,
+        timeout_ms: u64,
+    ) -> Result<uiautomation::UIMatcher, ActionError> {
+        let auto = uiautomation::UIAutomation::new()
+            .map_err(|e| ActionError::execution(format!("UIAutomation 初始化失败: {e}")))?;
+        let mut matcher = auto
+            .create_matcher()
+            .timeout(timeout_ms)
+            .depth(sel.depth);
+        let hwnd = resolve_probe_scope_hwnd(map)?;
+        let handle = uiautomation::types::Handle::from(hwnd.0 as isize);
+        let root = auto
+            .element_from_handle(handle)
+            .map_err(|e| ActionError::execution(format!("ElementFromHandle 失败: {e}")))?;
+        matcher = matcher.from(root);
+        apply_selector(matcher, sel)
+    }
+
+    fn find_with_chain_probe(
+        map: &BTreeMap<String, Value>,
+        chain: &[ElementSelector],
+        timeout_ms: u64,
+    ) -> Result<uiautomation::UIElement, ActionError> {
+        let mut last_err = String::new();
+        for sel in chain {
+            match build_matcher_for_probe(map, sel, timeout_ms) {
+                Ok(matcher) => match matcher.find_first() {
+                    Ok(el) => return Ok(el),
+                    Err(e) => last_err = e.to_string(),
+                },
+                Err(e) => last_err = e.to_string(),
+            }
+        }
+        let hint = chain.first().map(|s| s.hint()).unwrap_or_else(|| "selector".into());
+        Err(ActionError::ui_with_hint(
+            "ui_selector_not_found",
+            &hint,
+            format!("未找到元素: {last_err}"),
+        ))
     }
 
     fn find_with_chain(
@@ -919,6 +1060,95 @@ pub(crate) mod win {
         })
         .await
         .map_err(|e| ActionError::execution(format!("ui.element.list 失败: {e}")))?
+    }
+
+    pub async fn ui_element_list_probe_impl(
+        params: BTreeMap<String, Value>,
+    ) -> Result<Value, ActionError> {
+        let map = params;
+        let depth = opt_i64(&map, "depth", 3).clamp(1, 10) as u32;
+        let limit = opt_i64(&map, "limit", 50).clamp(1, 500) as usize;
+        tokio::task::spawn_blocking(move || {
+            let auto = uiautomation::UIAutomation::new()
+                .map_err(|e| ActionError::execution(format!("UIAutomation 初始化失败: {e}")))?;
+            let hwnd = resolve_probe_scope_hwnd(&map)?;
+            let handle = uiautomation::types::Handle::from(hwnd.0 as isize);
+            let root = auto
+                .element_from_handle(handle)
+                .map_err(|e| ActionError::execution(format!("ElementFromHandle 失败: {e}")))?;
+            let matcher = auto
+                .create_matcher()
+                .from(root)
+                .depth(depth)
+                .timeout(500);
+            let found = matcher.find_all().unwrap_or_default();
+            let list: Vec<Value> = found
+                .iter()
+                .take(limit)
+                .map(|el| Value::Map(elem_to_map(el)))
+                .collect();
+            let mut out = BTreeMap::new();
+            out.insert("elements".into(), Value::List(list));
+            Ok(Value::Map(out))
+        })
+        .await
+        .map_err(|e| ActionError::execution(format!("ui.element.list 失败: {e}")))?
+    }
+
+    pub async fn ui_element_find_probe_impl(
+        params: BTreeMap<String, Value>,
+        max_chain: usize,
+    ) -> Result<Value, ActionError> {
+        let map = params;
+        let timeout_ms = opt_i64(&map, "timeout_ms", 3000).max(0) as u64;
+        let chain = selector_chain_from_params(&map, max_chain)?;
+        tokio::task::spawn_blocking(move || {
+            let el = find_with_chain_probe(&map, &chain, timeout_ms)?;
+            Ok(Value::Map(element_map_with_selectors(&el)))
+        })
+        .await
+        .map_err(|e| ActionError::execution(format!("ui.element.find 失败: {e}")))?
+    }
+
+    fn find_desktop_hwnd() -> Option<HWND> {
+        use windows::Win32::UI::WindowsAndMessaging::FindWindowW;
+        unsafe {
+            let progman = FindWindowW(windows::core::w!("Progman"), None).ok()?;
+            if IsWindow(progman).as_bool() {
+                return Some(progman);
+            }
+            None
+        }
+    }
+
+    pub async fn ui_desktop_icons_impl() -> Result<Value, ActionError> {
+        tokio::task::spawn_blocking(move || {
+            let auto = uiautomation::UIAutomation::new()
+                .map_err(|e| ActionError::execution(format!("UIAutomation 初始化失败: {e}")))?;
+            let hwnd = find_desktop_hwnd().ok_or_else(|| {
+                ActionError::ui("ui_desktop_not_found", "未找到桌面 Shell 窗口")
+            })?;
+            let handle = uiautomation::types::Handle::from(hwnd.0 as isize);
+            let root = auto
+                .element_from_handle(handle)
+                .map_err(|e| ActionError::execution(format!("ElementFromHandle 失败: {e}")))?;
+            let matcher = auto
+                .create_matcher()
+                .from(root)
+                .control_type(uiautomation::types::ControlType::ListItem)
+                .depth(4)
+                .timeout(1000);
+            let found = matcher.find_all().unwrap_or_default();
+            let icons: Vec<Value> = found
+                .iter()
+                .map(|el| Value::Map(elem_to_map_with_options(el, false)))
+                .collect();
+            let mut out = BTreeMap::new();
+            out.insert("icons".into(), Value::List(icons));
+            Ok(Value::Map(out))
+        })
+        .await
+        .map_err(|e| ActionError::execution(format!("ui.window.desktop 失败: {e}")))?
     }
 
     pub async fn ui_element_find_impl(
