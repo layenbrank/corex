@@ -2,13 +2,13 @@
 
 use anyhow::{bail, Context, Result};
 use clap::Parser;
-use corex_core::{DaemonConfig, ExecutionContext, LoggingConfig, RuntimeConfig, Value};
+use corex_core::{DaemonConfig, ExecutionContext, LoggingConfig, RuntimeConfig, Value, RUNTIME_CONFIG};
 use corex_engine::{
     permission_kind_for, AuditEntry, ExecutionAudit, ExecutionHistory, PermissionKind, Pipeline,
     Directive,
 };
 use corex_ipc::protocol::{Request, Response, RpcError};
-use corex_ipc::{default_endpoint, platform_data_dir, serve_platform};
+use corex_ipc::{platform_data_dir, platform_endpoint, serve_platform};
 use corex_registry::ActionRegistry;
 use fs2::FileExt;
 use rand::RngExt;
@@ -379,7 +379,7 @@ fn resolve_endpoint(cli: Option<PathBuf>, daemon: &DaemonConfig, data: &Path) ->
     if let Some(p) = &daemon.socket_path {
         return resolve_data_relative(data, p);
     }
-    default_endpoint(data)
+    platform_endpoint(data)
 }
 
 fn resolve_lock_path(daemon: &DaemonConfig, data: &Path) -> PathBuf {
@@ -460,7 +460,7 @@ fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
 fn load_runtime_config(path: Option<&Path>) -> Result<RuntimeConfig> {
     let candidates: Vec<PathBuf> = path.map(|p| vec![p.to_path_buf()]).unwrap_or_else(|| {
         vec![
-            PathBuf::from("config/default.toml"),
+            PathBuf::from(RUNTIME_CONFIG),
             platform_data_dir()
                 .map(|d| d.join("config.toml"))
                 .unwrap_or_default(),
@@ -503,6 +503,12 @@ struct RuntimeSection {
     strict_permissions: Option<bool>,
     #[serde(default)]
     filesystem_roots: Option<Vec<std::path::PathBuf>>,
+    #[serde(default)]
+    ui_profile: Option<String>,
+    #[serde(default)]
+    ui_max_selector_chain: Option<usize>,
+    #[serde(default)]
+    ui_max_settle_ms: Option<u64>,
 }
 
 impl ConfigFile {
@@ -532,6 +538,20 @@ impl ConfigFile {
             }
             if let Some(roots) = r.filesystem_roots {
                 cfg.filesystem_roots = roots;
+            }
+            let overrides = corex_core::UiProfileOverrides {
+                max_selector_chain: r.ui_max_selector_chain,
+                max_settle_ms: r.ui_max_settle_ms,
+            };
+            if let Some(profile) = r.ui_profile {
+                cfg.apply_ui_profile(&profile, overrides);
+            } else {
+                if let Some(n) = r.ui_max_selector_chain {
+                    cfg.ui_max_selector_chain = n;
+                }
+                if let Some(ms) = r.ui_max_settle_ms {
+                    cfg.ui_max_settle_ms = ms;
+                }
             }
         }
         cfg
