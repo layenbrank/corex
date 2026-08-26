@@ -1,13 +1,13 @@
-# Corex 架构（v4）
+# Corex 架构（v5）
 
-Corex 是可组合的 **快捷指令（Shortcut）/ Action** 运行时：YAML 定义流水线，内置与 WASM 插件提供动作，CLI 与 Daemon 共用同一套引擎。
+Corex 是可组合的 **指令（Directive）/ Action** 运行时：YAML 定义流水线，内置与 WASM 插件提供动作，CLI 与 Daemon 共用同一套引擎。
 
 ## Workspace 布局
 
 ```
 crates/
   core/          # corex-core — Value / Action / ExecutionContext / Error
-  engine/        # corex-engine — Shortcut YAML、变量解析、Pipeline、历史
+  engine/        # corex-engine — Directive YAML、变量解析、Pipeline、历史
   registry/      # corex-registry — 动作注册表、内置 Action、WASM host
   ipc/           # corex-ipc — NDJSON 协议 + Unix socket / Named Pipe
   plugin-sdk/    # corex-plugin-sdk — WIT 契约（corex:plugin-sdk@0.1.0）
@@ -19,7 +19,7 @@ plugins/         # 第三方 *.wasm 插件目录说明
 config/
   default.toml   # 默认运行时配置
 examples/
-  shortcuts/     # Shortcut YAML 示例
+  directives/     # Directive YAML 示例
   legacy/        # ≤v3 Pipeline 样例（仅历史）
   tauri/         # Tauri sidecar 客户端示例
 ```
@@ -27,17 +27,17 @@ examples/
 | Crate / Binary | 职责 |
 |----------------|------|
 | `corex-core` | 核心类型与 `Action` / `ActionStore` trait |
-| `corex-engine` | Shortcut 定义、`{{ }}` 解析、控制流、执行历史 |
+| `corex-engine` | Directive 定义、`{{ }}` 解析、控制流、执行历史 |
 | `corex-registry` | 内置动作 +（可选）`WasmPluginHost` 发现/加载 |
 | `corex-ipc` | `Request` / `Response`；Unix socket / Windows Named Pipe |
 | `corex-plugin-sdk` | WIT world `corex-action` |
 | `corex` | CLI：`run` / `list` / `actions` / `create` / `validate` / `repl` / `daemon` |
-| `corex-daemon` | 长驻：注册动作、发现插件、执行 Shortcut、IPC |
+| `corex-daemon` | 长驻：注册动作、发现插件、执行 Directive、IPC |
 
 ## 执行模型
 
 ```
-Shortcut YAML
+Directive YAML
     │
     ▼
 corex-engine::Pipeline  ──resolve {{ }}──► ActionStore.get_action(id)
@@ -50,7 +50,7 @@ Value 结果  +  可选 history.jsonl
 ```
 
 - **Action ID**：点分命名，如 `template.render`、`copy.run`（见 [actions.md](./actions.md)）。
-- **占位符**：`{{var}}`、`{{input.x}}`、`{{env.X}}`、`{{step.id}}`（见 [shortcut-yaml.md](./shortcut-yaml.md)）。
+- **占位符**：`{{var}}`、`{{input.x}}`、`{{env.X}}`、`{{step.id}}`（见 [directive-yaml.md](./directive-yaml.md)）。
 - **控制流**：`if` / `repeat` / `parallel`。
   - **`parallel`**：当有效并发度（步骤 `max_concurrency` 或配置 `runtime.max_parallel`）**> 1** 且子步骤多于 1 个时，使用 `buffer_unordered` **真正并发**；否则顺序执行。
 
@@ -94,9 +94,11 @@ cargo test --workspace
 | 文档 | 说明 |
 |------|------|
 | [ipc-protocol.md](./ipc-protocol.md) | NDJSON 协议、token、端点 |
-| [shortcut-yaml.md](./shortcut-yaml.md) | Shortcut DSL 与占位符 |
+| [directive-yaml.md](./directive-yaml.md) | Directive DSL 与占位符 |
 | [actions.md](./actions.md) | 内置 Action ID 表 |
+| [cross-platform-backends.md](./cross-platform-backends.md) | Capture/OCR/UI 跨平台后端规划 |
 | [breaking-changes-v4.md](./breaking-changes-v4.md) | v4 破坏性变更 |
+| [breaking-changes-v5.md](./breaking-changes-v5.md) | v5 Directive 重命名 |
 | [tauri-integration.md](./tauri-integration.md) | Tauri + `corex-daemon` |
 | [plugins/README.md](../plugins/README.md) | WASM 插件约定 |
 | [archive/](./archive/) | ≤v3 历史文档 |

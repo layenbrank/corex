@@ -32,7 +32,7 @@ sequenceDiagram
 
 | 组件 | 位置 | 说明 |
 |------|------|------|
-| `corex-daemon` | sidecar 二进制 | 注册 builtins、发现 WASM、执行 Shortcut / Invoke |
+| `corex-daemon` | sidecar 二进制 | 注册 builtins、发现 WASM、执行 Directive / Invoke |
 | `corex_ipc.rs` | `src-tauri/src/` | NDJSON 客户端（示例已 v4） |
 | Endpoint | 平台默认 | Unix：data-dir `corex.sock`；Windows：`\\.\pipe\corex` |
 

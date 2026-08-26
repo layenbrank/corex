@@ -1,5 +1,7 @@
 # Breaking Changes — Corex v4.0.0
 
+> **v5 已发布**：Shortcut 全面改名为 Directive，见 [breaking-changes-v5.md](./breaking-changes-v5.md)。
+
 本版本为**破坏性**重构：workspace、二进制、YAML 与 IPC 均与 v3 / 旧 monolith 不兼容。请整包升级，不要混用旧 `corex-serve` 与新引擎。
 
 ## 总览
@@ -11,10 +13,10 @@
 | 库布局 | 根目录 `corex-core`（lib `cx`）等 | `crates/{core,engine,registry,ipc,plugin-sdk}` + `bins/{cli,daemon}` |
 | IPC 传输 | Windows Named Pipe（旧协议） | **仍提供** Named Pipe：默认 `\\.\pipe\corex`；Unix 用 `<data-dir>/corex.sock` |
 | IPC 协议 | `module` + `action` + 扁平 `ok` 响应 | NDJSON `Request`/`Response`（`invoke` 用 Action ID + `auth_token`） |
-| 编排 DSL | Pipeline v3：`module` + `${var.*}` | **Shortcut**：`action` id + **`{{ }}`** |
+| 编排 DSL | Pipeline v3：`module` + `${var.*}` | **Directive**：`action` id + **`{{ }}`** |
 | Action 标识 | module 名 / 嵌套 action | 点分 **Action ID**（如 `file.write`、`copy.run`） |
 | 鉴权 | 无统一 token | **`COREX_TOKEN` / config / `<data-dir>/token`** |
-| 路径 | 较少约束 | Daemon 对 shortcut `path`/`dir` **confine** 在 shortcuts 根下 |
+| 路径 | 较少约束 | Daemon 对 Directive `path`/`dir` **confine** 在 directives 根下 |
 
 ## `corex-serve` → `corex-daemon`
 
@@ -35,11 +37,11 @@ corex daemon run
 - Release ZIP / Tauri sidecar 逻辑名：**`corex-daemon`**。
 - 协议见 [ipc-protocol.md](./ipc-protocol.md)。
 
-## YAML：Pipeline v3 → Shortcut
+## YAML：Pipeline v3 → Directive
 
 旧 Pipeline v3 示例已迁至 [`examples/legacy/`](../examples/legacy/)；历史说明见 [archive/](./archive/)。
 
-新 Shortcut（[`examples/shortcuts/hello.yaml`](../examples/shortcuts/hello.yaml)）：
+新 Directive（[`examples/directives/hello.yaml`](../examples/directives/hello.yaml)）：
 
 ```yaml
 name: hello
@@ -65,7 +67,7 @@ steps:
 
 旧业务 module（copy / scrub / shade / compression / generate / exec / bootstrap / codec / scan / capture / morph 等）已以 **builtin Action** 形式进入 `crates/registry`。完整 ID 表见 [actions.md](./actions.md)。Bing 建议请用 `http.request`（已移除专用 `suggest.bing`）。
 
-不再提供 `corex copy` / `corex pipeline` / `corex morph` 等旧 CLI 子命令树——通过 Shortcut YAML 或 `invoke` 使用对应 Action ID。
+不再提供 `corex copy` / `corex pipeline` / `corex morph` 等旧 CLI 子命令树——通过 Directive YAML 或 `invoke` 使用对应 Action ID。
 
 ## CLI 表面
 
@@ -80,7 +82,7 @@ corex run | list | actions | create | validate | repl | daemon
 
 - 每个 IPC 请求携带 `auth_token`；缺失或不匹配 → **401**。
 - Token 来源：`COREX_TOKEN` → `[daemon].token` → `<data-dir>/token`。
-- `run_shortcut.path` / `list_shortcuts.dir` 不得逃出 shortcuts 根目录。
+- `run_directive.path` / `list_directives.dir` 不得逃出 directives 根目录。
 
 ## 配置
 
@@ -91,3 +93,10 @@ corex run | list | actions | create | validate | repl | daemon
 - **不**提供 Pipeline v3 双读或 `corex-serve` 兼容层。
 - Windows **Named Pipe 仍存在**；变的是协议形状与二进制名。
 - ≤v3 历史文档见 [archive/](./archive/)；升级到 v4 以本文 + [architecture.md](./architecture.md) 为准。
+
+## Action 迁移（4.0.x）
+
+| Removed | Replacement |
+|---------|-------------|
+| `capture.clipboard` | `clipboard.get` / `clipboard.set` with `format: text` or `format: image` |
+| `suggest.bing` | `http.request` + optional `codec.json.parse` (see `bing-suggest.yaml`) |

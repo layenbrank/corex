@@ -48,9 +48,9 @@ All variants share optional `id` (default `0`) and optional `auth_token`.
 |--------|--------|---------|
 | `ping` | `id`, `auth_token` | Liveness |
 | `shutdown` | `id`, `auth_token` | Graceful daemon exit |
-| `list_shortcuts` | `id`, `auth_token`, `dir?` | List shortcut names (optional subdir under shortcuts root; **path-confined**) |
+| `list_directives` | `id`, `auth_token`, `dir?` | List Directive names (optional subdir under directives root; **path-confined**) |
 | `list_actions` | `id`, `auth_token` | List registered Action IDs |
-| `run_shortcut` | `id`, `auth_token`, `name`, `input?`, `path?` | Run a shortcut by name, or by path confined under the shortcuts directory |
+| `run_directive` | `id`, `auth_token`, `name`, `input?`, `path?` | Run a Directive by name, or by path confined under the directives directory |
 | `invoke` | `id`, `auth_token`, `action`, `params?` | Invoke a single Action by ID |
 
 ### Examples
@@ -64,7 +64,7 @@ All variants share optional `id` (default `0`) and optional `auth_token`.
 ```
 
 ```json
-{"type":"run_shortcut","id":3,"auth_token":"<token>","name":"hello","input":{"who":"Corex"}}
+{"type":"run_directive","id":3,"auth_token":"<token>","name":"hello","input":{"who":"Corex"}}
 ```
 
 ```json
@@ -93,7 +93,7 @@ All variants share optional `id` (default `0`) and optional `auth_token`.
 | 400 | `invalid` | Bad params / bad request |
 | 401 | `unauthorized` | Missing/wrong auth token |
 | 403 | `forbidden` | Denied |
-| 404 | `not_found` | Unknown shortcut / action |
+| 404 | `not_found` | Unknown Directive / action |
 | 500 | `internal` | Unexpected failure |
 
 ### Examples
@@ -116,11 +116,11 @@ All variants share optional `id` (default `0`) and optional `auth_token`.
 
 ## Path confinement
 
-For `run_shortcut` with `path` and `list_shortcuts` with `dir`, the daemon resolves paths under the configured shortcuts root and **rejects traversal** outside that root (`confine_under`). Shortcut `name` must be a bare name (no `..`, `/`, `\`, or absolute paths).
+For `run_directive` with `path` and `list_directives` with `dir`, the daemon resolves paths under the configured directives root and **rejects traversal** outside that root (`confine_under`). Directive `name` must be a bare name (no `..`, `/`, `\`, or absolute paths).
 
 ## Related
 
 - [actions.md](./actions.md) — Action IDs
-- [shortcut-yaml.md](./shortcut-yaml.md) — Shortcut DSL
+- [directive-yaml.md](./directive-yaml.md) — Directive DSL
 - [tauri-integration.md](./tauri-integration.md) — Sidecar client
 - [architecture.md](./architecture.md) — Workspace overview

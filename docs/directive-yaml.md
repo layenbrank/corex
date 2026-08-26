@@ -1,6 +1,6 @@
-# Shortcut YAML (v4)
+# Directive YAML (v5)
 
-Shortcuts are single YAML documents executed by `corex-engine`.
+directives are single YAML documents executed by `corex-engine`.
 
 Source of truth: [`crates/engine/src/definition.rs`](../crates/engine/src/definition.rs), resolver [`crates/engine/src/resolver.rs`](../crates/engine/src/resolver.rs).
 
@@ -28,7 +28,7 @@ inputs:
     default: "world"
 ```
 
-Declared defaults are resolved (`{{ }}`) then merged into `ctx.input` when the caller did not supply the key.
+Declared defaults are resolved (`{{ }}`) then merged into `ctx.input` when the caller did not supply the key, or supplied `null` / blank string.
 
 ### Variables
 
@@ -136,13 +136,13 @@ Patterns (whitespace inside braces allowed):
 
 | Expression | Resolves to |
 |------------|-------------|
-| `{{input.x}}` | Shortcut input `x` (optional path after) |
+| `{{input.x}}` | Directive input `x` (optional path after) |
 | `{{input}}` | Entire input map |
 | `{{env.HOME}}` | Environment variable |
 | `{{step.id}}` / `{{steps.id.path}}` | Prior step output |
 | `{{variables.name}}` / `{{var.name}}` | Variable |
 | `{{name}}` | Bare: variables first, then input |
-| `{{shortcut_input}}` | Optional whole-document shortcut input Value |
+| `{{directive_input}}` | Optional whole-document Directive input Value |
 
 A string that is **exactly** one `{{expr}}` keeps the Value type; mixed strings interpolate to a string.
 
@@ -155,14 +155,31 @@ permissions:
   shell: true
   clipboard: true
   notifications: true
+  ui: true
+  capture: true
+  secret: true
 ```
 
 | Rule | Behavior |
 |------|----------|
-| **All flags omitted / false** | **Allow-all** (unrestricted) — simple shortcuts like `hello.yaml` need no declarations |
+| **All flags omitted / false** | **Allow-all** (unrestricted) — simple directives like `hello.yaml` need no declarations |
 | **Any flag `true`** | Only declared categories are allowed; others → permission denied |
 
-Category mapping (summary): `shell.run` / `exec.run` / bootstrap → shell; `http.request` → network; clipboard / `capture.clipboard` → clipboard; `notify.send` → notifications; file/copy/scrub/shade/compression/morph/generate.path/capture screenshot|crop|monitors → filesystem.
+Category mapping (summary): `shell.run` / `exec.run` / bootstrap → shell; `http.request` → network; `clipboard.*` → clipboard; `notify.send` → notifications; `ui.*` → ui; `capture.screenshot` / `capture.monitors` / `capture.ocr` → capture; `keyring.*` → secret; file/copy/scrub/shade/compression/morph/generate.path/codec (except `codec.json.parse`)/capture.crop → filesystem.
+
+Set `[runtime].strict_permissions = true` in config to **deny** directives that omit all permission flags (enterprise mode).
+
+## Recipes
+
+| Goal | Example Directive |
+|------|------------------|
+| HTTP → file | [`http-save-body.yaml`](../examples/directives/http-save-body.yaml) |
+| HTTP → JSON → patch | [`http-extract-patch.yaml`](../examples/directives/http-extract-patch.yaml) |
+| Timestamp → JSON/JS | [`inject-build-time.yaml`](../examples/directives/inject-build-time.yaml) |
+| Bing suggest + parse | [`bing-suggest.yaml`](../examples/directives/bing-suggest.yaml) |
+| UI automation (fragile) | [`wechat-send-message.yaml`](../examples/directives/wechat-send-message.yaml) |
+
+Typical chain: `http.request` → `codec.json.parse` → use `{{parsed.field}}` in `file.write` (no separate query action).
 
 ## Triggers (declared; scheduling separate)
 
@@ -182,9 +199,9 @@ Builtin `cron.schedule` Action currently **errors** (not implemented). Prefer an
 
 ## Examples
 
-- [`examples/shortcuts/hello.yaml`](../examples/shortcuts/hello.yaml)
-- [`examples/shortcuts/control-flow.yaml`](../examples/shortcuts/control-flow.yaml)
-- [`examples/shortcuts/copy-demo.yaml`](../examples/shortcuts/copy-demo.yaml)
+- [`examples/directives/hello.yaml`](../examples/directives/hello.yaml)
+- [`examples/directives/control-flow.yaml`](../examples/directives/control-flow.yaml)
+- [`examples/directives/copy-demo.yaml`](../examples/directives/copy-demo.yaml)
 
 ## Related
 

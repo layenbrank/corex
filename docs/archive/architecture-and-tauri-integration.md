@@ -37,7 +37,7 @@ Corex 采用**三层分离**架构：
 ```mermaid
 flowchart LR
     subgraph tauri [Tauri 瘦客户端]
-        Shortcut[全局快捷键]
+        Directive[全局快捷键]
         Tray[系统托盘]
         IPCClient[corex_ipc 约 200 行]
     end
@@ -53,7 +53,7 @@ flowchart LR
         Modules[业务模块]
     end
 
-    Shortcut --> IPCClient
+    Directive --> IPCClient
     Tray --> IPCClient
     IPCClient -->|JSON| Pipe
     Pipe --> Dispatch
@@ -238,7 +238,7 @@ cargo run -p corex-capture -- --to C:\Temp\screenshots
 ### 冷启动路径（旧方案，慢）
 
 ```
-Tauri shortcut
+Tauri Directive
 └── Command::new("corex").spawn()          [200-500ms]
     └── main → clap::parse → command::dispatch
         └── capture::run
@@ -249,7 +249,7 @@ Tauri shortcut
 ### 热路径（当前方案，快）
 
 ```
-Tauri shortcut / tray / hotkey
+Tauri Directive / tray / hotkey
 └── corex_ipc::screenshot() / cx::serve::request()
     └── pipe::send_request()
         └── open_pipe_file → write JSON → read_line
