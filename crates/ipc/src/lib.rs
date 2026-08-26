@@ -5,7 +5,7 @@ pub mod transport;
 
 pub use protocol::{Request, Response, RpcError, MAX_LINE_BYTES};
 pub use transport::{
-    default_endpoint, platform_data_dir, platform_transport, serve_platform, PlatformTransport,
+    platform_data_dir, platform_endpoint, platform_transport, serve_platform, PlatformTransport,
     Transport, TransportError,
 };
 

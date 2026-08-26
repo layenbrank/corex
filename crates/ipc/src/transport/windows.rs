@@ -17,8 +17,8 @@ impl NamedPipeTransport {
         Self { path: path.into() }
     }
 
-    /// Canonical default pipe path.
-    pub fn default_path() -> PathBuf {
+    /// Canonical named pipe path for Windows IPC.
+    pub fn canonical_pipe_path() -> PathBuf {
         PathBuf::from(r"\\.\pipe\corex")
     }
 

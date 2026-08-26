@@ -51,11 +51,11 @@ pub fn platform_data_dir() -> std::io::Result<PathBuf> {
     Ok(base)
 }
 
-/// Default IPC endpoint for the given data directory.
+/// Platform IPC endpoint for the given data directory.
 ///
 /// - Unix: `<data_dir>/corex.sock`
 /// - Windows: `\\.\pipe\corex`
-pub fn default_endpoint(data_dir: &Path) -> PathBuf {
+pub fn platform_endpoint(data_dir: &Path) -> PathBuf {
     #[cfg(unix)]
     {
         data_dir.join("corex.sock")
