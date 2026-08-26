@@ -19,6 +19,7 @@
 | `capture.screenshot` / `capture.ocr` | PII / secrets on screen | `permissions.capture`; no OCR text in history |
 | `file.write` (`regex` mode) | ReDoS | Pattern length + output byte limits |
 | `clipboard.set` (`image`) | Data exfil via clip | `permissions.clipboard` |
+| `corex ui` probe CLI | Enumerate windows/elements; PII in stdout | Same `disabled_actions` as `ui.*`; audit as `ui.probe`; `--redact` |
 
 ## Removed / migrated
 

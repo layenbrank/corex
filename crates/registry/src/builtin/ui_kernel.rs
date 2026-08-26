@@ -39,6 +39,7 @@ pub struct ElementSelector {
     pub name_contains: Option<String>,
     pub automation_id: Option<String>,
     pub control_type: Option<String>,
+    pub class: Option<String>,
     pub depth: u32,
 }
 
@@ -49,6 +50,7 @@ impl ElementSelector {
             name_contains: opt_str(map, "name_contains"),
             automation_id: opt_str(map, "automation_id"),
             control_type: opt_str(map, "control_type"),
+            class: opt_str(map, "class"),
             depth: map
                 .get("depth")
                 .and_then(|v| v.as_i64())
@@ -170,11 +172,11 @@ fn opt_str(map: &BTreeMap<String, Value>, key: &str) -> Option<String> {
     map.get(key).and_then(|v| v.as_str()).map(|s| s.to_string())
 }
 
-/// Suggested selector fallback chain (AutomationId → name+type → name → control_type).
+/// Suggested selector fallback chain (AutomationId → name+type → name → class+type → control_type).
 pub fn suggest_selectors(
     automation_id: Option<&str>,
     name: Option<&str>,
-    _class: Option<&str>,
+    class: Option<&str>,
     control_type: Option<&str>,
 ) -> Vec<ElementSelector> {
     let mut out = Vec::new();
@@ -202,6 +204,16 @@ pub fn suggest_selectors(
             ..Default::default()
         });
     }
+    if let Some(c) = class.filter(|s| !s.is_empty()) {
+        if let Some(ref ct_val) = ct {
+            out.push(ElementSelector {
+                class: Some(c.to_string()),
+                control_type: Some(ct_val.clone()),
+                depth: 12,
+                ..Default::default()
+            });
+        }
+    }
     if out.is_empty() {
         if let Some(ref ct_val) = ct {
             out.push(ElementSelector {
@@ -212,6 +224,100 @@ pub fn suggest_selectors(
         }
     }
     out
+}
+
+/// Probe commands must pass `--hwnd` or `--title` explicitly (no session fallback).
+pub fn probe_scope_explicit(map: &BTreeMap<String, Value>) -> Result<(), ActionError> {
+    let has_hwnd = map.get("hwnd").and_then(|v| v.as_i64()).is_some();
+    let has_title = map
+        .get("title_contains")
+        .and_then(|v| v.as_str())
+        .is_some_and(|s| !s.is_empty());
+    if has_hwnd || has_title {
+        Ok(())
+    } else {
+        Err(ActionError::ui(
+            "ui_scope_required",
+            "需要 --hwnd 或 --title 指定目标窗口",
+        ))
+    }
+}
+
+fn node_key(map: &BTreeMap<String, Value>) -> String {
+    let name = map.get("name").and_then(|v| v.as_str()).unwrap_or("");
+    let aid = map
+        .get("automation_id")
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
+    let ct = map
+        .get("control_type")
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
+    format!("{ct}:{aid}:{name}")
+}
+
+/// Build nested tree JSON from flat element maps that include `ancestors`.
+pub fn elements_flat_to_tree(elements: &[BTreeMap<String, Value>]) -> Value {
+    use std::collections::BTreeMap as Map;
+
+    #[derive(Default)]
+    struct TreeNode {
+        fields: BTreeMap<String, Value>,
+        children: Map<String, TreeNode>,
+    }
+
+    impl TreeNode {
+        fn to_value(&self) -> Value {
+            let mut m = self.fields.clone();
+            if !self.children.is_empty() {
+                let kids: Vec<Value> = self
+                    .children
+                    .values()
+                    .map(|c| c.to_value())
+                    .collect();
+                m.insert("children".into(), Value::List(kids));
+            }
+            Value::Map(m)
+        }
+    }
+
+    let mut root = TreeNode::default();
+    for el in elements {
+        let mut path: Vec<BTreeMap<String, Value>> = el
+            .get("ancestors")
+            .and_then(|v| v.as_list())
+            .map(|list| {
+                list.iter()
+                    .filter_map(|v| v.as_map().cloned())
+                    .collect()
+            })
+            .unwrap_or_default();
+        let mut leaf = el.clone();
+        leaf.remove("ancestors");
+        path.push(leaf);
+
+        let mut cursor = &mut root;
+        for seg in path {
+            let key = node_key(&seg);
+            cursor = cursor.children.entry(key).or_default();
+            if cursor.fields.is_empty() {
+                cursor.fields = seg;
+            }
+        }
+    }
+
+    if root.children.is_empty() {
+        Value::Map(BTreeMap::new())
+    } else if root.children.len() == 1 {
+        root.children.values().next().unwrap().to_value()
+    } else {
+        Value::List(
+            root.children
+                .values()
+                .map(|c| c.to_value())
+                .collect(),
+        )
+    }
 }
 
 /// YAML snippet for directive `selectors:` block.
@@ -234,8 +340,16 @@ pub fn selector_chain_to_yaml(chain: &[ElementSelector]) -> String {
         if let Some(ct) = &sel.control_type {
             lines.push(format!("      control_type: {ct:?}"));
         }
+        if let Some(c) = &sel.class {
+            lines.push(format!("      class: {c:?}"));
+        }
     }
     lines.join("\n")
+}
+
+/// Whether an action id is blocked by `[plugins].disabled_actions`.
+pub fn probe_action_denied(plugins: &corex_core::PluginConfig, action_id: &str) -> bool {
+    plugins.disabled_actions.iter().any(|d| d == action_id)
 }
 
 #[cfg(test)]
@@ -247,6 +361,12 @@ mod suggest_tests {
         let chain = suggest_selectors(Some("btnOk"), Some("OK"), None, Some("button"));
         assert!(!chain.is_empty());
         assert_eq!(chain[0].automation_id.as_deref(), Some("btnOk"));
+    }
+
+    #[test]
+    fn suggest_includes_class_fallback() {
+        let chain = suggest_selectors(None, None, Some("Edit"), Some("edit"));
+        assert!(chain.iter().any(|s| s.class.as_deref() == Some("Edit")));
     }
 }
 
@@ -298,5 +418,28 @@ mod tests {
         assert!(q.hwnd.is_none());
         assert_eq!(q.title_contains.as_deref(), Some("微信"));
         assert!(q.prefer_largest);
+    }
+
+    #[test]
+    fn probe_scope_requires_explicit_hwnd_or_title() {
+        let m = BTreeMap::new();
+        assert!(probe_scope_explicit(&m).is_err());
+        let mut m2 = BTreeMap::new();
+        m2.insert("hwnd".into(), Value::Int(1));
+        assert!(probe_scope_explicit(&m2).is_ok());
+    }
+
+    #[test]
+    fn flat_to_tree_builds_hierarchy() {
+        let mut parent = BTreeMap::new();
+        parent.insert("name".into(), Value::Str("Pane".into()));
+        parent.insert("control_type".into(), Value::Str("pane".into()));
+        let mut child = BTreeMap::new();
+        child.insert("name".into(), Value::Str("OK".into()));
+        child.insert("control_type".into(), Value::Str("button".into()));
+        child.insert("ancestors".into(), Value::List(vec![Value::Map(parent)]));
+        let tree = elements_flat_to_tree(&[child]);
+        let json = tree.to_json();
+        assert!(json.get("children").is_some() || json.get("name").is_some());
     }
 }

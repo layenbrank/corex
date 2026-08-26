@@ -158,3 +158,15 @@ corex-daemon --socket /path/to/corex.sock
 | 截图失败 | 平台无原生 capture 后端 |
 
 更完整的托盘 / 快捷键 wiring 见 `examples/tauri/lib.rs` 与该目录 `README.md`。
+
+## UI Inspector（骨架）
+
+Tauri 侧可视化探针（对标 FlaUInspect / autojs6-dev-tools）：
+
+| 文件 | 说明 |
+|------|------|
+| `examples/tauri/inspector/index.html` | 窗口列表 + 控件树 + 属性面板 |
+| `examples/tauri/inspector.rs` | 集成说明 |
+| `examples/tauri/corex_ipc.rs` | `ui_window_list()` / `ui_element_list()` / `ui_element_find()` |
+
+IPC 动作：`ui.window.list`、`ui.element.list`、`ui.element.find`（与 directive action id 一致）。Pick 高亮仍由 daemon/CLI `element pick` 提供，Tauri 后续可 invoke 扩展。

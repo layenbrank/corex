@@ -13,6 +13,7 @@ use corex_registry::ActionRegistry;
 use fs2::FileExt;
 use rand::RngExt;
 use std::collections::BTreeMap;
+use std::io::Write;
 use std::fs::File;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};

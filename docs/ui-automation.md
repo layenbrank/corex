@@ -22,51 +22,37 @@ backends are planned; see [cross-platform-backends.md](./cross-platform-backends
 
 | Auto.js | corex directive | `corex ui` CLI |
 |---------|-----------------|----------------|
-| `selector().findOne(timeout)` | `ui.element.find` | `corex ui find --name "…"` |
-| `exists()` | `ui.element.exists` | (use `find` + check JSON) |
+| `selector().findOne(timeout)` | `ui.element.find` | `corex ui element get --name "…"` |
+| `exists()` | `ui.element.exists` | (use `element get` + check JSON) |
 | `waitFor()` | `ui.element.wait` `state: present` | — |
 | `clickable()` + click | `ui.element.click` `safe: true` | JSON 字段 `clickable` |
 | `bounds()` | — | JSON 字段 `bounds: {x,y,width,height}` |
-| `id()` / `className()` | `automation_id` / `class` | `find` / `pick` 输出 |
-| 布局分析 / 控件树 | `ui.element.list` | `corex ui list` |
-| 点击选控件（Inspect） | — | `corex ui pick` |
+| `id()` / `className()` | `automation_id` / `class` | `element get` / `element pick` 输出 |
+| 布局分析 / 控件树 | `ui.element.list` | `corex ui element tree` |
+| 桌面图标 | — | `corex ui window desktop` |
+| 点击选控件（Inspect） | — | `corex ui element pick`（CLI 应急）；Tauri Inspector 为主 UX |
 | `sleep()` | **avoid** — `ui.element.wait`; fallback `ui.wait` | — |
 
 ## Interactive probe (`corex ui`)
 
-Windows-only CLI for exploring selectors before writing directives (对标 Auto.js 布局分析 / FlaUInspect hover pick).
+Windows-only CLI for exploring selectors. **Tauri Inspector**（[tauri-integration.md](./tauri-integration.md)）提供树形 UI；CLI 适合脚本/CI。
 
 ```powershell
-# 枚举顶层窗口
-corex ui windows
-
-# 列出窗口内 UIA 子树（先打开记事本）
-corex ui list --title "无标题" --depth 3
-
-# 按 selector 查找（输出含 bounds / enabled / clickable / selectors_yaml）
-corex ui find --title "无标题" --control-type document
-
-# 坐标 hit-test（无 overlay）
-corex ui at --x 640 --y 480
-
-# 浏览器式点击选择：悬停高亮，左键确认，Esc 取消
-corex ui pick
-corex ui pick --scope-hwnd 0x00123456 --copy-yaml   # 限定在某个窗口内
+corex ui window list
+corex ui window desktop
+corex ui element tree --title "无标题 - Notepad" --depth 4
+corex ui element tree --title "无标题 - Notepad" --format tree
+corex ui element get --title "无标题 - Notepad" --control-type document
+corex ui element point --x 640 --y 480
+corex ui element pick --copy-yaml
 ```
 
-`pick` / `at` / `find` 输出 JSON，包含：
+- `element tree` / `element get` **必须** `--hwnd` 或 `--title`（否则 `ui_scope_required`）
+- `element pick` 使用全局左键确认（FlaUI 四边框高亮 + `GetAsyncKeyState`），不依赖 overlay 焦点
+- 输出含 `ancestors[]`、`selectors_yaml`；可选 `--redact` 打码 `name`
+- 尊重 `[plugins].disabled_actions`；probe 事件写入 `audit.jsonl`（`ui.probe`）
 
-- `bounds`, `enabled`, `clickable`, `control_type`（人类可读小写）
-- `selectors` — 建议 fallback 链（AutomationId → name+type → name）
-- `selectors_yaml` — 可直接粘贴进 directive step 的 YAML 片段
-
-Workflow（编写新 directive 时）：
-
-1. 打开目标应用
-2. `corex ui windows` → 记下 `hwnd` 或 `title`
-3. `corex ui pick`（或 `pick --scope-hwnd …`）点击目标控件
-4. 复制输出中的 `selectors_yaml` 到 YAML step
-5. `corex ui find …` 验证 selector 能命中
+Workflow：window list → element tree/get → 粘贴 YAML → `corex run ui-smoke-notepad` 验证。
 
 ## Structured errors
 
@@ -77,6 +63,8 @@ Workflow（编写新 directive 时）：
 | `ui_wrong_window` | Scope window missing |
 | `ui_login_pending` | Login UI still present (phone not confirmed) |
 | `ui_sync_timeout` | Element/window wait timed out |
+| `ui_scope_required` | Probe 缺少 `--hwnd` / `--title` |
+| `ui_desktop_not_found` | 桌面 Shell 窗口未找到 |
 
 Audit records (`audit.jsonl`) include `ui_phase` and `error_code` when applicable.
 

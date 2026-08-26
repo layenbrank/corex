@@ -194,6 +194,50 @@ pub fn screenshot(to: impl AsRef<str>) -> Result<String, String> {
     }
 }
 
+/// UI Inspector: list top-level windows (`ui.window.list`).
+pub fn ui_window_list() -> Result<Value, String> {
+    let resp = invoke_action("ui.window.list", json!({}))?;
+    match resp {
+        Response::Ok { data, .. } => Ok(data),
+        Response::Error { error, .. } => Err(format!("[{}] {}", error.code, error.message)),
+        other => Err(format!("unexpected response: {other:?}")),
+    }
+}
+
+/// UI Inspector: list elements under a window (`ui.element.list`).
+pub fn ui_element_list(
+    hwnd: Option<i64>,
+    title_contains: Option<&str>,
+    depth: i64,
+    limit: i64,
+) -> Result<Value, String> {
+    let mut params = serde_json::Map::new();
+    if let Some(h) = hwnd {
+        params.insert("hwnd".into(), json!(h));
+    }
+    if let Some(t) = title_contains {
+        params.insert("title_contains".into(), json!(t));
+    }
+    params.insert("depth".into(), json!(depth));
+    params.insert("limit".into(), json!(limit));
+    let resp = invoke_action("ui.element.list", Value::Object(params))?;
+    match resp {
+        Response::Ok { data, .. } => Ok(data),
+        Response::Error { error, .. } => Err(format!("[{}] {}", error.code, error.message)),
+        other => Err(format!("unexpected response: {other:?}")),
+    }
+}
+
+/// UI Inspector: find element by selector (`ui.element.find`).
+pub fn ui_element_find(params: Value) -> Result<Value, String> {
+    let resp = invoke_action("ui.element.find", params)?;
+    match resp {
+        Response::Ok { data, .. } => Ok(data),
+        Response::Error { error, .. } => Err(format!("[{}] {}", error.code, error.message)),
+        other => Err(format!("unexpected response: {other:?}")),
+    }
+}
+
 fn value_to_path(data: &Value) -> Option<String> {
     if let Some(s) = data.as_str() {
         return Some(s.to_string());
