@@ -3,14 +3,14 @@
   "evals": [
     {
       "id": 1,
-      "prompt": "在 corex 里新增一个 hash 动作，支持 sha256 摘要，要能被 Shortcut YAML 和 Daemon invoke 调用",
+      "prompt": "在 corex 里新增一个 hash 动作，支持 sha256 摘要，要能被 Directive YAML 和 Daemon invoke 调用",
       "expected_output": "创建 crates/registry/src/builtin/hash.rs，实现 Action（如 hash.sha256），注册 act-hash feature + builtin/mod.rs，含测试；不创建旧 invoke/registry 或 command/mod.rs",
       "files": []
     },
     {
       "id": 2,
       "prompt": "把外部项目 utils/pdf.rs 里读 PDF 页数的功能迁到 corex，是扩展 morph 还是新 Action 你帮我判断",
-      "expected_output": "分析是否扩展 builtin/morph.rs 或新建 builtin；按 Action trait + act-* feature 实现，说明调用方用 Invoke action id 或 Shortcut YAML",
+      "expected_output": "分析是否扩展 builtin/morph.rs 或新建 builtin；按 Action trait + act-* feature 实现，说明调用方用 Invoke action id 或 Directive YAML",
       "files": []
     },
     {

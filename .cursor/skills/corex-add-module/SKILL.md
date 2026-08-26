@@ -1,6 +1,6 @@
 ---
 name: corex-add-module
-description: "在 corex v4 中新增内置 Action 的标准流程。当用户提到「新增模块」「添加命令」「迁移到 corex」「实现 Action」「注册 builtin」「补全功能模块」或要在 corex 里加类似 copy/codec/scan 的能力时，务必使用本 skill。适用于从外部项目迁入可移植逻辑，或从零实现新的 Action（CLI run / Daemon IPC / Shortcut YAML 共用）。"
+description: "在 corex v4 中新增内置 Action 的标准流程。当用户提到「新增模块」「添加命令」「迁移到 corex」「实现 Action」「注册 builtin」「补全功能模块」或要在 corex 里加类似 copy/codec/scan 的能力时，务必使用本 skill。适用于从外部项目迁入可移植逻辑，或从零实现新的 Action（CLI run / Daemon IPC / Directive YAML 共用）。"
 argument-hint: "<action-name> [--feature-only]"
 allowed-tools: ["Read", "Glob", "Grep", "Edit", "Write", "Shell"]
 ---
@@ -10,8 +10,8 @@ allowed-tools: ["Read", "Glob", "Grep", "Edit", "Write", "Shell"]
 在 **`crates/registry`** 中按统一契约添加内置 Action，使其可被：
 
 - **CLI**：`corex run` / `corex actions` / `corex repl`
-- **Daemon IPC**：`Request::Invoke` / `RunShortcut`
-- **Shortcut YAML**：`steps[].action: foo.bar`
+- **Daemon IPC**：`Request::Invoke` / `RunDirective`
+- **Directive YAML**：`steps[].action: foo.bar`
 
 > 旧架构（`corex-core/src/<module>/` + `invoke/registry.rs` match + `command/mod.rs` clap 树）**已删除**，不要再往那套路径加代码。
 
@@ -138,7 +138,7 @@ pub fn register(registry: &mut ActionRegistry) {
 | `execute` | 无 `println!` / `eprintln!`；返回 `Value` |
 | 参数 | 用 `Value` map；校验用 `ActionError::*` |
 | 多动作 | 同一文件多个 struct，或多个 `register` 调用 |
-| 占位符 | Shortcut YAML 的 `{{var}}` 由 **engine** 在调用前解析，Action 收到已展开值 |
+| 占位符 | Directive YAML 的 `{{var}}` 由 **engine** 在调用前解析，Action 收到已展开值 |
 
 ## 注册：`builtin/mod.rs`
 
@@ -175,10 +175,10 @@ some-crate = { workspace = true, optional = true }
 |--------|------|
 | `corex-core/src/<module>/{schema,service,parse}.rs` | 已删除 |
 | `invoke/registry.rs` 静态 match / `known_modules()` | 已删除 |
-| `command/mod.rs` clap 子命令树 | 已删除（CLI 用 Shortcut / Action，非每模块子命令） |
+| `command/mod.rs` clap 子命令树 | 已删除（CLI 用 Directive / Action，非每模块子命令） |
 | `corex-serve` / 旧协议 `module`+`action` | 已删除；现用 `corex-daemon` + `corex-ipc`（传输仍含 Named Pipe，协议已变） |
 
-## Shortcut YAML 用法
+## Directive YAML 用法
 
 ```yaml
 name: demo-foo
@@ -232,7 +232,7 @@ cargo test --workspace
 1. 将业务逻辑迁入 `builtin/<name>.rs` 的 `Action::execute`
 2. 参数从 clap `Args` 改为 `Value` map + `ParamSchema`
 3. 注册 `act-<name>` + `builtin/mod.rs`
-4. Tauri / 调用方改为 Shortcut YAML 或 `Request::Invoke { action, params }`
+4. Tauri / 调用方改为 Directive YAML 或 `Request::Invoke { action, params }`
 
 ## 常见错误
 
@@ -251,7 +251,7 @@ cargo test --workspace
 **Feature：** `act-<name>`
 **文件：** `crates/registry/src/builtin/<name>.rs`
 
-### Shortcut
+### Directive
 - action: <id>
   params: ...
 
@@ -268,7 +268,7 @@ cargo build -p corex -p corex-daemon
 - [docs/architecture.md](../../../docs/architecture.md) — v4 workspace 与执行模型
 - [docs/ipc-protocol.md](../../../docs/ipc-protocol.md) — NDJSON 协议、token、端点
 - [docs/actions.md](../../../docs/actions.md) — 内置 Action ID 表
-- [docs/shortcut-yaml.md](../../../docs/shortcut-yaml.md) — Shortcut DSL
+- [docs/directive-yaml.md](../../../docs/directive-yaml.md) — Directive DSL
 - [docs/breaking-changes-v4.md](../../../docs/breaking-changes-v4.md) — 破坏性变更
 - [plugins/README.md](../../../plugins/README.md) — WASM 插件（非内置 Action）
 

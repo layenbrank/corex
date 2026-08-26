@@ -128,7 +128,7 @@ act-<name> = []                 # 或 ["dep:some-crate"]
 # some-crate = { workspace = true, optional = true }
 ```
 
-## Shortcut YAML
+## Directive YAML
 
 ```yaml
 name: demo-<name>
