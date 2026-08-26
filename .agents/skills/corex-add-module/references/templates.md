@@ -145,6 +145,8 @@ steps:
 
 ## IPC Invoke
 
+每条 daemon 请求须带 `auth_token`（`COREX_TOKEN` / `config.toml` / data-dir `token` 文件）。
+
 ```json
-{"type":"invoke","id":1,"action":"<id>","params":{"input":"hello"}}
+{"type":"invoke","id":1,"auth_token":"<token>","action":"<id>","params":{"input":"hello"}}
 ```
