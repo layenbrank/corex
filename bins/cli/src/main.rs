@@ -1,11 +1,12 @@
 //! Corex CLI entrypoint.
 
+mod editor;
 mod repl;
 
 use anyhow::{bail, Context, Result};
 use clap::{Parser, Subcommand};
 use corex_core::{DaemonConfig, ExecutionContext, LoggingConfig, RuntimeConfig, Value};
-use corex_engine::{ExecutionHistory, Pipeline, Shortcut};
+use corex_engine::{validate_permissions, ExecutionAudit, ExecutionHistory, Pipeline, Directive};
 use corex_ipc::protocol::{Request, Response};
 use corex_ipc::{default_endpoint, platform_data_dir, platform_transport, Transport};
 use corex_registry::ActionRegistry;
@@ -15,9 +16,9 @@ use std::process::Command;
 use std::sync::Arc;
 
 #[derive(Parser, Debug)]
-#[command(name = "corex", version, about = "Corex — composable shortcuts & actions")]
+#[command(name = "corex", version, about = "Corex — composable directives & actions")]
 struct Cli {
-    /// Shortcut / config search directory
+    /// Directive / config search directory
     #[arg(long, global = true)]
     dir: Option<PathBuf>,
 
@@ -31,30 +32,39 @@ struct Cli {
 
 #[derive(Subcommand, Debug)]
 enum Commands {
-    /// Run a shortcut by name or file path
+    /// Run a Directive by name or file path
     Run {
-        /// Shortcut name (without .yaml) or path to YAML
+        /// Directive name (without .yaml) or path to YAML
         target: String,
         /// Input as KEY=VALUE pairs
         #[arg(short, long = "input", value_name = "KEY=VALUE")]
         inputs: Vec<String>,
     },
-    /// List available shortcuts
+    /// List available directives
     List {
         #[arg(long)]
         dir: Option<PathBuf>,
     },
     /// List registered actions
     Actions,
-    /// Create a new shortcut scaffold
+    /// Create a new Directive scaffold
     Create {
         name: String,
         #[arg(long)]
         dir: Option<PathBuf>,
     },
-    /// Validate a shortcut YAML file
+    /// Open a Directive YAML in $COREX_EDITOR / $EDITOR or the OS default app
+    Edit {
+        name: String,
+        #[arg(long)]
+        dir: Option<PathBuf>,
+    },
+    /// Validate a directive YAML file
     Validate {
         path: PathBuf,
+        /// Require declared permissions covering all steps
+        #[arg(long)]
+        strict: bool,
     },
     /// Interactive REPL
     Repl,
@@ -87,7 +97,8 @@ async fn main() -> Result<()> {
         Commands::List { dir } => cmd_list(dir.or(cli.dir).as_deref()),
         Commands::Actions => cmd_actions(),
         Commands::Create { name, dir } => cmd_create(&name, dir.or(cli.dir).as_deref()),
-        Commands::Validate { path } => cmd_validate(&path),
+        Commands::Edit { name, dir } => cmd_edit(&name, dir.or(cli.dir).as_deref()),
+        Commands::Validate { path, strict } => cmd_validate(&path, strict),
         Commands::Repl => repl::run(cli.dir).await,
         Commands::Daemon { command } => cmd_daemon(command).await,
     }
@@ -107,11 +118,11 @@ fn init_tracing(verbose: u8) {
         .try_init();
 }
 
-fn shortcuts_dir(override_dir: Option<&Path>) -> Result<PathBuf> {
+fn directives_dir(override_dir: Option<&Path>) -> Result<PathBuf> {
     if let Some(d) = override_dir {
         return Ok(d.to_path_buf());
     }
-    let d = platform_data_dir()?.join("shortcuts");
+    let d = platform_data_dir()?.join("directives");
     std::fs::create_dir_all(&d)?;
     Ok(d)
 }
@@ -207,6 +218,10 @@ struct RuntimeSection {
     max_parallel: Option<usize>,
     #[serde(default)]
     step_timeout_secs: Option<u64>,
+    #[serde(default)]
+    strict_permissions: Option<bool>,
+    #[serde(default)]
+    filesystem_roots: Option<Vec<PathBuf>>,
 }
 
 impl RuntimeConfigWrapper {
@@ -231,6 +246,12 @@ impl RuntimeConfigWrapper {
             if let Some(t) = r.step_timeout_secs {
                 cfg.step_timeout_secs = t;
             }
+            if let Some(s) = r.strict_permissions {
+                cfg.strict_permissions = s;
+            }
+            if let Some(roots) = r.filesystem_roots {
+                cfg.filesystem_roots = roots;
+            }
         }
         cfg
     }
@@ -242,34 +263,34 @@ fn parse_inputs(pairs: &[String]) -> Result<HashMap<String, Value>> {
         let (k, v) = p
             .split_once('=')
             .with_context(|| format!("输入格式应为 KEY=VALUE: {p}"))?;
-        map.insert(k.to_string(), Value::Str(v.to_string()));
+        map.insert(k.to_string(), Value::from_cli_literal(v));
     }
     Ok(map)
 }
 
-fn resolve_shortcut_path(target: &str, dir: Option<&Path>) -> Result<PathBuf> {
+fn resolve_directive_path(target: &str, dir: Option<&Path>) -> Result<PathBuf> {
     let as_path = PathBuf::from(target);
     if as_path.exists() {
         return Ok(as_path);
     }
-    let base = shortcuts_dir(dir)?;
+    let base = directives_dir(dir)?;
     let candidates = [
         base.join(format!("{target}.yaml")),
         base.join(format!("{target}.yml")),
-        PathBuf::from("examples/shortcuts").join(format!("{target}.yaml")),
-        PathBuf::from("examples/shortcuts").join(format!("{target}.yml")),
+        PathBuf::from("examples/directives").join(format!("{target}.yaml")),
+        PathBuf::from("examples/directives").join(format!("{target}.yml")),
     ];
     for c in candidates {
         if c.exists() {
             return Ok(c);
         }
     }
-    bail!("快捷指令未找到: {target}");
+    bail!("指令未找到: {target}");
 }
 
 pub(crate) async fn cmd_run(target: &str, inputs: &[String], dir: Option<&Path>) -> Result<()> {
-    let path = resolve_shortcut_path(target, dir)?;
-    let shortcut = Shortcut::from_yaml_file(&path)?;
+    let path = resolve_directive_path(target, dir)?;
+    let directive = Directive::from_yaml_file(&path)?;
     let input = parse_inputs(inputs)?;
     let config = load_runtime_config();
     let ctx = ExecutionContext::new(config.clone()).with_input(input);
@@ -285,13 +306,19 @@ pub(crate) async fn cmd_run(target: &str, inputs: &[String], dir: Option<&Path>)
         let history = ExecutionHistory::open(hist_path).context("无法打开执行历史")?;
         pipeline = pipeline.with_history(history);
     }
-    let result = pipeline.execute(&shortcut, ctx).await?;
+    {
+        let audit_path = platform_data_dir()?.join("audit.jsonl");
+        if let Ok(audit) = ExecutionAudit::open(audit_path) {
+            pipeline = pipeline.with_audit(audit);
+        }
+    }
+    let result = pipeline.execute(&directive, ctx).await?;
     println!("{}", serde_json::to_string_pretty(&result.to_json())?);
     Ok(())
 }
 
 pub(crate) fn cmd_list(dir: Option<&Path>) -> Result<()> {
-    let base = shortcuts_dir(dir)?;
+    let base = directives_dir(dir)?;
     let mut names = Vec::new();
     if base.exists() {
         for entry in std::fs::read_dir(&base)? {
@@ -308,7 +335,7 @@ pub(crate) fn cmd_list(dir: Option<&Path>) -> Result<()> {
         }
     }
     // Also list examples
-    let examples = PathBuf::from("examples/shortcuts");
+    let examples = PathBuf::from("examples/directives");
     if examples.exists() {
         for entry in std::fs::read_dir(&examples)? {
             let entry = entry?;
@@ -328,7 +355,7 @@ pub(crate) fn cmd_list(dir: Option<&Path>) -> Result<()> {
     }
     names.sort();
     if names.is_empty() {
-        println!("(无快捷指令)");
+        println!("(无指令)");
     } else {
         for n in names {
             println!("{n}");
@@ -351,7 +378,7 @@ pub(crate) fn cmd_actions() -> Result<()> {
 }
 
 fn cmd_create(name: &str, dir: Option<&Path>) -> Result<()> {
-    let base = shortcuts_dir(dir)?;
+    let base = directives_dir(dir)?;
     let path = base.join(format!("{name}.yaml"));
     if path.exists() {
         bail!("已存在: {}", path.display());
@@ -374,8 +401,15 @@ steps:
     Ok(())
 }
 
-fn cmd_validate(path: &Path) -> Result<()> {
-    let shortcut = Shortcut::from_yaml_file(path)?;
+pub(crate) fn cmd_edit(name: &str, dir: Option<&Path>) -> Result<()> {
+    let path = resolve_directive_path(name, dir)?;
+    editor::open_in_editor(&path)?;
+    println!("已打开 {}", path.display());
+    Ok(())
+}
+
+fn cmd_validate(path: &Path, strict: bool) -> Result<()> {
+    let directive = Directive::from_yaml_file(path)?;
     let reg = build_registry();
     let mut missing = Vec::new();
     fn walk(steps: &[corex_engine::Step], reg: &ActionRegistry, missing: &mut Vec<String>) {
@@ -396,15 +430,16 @@ fn cmd_validate(path: &Path) -> Result<()> {
             }
         }
     }
-    walk(&shortcut.steps, &reg, &mut missing);
-    if missing.is_empty() {
-        println!("OK: {} ({} steps)", shortcut.name, shortcut.steps.len());
-        Ok(())
-    } else {
-        bail!("未注册的动作: {}", missing.join(", "));
+    walk(&directive.steps, &reg, &mut missing);
+    if !missing.is_empty() {
+        bail!("unregistered actions: {}", missing.join(", "));
     }
+    if strict {
+        validate_permissions(&directive).map_err(|e| anyhow::anyhow!("{e}"))?;
+    }
+    println!("OK: {} ({} steps)", directive.name, directive.steps.len());
+    Ok(())
 }
-
 async fn cmd_daemon(cmd: DaemonCmd) -> Result<()> {
     match cmd {
         DaemonCmd::Run => {

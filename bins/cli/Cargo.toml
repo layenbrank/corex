@@ -2,7 +2,7 @@
 name        = "corex"
 version     = { workspace = true }
 edition     = { workspace = true }
-description = "Corex CLI — run shortcuts, manage daemon, inspect actions"
+description = "Corex CLI — run directives, manage daemon, inspect actions"
 authors     = { workspace = true }
 license     = { workspace = true }
 

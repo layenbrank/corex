@@ -1,4 +1,4 @@
-//! Interactive REPL for exploring shortcuts and actions.
+//! Interactive REPL for exploring directives and actions.
 
 use anyhow::Result;
 use std::io::{self, Write};
@@ -43,6 +43,17 @@ pub async fn run(dir: Option<PathBuf>) -> Result<()> {
                     None => eprintln!("usage: run <name> [KEY=VALUE ...]"),
                 }
             }
+            "edit" => {
+                let name = parts.next();
+                match name {
+                    Some(target) => {
+                        if let Err(e) = crate::cmd_edit(target, dir.as_deref()) {
+                            eprintln!("error: {e:#}");
+                        }
+                    }
+                    None => eprintln!("usage: edit <name>"),
+                }
+            }
             other => eprintln!("unknown command: {other} (type `help`)"),
         }
     }
@@ -54,8 +65,9 @@ fn print_help() {
         "Commands:
   help              Show this help
   actions           List registered actions
-  list              List available shortcuts
-  run <name> [...]  Run a shortcut (optional KEY=VALUE inputs)
+  list              List available directives
+  edit <name>       Open Directive YAML in your editor
+  run <name> [...]  Run a Directive (optional KEY=VALUE inputs)
   quit              Exit the REPL"
     );
 }
