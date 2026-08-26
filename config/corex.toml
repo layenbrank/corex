@@ -1,10 +1,10 @@
-# Corex default runtime configuration
+# Corex runtime configuration
 
 [daemon]
 # Paths below that are not absolute are resolved under the platform data dir
 # (e.g. ~/.local/share/corex on Linux). Windows named pipes like \\.\pipe\corex are used as-is.
 # IPC endpoint: Unix socket path or Windows named pipe
-# Windows default is \\.\pipe\corex when unset at runtime
+# Windows pipe is \\.\pipe\corex when unset at runtime
 socket_path = "corex.sock"
 # Singleton lock file
 lock_path = "corex.lock"
@@ -32,7 +32,7 @@ json = false
 [runtime]
 # Max parallel steps in a parallel block
 max_parallel = 8
-# Default step timeout in seconds (0 = none)
+# Step timeout in seconds (0 = none)
 step_timeout_secs = 0
 # Enterprise: deny directives with no permissions block when true
 strict_permissions = false
@@ -40,3 +40,7 @@ strict_permissions = false
 # filesystem_roots = []
 # Cap total ui.wait ms per directive run (0 = unlimited)
 # ui_max_settle_ms = 0
+# UI automation profile: baseline | fast | patient
+# ui_profile = "baseline"
+# Max selectors[] fallback chain for ui.element.* (baseline=8, fast=5, patient=12)
+# ui_max_selector_chain = 8
