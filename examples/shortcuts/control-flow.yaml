@@ -1,0 +1,40 @@
+name: control-flow
+description: Simple if + repeat using template.render only
+version: "1.0"
+
+inputs:
+  - name: mode
+    description: Branch selector (prod | other)
+    required: false
+    default: "dev"
+
+variables:
+  enabled: true
+
+steps:
+  - id: branch
+    if:
+      eq: ["{{input.mode}}", "prod"]
+    then:
+      - id: prod_msg
+        action: template.render
+        params:
+          template: "running in prod"
+        save_to: label
+    else:
+      - id: dev_msg
+        action: template.render
+        params:
+          template: "running in {{input.mode}}"
+        save_to: label
+
+  - id: loop
+    repeat:
+      count: 2
+      as: n
+    steps:
+      - id: tick
+        action: template.render
+        params:
+          template: "{{label}} #{{n}}"
+        save_to: last

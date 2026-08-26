@@ -125,3 +125,59 @@ impl Action for ShellRun {
 pub fn register(registry: &mut ActionRegistry) {
     registry.register(Arc::new(ShellRun));
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use corex_core::ExecutionContext;
+    use std::collections::BTreeMap;
+
+    fn failing_command_params(allow_nonzero: bool) -> Value {
+        let mut m = BTreeMap::new();
+        #[cfg(unix)]
+        {
+            m.insert("command".into(), Value::Str("false".into()));
+        }
+        #[cfg(windows)]
+        {
+            m.insert("command".into(), Value::Str("cmd".into()));
+            m.insert(
+                "args".into(),
+                Value::List(vec![
+                    Value::Str("/C".into()),
+                    Value::Str("exit 1".into()),
+                ]),
+            );
+        }
+        if allow_nonzero {
+            m.insert("allow_nonzero".into(), Value::Bool(true));
+        }
+        Value::Map(m)
+    }
+
+    #[tokio::test]
+    async fn nonzero_without_allow_errors() {
+        let mut ctx = ExecutionContext::default();
+        let err = ShellRun
+            .execute(failing_command_params(false), &mut ctx)
+            .await
+            .expect_err("non-zero exit must Err without allow_nonzero");
+        let msg = err.to_string();
+        assert!(
+            msg.contains("非零") || msg.contains("exit"),
+            "got: {msg}"
+        );
+    }
+
+    #[tokio::test]
+    async fn nonzero_with_allow_ok() {
+        let mut ctx = ExecutionContext::default();
+        let out = ShellRun
+            .execute(failing_command_params(true), &mut ctx)
+            .await
+            .expect("allow_nonzero should return Ok");
+        let map = out.as_map().expect("map");
+        assert_eq!(map.get("success"), Some(&Value::Bool(false)));
+        assert_ne!(map.get("exit_code"), Some(&Value::Int(0)));
+    }
+}

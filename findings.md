@@ -1,19 +1,20 @@
 # Findings & Decisions — Corex 企业级架构重构
 
 ## Requirements
-- 按用户提供的 forge 企业级方案重构，**项目名保持 corex**
-- 交付范围 **P0–P5 全量**
-- Daemon 二进制 **`corex-daemon`**（破坏性，不再使用 `corex-serve`）
-- 内置 Action（shell/http/… + 原业务模块）+ Feature Gate + 运行时禁用
+- 按 forge 方案重构，**项目名保持 corex**；Daemon **`corex-daemon`**
+- Phase B+C：文档/配置/示例对齐 v4（本轮）
 
-## Current State (post-refactor)
-- Workspace: `crates/{core,engine,registry,ipc,plugin-sdk}` + `bins/{cli,daemon}` + `pdfium`
-- Action trait + `crates/registry` builtins（`act-*` features）
-- Shortcut YAML：`action` + `params`，占位符 `{{var}}` / `{{input.x}}`
-- IPC：Unix socket（Linux/macOS）+ Windows Named Pipe（`\\.\pipe\corex`），NDJSON `Request`/`Response`
-- 旧 monolith 目录已删除
+## Current State (docs round)
+- IPC：NDJSON，`MAX_LINE_BYTES = 1MiB`；`Request`/`Response` + `auth_token`
+- Transport：Unix `<data-dir>/corex.sock`；Windows `\\.\pipe\corex`
+- Token：`COREX_TOKEN` → config `daemon.token` → `<data-dir>/token`
+- Parallel：`max_concurrency` / `runtime.max_parallel` >1 时 `buffer_unordered` 并发
+- Permissions：YAML 省略 = allow-all；任一 flag true 后未声明类别拒绝
+- `cron.schedule`：注册但 `execute` 返回未实现错误
+- compression `7z`：返回 execution error（未在此构建启用）
+- Path confinement：daemon `run_shortcut` / `list_shortcuts` 路径限制在 shortcuts 根下
 
-## Crate Mapping (forge → corex)
+## Crate Mapping
 | 方案 | 本仓库 |
 |------|--------|
 | forge-core | `corex-core` → `crates/core` |
@@ -24,33 +25,22 @@
 | forge-cli | `corex` → `bins/cli` |
 | forge-daemon | `corex-daemon` → `bins/daemon` |
 
-## Existing → Action IDs
-| 旧 module | Action id(s) |
-|-----------|----------------|
-| copy | `copy.run` |
-| scrub | `scrub.run` |
-| shade | `shade.convert` |
-| compression | `compression.compress` / `compression.decompress` |
-| generate | `generate.path` / `generate.uuid` / `generate.cvid` |
-| exec | `shell.run` / `exec.run` |
-| engine (Bing) | `suggest.bing` |
-| bootstrap | `bootstrap.env` / … |
-| capture | `capture.screenshot` / … |
-| codec | `codec.base64.encode` / … |
-| scan | `scan.os` |
-| morph | `morph.*` |
-
-## Technical Decisions
-| Decision | Rationale |
-|----------|-----------|
-| 新树落地后删除旧 crate | 避免双轨；P4 迁移完成后清理 |
-| Windows 默认 `\\.\pipe\corex` | 兼容旧 Tauri/sidecar 习惯；Unix 用 data-dir `corex.sock` |
-| REPL 为 CLI 子命令非 Action | 交互层，不进入 registry |
-| 版本 4.0.0 | 破坏性公共 API/二进制改名 |
+## Docs inventory (done)
+| Doc | Role |
+|-----|------|
+| `docs/ipc-protocol.md` | v4 NDJSON protocol |
+| `docs/shortcut-yaml.md` | Shortcut DSL |
+| `docs/actions.md` | Builtin Action ID table |
+| `docs/architecture.md` | v4 layout + links |
+| `docs/breaking-changes-v4.md` | v4 breaking (pipe exists, actions migrated) |
+| `docs/tauri-integration.md` | corex-daemon + token + pipe |
+| `docs/archive/*` | historical ≤v3 |
 
 ## Remaining
-- **Windows CI**：实机验证 Named Pipe `serve` / client `send`（Linux 仅 cfg 编译）
+- 父代理统一 commit（本轮未提交）
+- Windows 实机 Named Pipe 冒烟（CI 已过编译）
 
 ## Resources
-- `docs/architecture.md`, `docs/breaking-changes-v4.md`
-- `.agents/skills/corex-add-module/SKILL.md`（已改写为 v4 Action）
+- `crates/ipc/src/protocol.rs`, `crates/engine/src/definition.rs`
+- `crates/registry/src/builtin/*`
+- `.agents/skills/corex-add-module/SKILL.md`

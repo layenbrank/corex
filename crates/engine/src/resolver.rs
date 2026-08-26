@@ -94,11 +94,11 @@ impl Resolver {
                     .get(name)
                     .cloned()
                     .ok_or_else(|| EngineError::UndefinedVariable(format!("input.{name}")))?;
-                Ok(get_optional_path(val, path))
+                get_required_path(val, path, expr)
             }
             "shortcut_input" => {
                 let val = ctx.shortcut_input.clone().unwrap_or(Value::Null);
-                Ok(get_optional_path(val, rest))
+                get_required_path(val, rest, expr)
             }
             "step" | "steps" => {
                 if rest.is_empty() {
@@ -112,7 +112,7 @@ impl Resolver {
                     .get(id)
                     .cloned()
                     .ok_or_else(|| EngineError::UndefinedVariable(format!("step.{id}")))?;
-                Ok(get_optional_path(val, path))
+                get_required_path(val, path, expr)
             }
             "env" => {
                 if rest.is_empty() {
@@ -130,7 +130,7 @@ impl Resolver {
                     .cloned()
                     .ok_or_else(|| EngineError::UndefinedVariable(format!("env.{name}")))?;
                 let val = Value::Str(raw);
-                Ok(get_optional_path(val, path))
+                get_required_path(val, path, expr)
             }
             "variables" | "var" => {
                 if rest.is_empty() {
@@ -147,12 +147,12 @@ impl Resolver {
                     .get(name)
                     .cloned()
                     .ok_or_else(|| EngineError::UndefinedVariable(format!("variables.{name}")))?;
-                Ok(get_optional_path(val, path))
+                get_required_path(val, path, expr)
             }
             // Bare name → variables, then input.
             other => {
                 if let Some(v) = ctx.variables.get(other) {
-                    return Ok(get_optional_path(v.clone(), rest));
+                    return get_required_path(v.clone(), rest, expr);
                 }
                 if rest.is_empty() {
                     if let Some(v) = ctx.input.get(other) {
@@ -178,11 +178,14 @@ fn split_first(expr: &str) -> (&str, &str) {
     }
 }
 
-fn get_optional_path(val: Value, path: &str) -> Value {
+/// Fail-closed nested path lookup: missing keys/indices → `UndefinedVariable`.
+fn get_required_path(val: Value, path: &str, expr: &str) -> Result<Value, EngineError> {
     if path.is_empty() {
-        val
+        Ok(val)
     } else {
-        val.get_path(path).cloned().unwrap_or(Value::Null)
+        val.get_path(path)
+            .cloned()
+            .ok_or_else(|| EngineError::UndefinedVariable(expr.to_string()))
     }
 }
 
@@ -269,5 +272,12 @@ mod tests {
         let resolved = Resolver::resolve_value(&Value::Map(m), &c).unwrap();
         assert_eq!(resolved.get_path("msg").and_then(|v| v.as_str()), Some("corex"));
         let _ = HashMap::<String, Value>::new();
+    }
+
+    #[test]
+    fn nested_missing_is_undefined() {
+        let c = ctx();
+        let err = Resolver::resolve_string("{{step.greet.nope}}", &c).unwrap_err();
+        assert!(matches!(err, EngineError::UndefinedVariable(_)));
     }
 }

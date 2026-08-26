@@ -176,7 +176,7 @@ some-crate = { workspace = true, optional = true }
 | `corex-core/src/<module>/{schema,service,parse}.rs` | 已删除 |
 | `invoke/registry.rs` 静态 match / `known_modules()` | 已删除 |
 | `command/mod.rs` clap 子命令树 | 已删除（CLI 用 Shortcut / Action，非每模块子命令） |
-| `corex-serve` / Named Pipe 旧协议 `module`+`action` | 已删除；现用 `corex-daemon` + `corex-ipc` |
+| `corex-serve` / 旧协议 `module`+`action` | 已删除；现用 `corex-daemon` + `corex-ipc`（传输仍含 Named Pipe，协议已变） |
 
 ## Shortcut YAML 用法
 
@@ -197,9 +197,15 @@ corex actions   # 应列出 foo.bar
 
 ## IPC（Daemon）
 
+Transport 仍是 NDJSON over Unix socket / Windows Named Pipe（`\\.\pipe\corex`），
+但 **协议形状已变为** `Request` / `Response`（见 [docs/ipc-protocol.md](../../../docs/ipc-protocol.md)）：
+每条请求带 `auth_token`；`invoke` 使用 Action ID，不再使用旧 `module`+`action`。
+
 ```json
-{"type":"invoke","id":1,"action":"foo.bar","params":{"input":"hello"}}
+{"type":"invoke","id":1,"auth_token":"<token>","action":"foo.bar","params":{"input":"hello"}}
 ```
+
+成功：`{"type":"ok","id":1,"data":...}`；失败：`{"type":"error","id":1,"error":{"code":...,"message":"..."}}`。
 
 ## 测试
 
@@ -250,7 +256,7 @@ cargo test --workspace
   params: ...
 
 ### IPC
-{"type":"invoke","id":1,"action":"<id>","params":{...}}
+{"type":"invoke","id":1,"auth_token":"<token>","action":"<id>","params":{...}}
 
 ### 验证
 cargo test -p corex-registry --features act-<name>
@@ -260,6 +266,9 @@ cargo build -p corex -p corex-daemon
 ## 相关文档
 
 - [docs/architecture.md](../../../docs/architecture.md) — v4 workspace 与执行模型
+- [docs/ipc-protocol.md](../../../docs/ipc-protocol.md) — NDJSON 协议、token、端点
+- [docs/actions.md](../../../docs/actions.md) — 内置 Action ID 表
+- [docs/shortcut-yaml.md](../../../docs/shortcut-yaml.md) — Shortcut DSL
 - [docs/breaking-changes-v4.md](../../../docs/breaking-changes-v4.md) — 破坏性变更
 - [plugins/README.md](../../../plugins/README.md) — WASM 插件（非内置 Action）
 

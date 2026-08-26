@@ -33,9 +33,14 @@ plugins/
   vendor-tools.wasm
 ```
 
-The daemon (and any caller of `corex_registry::discovery::discover`) scans for
-`*.wasm`, loads each via `WasmPluginHost`, and registers successful loads into
-the action registry. Failures are logged and skipped.
+**`corex-daemon` discovers WASM at startup** (and any caller of
+`corex_registry::discovery::discover` can do the same): it scans for `*.wasm`,
+loads each via `WasmPluginHost`, and registers successful loads into the action
+registry. Failures are logged and skipped.
+
+**Note:** full WIT **bindgen wiring is still incomplete**. Until bindgen lands,
+`load_plugin` fails after parsing with a clear error; discovery logs and skips
+the file. Treat third-party plugins as experimental.
 
 ## Building a guest
 

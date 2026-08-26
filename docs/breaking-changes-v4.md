@@ -9,9 +9,12 @@
 | Edition / version | 多为 2021 + 3.x | **edition 2021**，workspace **`4.0.0`** |
 | Daemon 二进制 | `corex-serve` | **`corex-daemon`** |
 | 库布局 | 根目录 `corex-core`（lib `cx`）等 | `crates/{core,engine,registry,ipc,plugin-sdk}` + `bins/{cli,daemon}` |
-| IPC 传输 | Windows Named Pipe（`--pipe`） | Unix domain socket（`--socket`，默认 `corex.sock`） |
-| 编排 DSL | Pipeline v3：`module` + `action` + `${var.*}` | **Shortcut**：`action` id + **`{{ }}`** 占位符 |
-| Action 标识 | module 名 / 嵌套 action | 点分 **Action ID**（如 `file.write`） |
+| IPC 传输 | Windows Named Pipe（旧协议） | **仍提供** Named Pipe：默认 `\\.\pipe\corex`；Unix 用 `<data-dir>/corex.sock` |
+| IPC 协议 | `module` + `action` + 扁平 `ok` 响应 | NDJSON `Request`/`Response`（`invoke` 用 Action ID + `auth_token`） |
+| 编排 DSL | Pipeline v3：`module` + `${var.*}` | **Shortcut**：`action` id + **`{{ }}`** |
+| Action 标识 | module 名 / 嵌套 action | 点分 **Action ID**（如 `file.write`、`copy.run`） |
+| 鉴权 | 无统一 token | **`COREX_TOKEN` / config / `<data-dir>/token`** |
+| 路径 | 较少约束 | Daemon 对 shortcut `path`/`dir` **confine** 在 shortcuts 根下 |
 
 ## `corex-serve` → `corex-daemon`
 
@@ -22,31 +25,21 @@ corex-serve --pipe \\.\pipe\corex
 
 # 新
 cargo run -p corex-daemon
+# Unix:
 corex-daemon --socket /path/to/corex.sock
-corex daemon run   # CLI 拉起同二进制
+# Windows（默认管道路径）:
+corex-daemon --socket '\\.\pipe\corex'
+corex daemon run
 ```
 
-- Release ZIP / Tauri sidecar 逻辑名改为 **`corex-daemon`**（不再打包 `corex-serve`）。
-- 帮助校验字段：`--socket`（不再要求 `--pipe`）。
-- 协议形状见 `corex-ipc`：`type: ping|shutdown|list_actions|list_shortcuts|run_shortcut|invoke`（与旧 `module`/`action` invoke 不同）。
+- Release ZIP / Tauri sidecar 逻辑名：**`corex-daemon`**。
+- 协议见 [ipc-protocol.md](./ipc-protocol.md)。
 
 ## YAML：Pipeline v3 → Shortcut
 
-旧（`pipelines.yaml` / Pipeline v3）：
+旧 Pipeline v3 示例已迁至 [`examples/legacy/`](../examples/legacy/)；历史说明见 [archive/](./archive/)。
 
-```yaml
-version: 3
-pipelines:
-  - id: build
-    steps:
-      - id: copy_cache
-        module: copy
-        params:
-          from: '${var.base}/src'
-          to: '${var.base}/dist'
-```
-
-新（Shortcut，见 `examples/shortcuts/`）：
+新 Shortcut（[`examples/shortcuts/hello.yaml`](../examples/shortcuts/hello.yaml)）：
 
 ```yaml
 name: hello
@@ -66,44 +59,35 @@ steps:
     save_to: message
 ```
 
-要点：
+要点：单文档 `name`；`action: <id>`；占位符 `{{input.x}}` / `{{env.X}}` / `{{step.id}}`；省略 `permissions` = allow-all。
 
-- 顶层是单个 **`name`** 快捷指令，不再是 `version: 3` + `pipelines[]`。
-- 步骤使用 **`action: <id>`**，不再使用 `module` / `format` / `algorithm` 线格式。
-- 占位符由 **`${var.*}` / `${steps.*}`** 改为 **`{{var}}` / `{{input.x}}`** 等（engine resolver）。
-- 旧根目录 `pipelines.yaml` 已迁为示例说明；请使用 `examples/shortcuts/*.yaml`。
+## Actions 已迁移
 
-## Action IDs
+旧业务 module（copy / scrub / shade / compression / generate / exec / suggest / bootstrap / codec / scan / capture / morph 等）已以 **builtin Action** 形式进入 `crates/registry`。完整 ID 表见 [actions.md](./actions.md)。
 
-内置示例（feature gate）：
-
-| Action ID | Feature |
-|-----------|---------|
-| `shell.run` | `act-shell` |
-| `http.request` | `act-http` |
-| `clipboard.get` / `clipboard.set` | `act-clipboard` |
-| `notify.send` | `act-notify` |
-| `file.read` / `file.write` / … | `act-file` |
-| `template.render` | `act-template` |
-| `cron.schedule` | `act-cron` |
-| `keyring.get` / `keyring.set` | `act-keyring` |
-
-旧业务 module（copy / morph / capture…）将在 P4 以 Action 形式迁入；迁移前请勿假定旧 CLI 子命令仍存在于新 `corex` 二进制。
+不再提供 `corex copy` / `corex pipeline` / `corex morph` 等旧 CLI 子命令树——通过 Shortcut YAML 或 `invoke` 使用对应 Action ID。
 
 ## CLI 表面
 
-新 CLI 面向 Shortcut，不再暴露旧的 `corex copy` / `corex pipeline` 等子命令树：
-
 ```text
-corex run | list | actions | create | validate | daemon
+corex run | list | actions | create | validate | repl | daemon
 ```
+
+- **`corex repl`**：交互 `help` / `actions` / `list` / `run` / `quit`。
+- **`corex daemon`**：`start` / `stop` / `status` / `run`（拉起 `corex-daemon`）。
+
+## 鉴权与路径
+
+- 每个 IPC 请求携带 `auth_token`；缺失或不匹配 → **401**。
+- Token 来源：`COREX_TOKEN` → `[daemon].token` → `<data-dir>/token`。
+- `run_shortcut.path` / `list_shortcuts.dir` 不得逃出 shortcuts 根目录。
 
 ## 配置
 
-默认配置见 `config/default.toml`（`[daemon]` / `[plugins]` / `[history]` / `[logging]` / `[runtime]`）。运行时 `plugins.disabled` 与 `plugins.disabled_actions` 可禁用插件或单个 Action ID。
+[`config/default.toml`](../config/default.toml)：`[daemon]`（含 token 注释）、`[plugins]`、`[history]`、`[logging]`、`[runtime]`（`max_parallel`、`step_timeout_secs`）。这些段由 daemon/CLI 加载并生效。
 
 ## 兼容策略
 
-- **不**提供 Pipeline v3 / Named Pipe / `corex-serve` 双读。
-- i-thinking / Tauri 需同步：sidecar 名、socket、协议与资产 ZIP 内容。
-- 历史 IPC / capture 破坏性说明仍见 [breaking-changes.md](./breaking-changes.md)（v0.3–v3）；**升级到 v4 时以本文为准**。
+- **不**提供 Pipeline v3 双读或 `corex-serve` 兼容层。
+- Windows **Named Pipe 仍存在**；变的是协议形状与二进制名。
+- ≤v3 历史文档见 [archive/](./archive/)；升级到 v4 以本文 + [architecture.md](./architecture.md) 为准。

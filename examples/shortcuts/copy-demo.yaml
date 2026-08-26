@@ -1,0 +1,25 @@
+name: copy-demo
+description: Demo copy.run — adjust from/to for your machine (temp-friendly relatives)
+version: "1.0"
+
+# Paths below are examples. Prefer absolute paths or paths under a writable temp dir.
+# Relative paths are resolved from the process cwd when the action runs.
+
+inputs:
+  - name: from
+    description: Source file or directory
+    required: false
+    default: "./examples/shortcuts/hello.yaml"
+  - name: to
+    description: Destination path
+    required: false
+    default: "/tmp/corex-copy-demo/hello.yaml"
+
+steps:
+  - id: copy
+    action: copy.run
+    params:
+      from: "{{input.from}}"
+      to: "{{input.to}}"
+      empty: false
+    save_to: copied

@@ -1,8 +1,8 @@
-//! Tauri 侧 corex IPC 客户端（阶段 4 示例）
+//! Tauri-side Corex IPC client (v4)
 //!
-//! 复制到 Tauri 项目：`src-tauri/src/corex_ipc.rs`
+//! Copy into a Tauri project as `src-tauri/src/corex_ipc.rs`.
 //!
-//! ## 依赖（`src-tauri/Cargo.toml`）
+//! ## Dependencies (`src-tauri/Cargo.toml`)
 //!
 //! ```toml
 //! [dependencies]
@@ -17,26 +17,15 @@
 //! ] }
 //! ```
 //!
-//! ## 注册模块（`src-tauri/src/lib.rs` 或 `main.rs`）
+//! ## Register (`src-tauri/src/lib.rs`)
 //!
 //! ```rust
 //! mod corex_ipc;
 //!
-//! #[cfg_attr(mobile, tauri::mobile_entry_point)]
-//! pub fn run() {
-//!     // 应用启动时拉起 corex-daemon（sidecar 或同目录二进制）
-//!     let _ = corex_ipc::spawn_daemon(corex_ipc::daemon_exe_path());
+//! // On startup: spawn corex-daemon (sidecar).
+//! let _ = corex_ipc::spawn_daemon(corex_ipc::daemon_exe_path());
 //!
-//!     tauri::Builder::default()
-//!         .invoke_handler(tauri::generate_handler![take_screenshot])
-//!         .build(tauri::generate_context!())
-//!         .expect("error while building tauri application")
-//!         .run(|_app, event| {
-//!             if let tauri::RunEvent::Exit = event {
-//!                 let _ = corex_ipc::shutdown();
-//!             }
-//!         });
-//! }
+//! // On exit: corex_ipc::shutdown()?;
 //!
 //! #[tauri::command]
 //! fn take_screenshot(to: String) -> Result<String, String> {
@@ -44,161 +33,228 @@
 //! }
 //! ```
 //!
-//! 配套文件见同目录 `README.md`：
-//! - `tauri.conf.json` / `capabilities/default.json` — sidecar 配置
-//! - `lib.rs` — 托盘 + 快捷键完整 wiring
-//! - `scripts/copy-corex-daemon.mjs` — 构建前复制 sidecar 二进制
-//!
-//! 1. 将 `corex-daemon.exe` 放入 Tauri 资源 / sidecar（或 PATH 可找到）
-//! 2. 先单独验证：`cargo run -p corex-daemon` + `cargo run -p corex-core --example ipc --features serve`
-//!
-//! ## 协议（与 corex-daemon 一致）
-//!
-//! 请求：`{"type":"invoke","id":1,"module":"capture","action":"screenshot","args":{"to":"C:/out"}}\n`
-//! 响应：`{"id":1,"ok":true,"path":"...","ms":87}\n`
-//! 关闭：`{"type":"shutdown"}\n`
+//! Protocol: NDJSON `Request` / `Response` with `auth_token`.
+//! See `docs/ipc-protocol.md`.
 
-use std::ffi::OsStr;
 use std::fs::File;
 use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::sync::atomic::{AtomicU64, Ordering};
 
+#[cfg(windows)]
+use std::ffi::OsStr;
+
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
-/// 默认 Unix socket 名称（与 corex-daemon 一致）
-pub const PIPE_NAME: &str = r"corex.sock";
+/// Default IPC endpoint.
+/// - Windows: named pipe `\\.\pipe\corex`
+/// - Unix: override via `COREX_SOCKET` or pass an absolute path to `spawn_daemon` / `exchange`
+#[cfg(windows)]
+pub const PIPE_NAME: &str = r"\\.\pipe\corex";
+#[cfg(not(windows))]
+pub const PIPE_NAME: &str = "corex.sock";
 
 static REQUEST_ID: AtomicU64 = AtomicU64::new(1);
 
-/// IPC 响应（与 corex-core `serve::protocol::Response` 一致）
+/// Daemon → client response (`crates/ipc` `Response`).
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Response {
-    pub id: u64,
-    pub ok: bool,
-    #[serde(default)]
-    pub path: Option<String>,
-    #[serde(default)]
-    pub data: Option<Value>,
-    pub ms: u64,
-    #[serde(default)]
-    pub error: Option<String>,
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum Response {
+    Pong {
+        id: u64,
+    },
+    Ok {
+        id: u64,
+        #[serde(default)]
+        data: Value,
+    },
+    Error {
+        id: u64,
+        error: RpcError,
+    },
+    Bye {
+        id: u64,
+    },
 }
 
-/// 返回 sidecar / 同目录下的 corex-daemon 路径，按实际打包方式修改
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RpcError {
+    pub code: i32,
+    pub message: String,
+}
+
+/// Resolve auth token: `COREX_TOKEN`, else `<data_dir>/token` when discoverable.
+pub fn auth_token() -> Result<String, String> {
+    if let Ok(t) = std::env::var("COREX_TOKEN") {
+        if !t.is_empty() {
+            return Ok(t);
+        }
+    }
+    let candidates = [
+        std::env::var("COREX_DATA_DIR").ok().map(|d| PathBuf::from(d).join("token")),
+        dirs_hint_token(),
+    ];
+    for path in candidates.into_iter().flatten() {
+        if let Ok(text) = std::fs::read_to_string(&path) {
+            let trimmed = text.trim();
+            if !trimmed.is_empty() {
+                return Ok(trimmed.to_string());
+            }
+        }
+    }
+    Err(
+        "missing auth token: set COREX_TOKEN or ensure <data-dir>/token exists (same as corex-daemon)"
+            .into(),
+    )
+}
+
+fn dirs_hint_token() -> Option<PathBuf> {
+    // Best-effort: common Linux path; Windows/macOS hosts should set COREX_TOKEN.
+    let home = std::env::var_os("HOME")?;
+    Some(PathBuf::from(home).join(".local/share/corex/corex/token"))
+}
+
+/// Sidecar / sibling `corex-daemon` path (adjust for packing).
 pub fn daemon_exe_path() -> PathBuf {
-    // 示例：与主程序同目录的 corex-daemon.exe
     std::env::current_exe()
         .ok()
-        .and_then(|p| p.parent().map(|d| d.join("corex-daemon.exe")))
-        .unwrap_or_else(|| PathBuf::from("corex-daemon.exe"))
+        .and_then(|p| {
+            p.parent().map(|d| {
+                #[cfg(windows)]
+                {
+                    d.join("corex-daemon.exe")
+                }
+                #[cfg(not(windows))]
+                {
+                    d.join("corex-daemon")
+                }
+            })
+        })
+        .unwrap_or_else(|| {
+            #[cfg(windows)]
+            {
+                PathBuf::from("corex-daemon.exe")
+            }
+            #[cfg(not(windows))]
+            {
+                PathBuf::from("corex-daemon")
+            }
+        })
 }
 
-/// 启动 corex-daemon Daemon（应用启动时调用一次）
+/// Spawn `corex-daemon` once at app start.
 pub fn spawn_daemon(exe: impl AsRef<Path>) -> Result<Child, String> {
+    let endpoint = endpoint_path();
     Command::new(exe.as_ref())
         .arg("--socket")
-        .arg(PIPE_NAME)
+        .arg(&endpoint)
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null())
         .spawn()
-        .map_err(|e| format!("启动 corex-daemon 失败: {e}"))
+        .map_err(|e| format!("failed to start corex-daemon: {e}"))
 }
 
-/// 调用任意 corex 模块（线格式：可选 action / format / algorithm + 扁平 args）
-pub fn invoke(
-    module: &str,
-    action: Option<&str>,
-    format: Option<&str>,
-    algorithm: Option<&str>,
-    args: Value,
-) -> Result<Response, String> {
+fn endpoint_path() -> String {
+    if let Ok(p) = std::env::var("COREX_SOCKET") {
+        if !p.is_empty() {
+            return p;
+        }
+    }
+    PIPE_NAME.to_string()
+}
+
+/// Invoke a single Action by id (v4).
+pub fn invoke_action(action: &str, params: Value) -> Result<Response, String> {
     let id = REQUEST_ID.fetch_add(1, Ordering::Relaxed);
-    let mut payload = json!({
+    let token = auth_token()?;
+    let payload = json!({
         "type": "invoke",
         "id": id,
-        "module": module,
-        "args": args,
+        "auth_token": token,
+        "action": action,
+        "params": params,
     });
-    if let Some(action) = action {
-        payload["action"] = json!(action);
-    }
-    if let Some(format) = format {
-        payload["format"] = json!(format);
-    }
-    if let Some(algorithm) = algorithm {
-        payload["algorithm"] = json!(algorithm);
-    }
     exchange(&payload.to_string())
 }
 
-/// 截图（全局快捷键等高频场景）
+/// Screenshot helper → `capture.screenshot`.
 pub fn screenshot(to: impl AsRef<str>) -> Result<String, String> {
-    let resp = invoke(
-        "capture",
-        Some("screenshot"),
-        None,
-        None,
+    let resp = invoke_action(
+        "capture.screenshot",
         json!({ "to": to.as_ref() }),
     )?;
-    if resp.ok {
-        resp.path.ok_or_else(|| "screenshot 成功但未返回 path".to_string())
-    } else {
-        Err(resp.error.unwrap_or_else(|| "screenshot 失败".to_string()))
+    match resp {
+        Response::Ok { data, .. } => value_to_path(&data)
+            .ok_or_else(|| "screenshot ok but no path in data".to_string()),
+        Response::Error { error, .. } => Err(format!("[{}] {}", error.code, error.message)),
+        other => Err(format!("unexpected response: {other:?}")),
     }
 }
 
-/// 探测 Unix socket 是否可连接（不发送业务请求）
+fn value_to_path(data: &Value) -> Option<String> {
+    if let Some(s) = data.as_str() {
+        return Some(s.to_string());
+    }
+    if let Some(obj) = data.as_object() {
+        if let Some(p) = obj.get("path").and_then(|v| v.as_str()) {
+            return Some(p.to_string());
+        }
+        // Corex Value::File often serializes as a plain string; also accept nested.
+        if let Some(p) = obj.get("File").and_then(|v| v.as_str()) {
+            return Some(p.to_string());
+        }
+    }
+    None
+}
+
+/// Probe whether the endpoint accepts a connection.
 pub fn is_ready() -> bool {
-    #[cfg(windows)]
-    {
-        open_pipe(PIPE_NAME).is_ok()
-    }
-    #[cfg(not(windows))]
-    {
-        false
-    }
+    open_endpoint(&endpoint_path()).is_ok()
 }
 
-/// 请求 Daemon 优雅退出（应用关闭时调用）
+/// Ask the daemon to exit.
 pub fn shutdown() -> Result<(), String> {
-    #[cfg(windows)]
-    {
-        let mut file = open_pipe(PIPE_NAME)?;
-        file.write_all(br#"{"type":"shutdown"}"#)
-            .map_err(|e| e.to_string())?;
-        file.write_all(b"\n").map_err(|e| e.to_string())?;
-        file.flush().map_err(|e| e.to_string())?;
-        Ok(())
-    }
-    #[cfg(not(windows))]
-    {
-        Err("corex IPC 当前仅支持 Windows Unix socket".to_string())
-    }
+    let id = REQUEST_ID.fetch_add(1, Ordering::Relaxed);
+    let token = auth_token()?;
+    let payload = json!({
+        "type": "shutdown",
+        "id": id,
+        "auth_token": token,
+    });
+    let _ = exchange(&payload.to_string())?;
+    Ok(())
 }
 
 fn exchange(request_json: &str) -> Result<Response, String> {
+    let mut file = open_endpoint(&endpoint_path())?;
+    file.write_all(request_json.as_bytes())
+        .map_err(|e| e.to_string())?;
+    file.write_all(b"\n").map_err(|e| e.to_string())?;
+    file.flush().map_err(|e| e.to_string())?;
+
+    let mut reader = BufReader::new(&file);
+    let mut line = String::new();
+    reader.read_line(&mut line).map_err(|e| e.to_string())?;
+    serde_json::from_str(line.trim()).map_err(|e| format!("failed to parse response: {e}"))
+}
+
+fn open_endpoint(endpoint: &str) -> Result<File, String> {
     #[cfg(windows)]
     {
-        let mut file = open_pipe(PIPE_NAME)?;
-        file.write_all(request_json.as_bytes())
-            .map_err(|e| e.to_string())?;
-        file.write_all(b"\n").map_err(|e| e.to_string())?;
-        file.flush().map_err(|e| e.to_string())?;
-
-        let mut reader = BufReader::new(&file);
-        let mut line = String::new();
-        reader.read_line(&mut line).map_err(|e| e.to_string())?;
-
-        serde_json::from_str(line.trim()).map_err(|e| format!("解析响应失败: {e}"))
+        open_pipe(endpoint)
     }
     #[cfg(not(windows))]
     {
-        let _ = request_json;
-        Err("corex IPC 当前仅支持 Windows Unix socket".to_string())
+        use std::os::unix::net::UnixStream;
+        let stream = UnixStream::connect(endpoint)
+            .map_err(|e| format!("cannot connect to {endpoint}: {e}"))?;
+        Ok(unsafe {
+            use std::os::unix::io::{FromRawFd, IntoRawFd};
+            File::from_raw_fd(stream.into_raw_fd())
+        })
     }
 }
 
@@ -230,7 +286,7 @@ fn open_pipe(pipe_name: &str) -> Result<File, String> {
             None,
         )
     }
-    .map_err(|e| format!("无法连接 {pipe_name}: {e}"))?;
+    .map_err(|e| format!("cannot connect to {pipe_name}: {e}"))?;
 
     Ok(unsafe { File::from_raw_handle(handle.0 as _) })
 }
@@ -240,10 +296,28 @@ mod tests {
     use super::*;
 
     #[test]
-    fn response_json_roundtrip() {
-        let raw = r#"{"id":1,"ok":true,"path":"C:/a.png","ms":42}"#;
+    fn response_ok_roundtrip() {
+        let raw = r#"{"type":"ok","id":1,"data":{"path":"C:/a.png"}}"#;
         let resp: Response = serde_json::from_str(raw).unwrap();
-        assert!(resp.ok);
-        assert_eq!(resp.path.as_deref(), Some("C:/a.png"));
+        match resp {
+            Response::Ok { id, data } => {
+                assert_eq!(id, 1);
+                assert_eq!(data.get("path").and_then(|v| v.as_str()), Some("C:/a.png"));
+            }
+            other => panic!("unexpected {other:?}"),
+        }
+    }
+
+    #[test]
+    fn response_error_roundtrip() {
+        let raw = r#"{"type":"error","id":2,"error":{"code":401,"message":"unauthorized"}}"#;
+        let resp: Response = serde_json::from_str(raw).unwrap();
+        match resp {
+            Response::Error { id, error } => {
+                assert_eq!(id, 2);
+                assert_eq!(error.code, 401);
+            }
+            other => panic!("unexpected {other:?}"),
+        }
     }
 }

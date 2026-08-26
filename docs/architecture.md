@@ -9,30 +9,30 @@ crates/
   core/          # corex-core — Value / Action / ExecutionContext / Error
   engine/        # corex-engine — Shortcut YAML、变量解析、Pipeline、历史
   registry/      # corex-registry — 动作注册表、内置 Action、WASM host
-  ipc/           # corex-ipc — Unix socket 传输与请求协议
+  ipc/           # corex-ipc — NDJSON 协议 + Unix socket / Named Pipe
   plugin-sdk/    # corex-plugin-sdk — WIT 契约（corex:plugin-sdk@0.1.0）
 bins/
   cli/           # corex — 命令行入口
   daemon/        # corex-daemon — 后台 IPC 服务
-pdfium/          # 构建辅助：bundled pdfium.dll（morph 等仍可能需要）
+pdfium/          # 构建辅助：bundled pdfium（morph 等）
 plugins/         # 第三方 *.wasm 插件目录说明
 config/
   default.toml   # 默认运行时配置
 examples/
   shortcuts/     # Shortcut YAML 示例
+  legacy/        # ≤v3 Pipeline 样例（仅历史）
+  tauri/         # Tauri sidecar 客户端示例
 ```
 
 | Crate / Binary | 职责 |
 |----------------|------|
 | `corex-core` | 核心类型与 `Action` / `ActionStore` trait |
-| `corex-engine` | Shortcut 定义、`{{var}}` 解析、控制流、执行历史 |
+| `corex-engine` | Shortcut 定义、`{{ }}` 解析、控制流、执行历史 |
 | `corex-registry` | 内置动作 +（可选）`WasmPluginHost` 发现/加载 |
-| `corex-ipc` | Daemon 协议（`Request` / `Response`）；Unix socket / Windows Named Pipe |
-| `corex-plugin-sdk` | WIT world `corex-action`（`meta` / `validate` / `execute`） |
+| `corex-ipc` | `Request` / `Response`；Unix socket / Windows Named Pipe |
+| `corex-plugin-sdk` | WIT world `corex-action` |
 | `corex` | CLI：`run` / `list` / `actions` / `create` / `validate` / `repl` / `daemon` |
-| `corex-daemon` | 长驻进程：注册动作、发现插件、执行 Shortcut、IPC |
-
-旧 monolith（根目录 `corex/`、`corex-core/`、`corex-serve/`、`corex-capture/`）已删除；业务以 `crates/registry` 内置 Action 形式提供。
+| `corex-daemon` | 长驻：注册动作、发现插件、执行 Shortcut、IPC |
 
 ## 执行模型
 
@@ -49,9 +49,10 @@ corex-engine::Pipeline  ──resolve {{ }}──► ActionStore.get_action(id)
 Value 结果  +  可选 history.jsonl
 ```
 
-- **Action ID**：点分命名，如 `template.render`、`file.write`、`shell.run`。
-- **占位符**：`{{var}}`、`{{input.x}}`、`{{step_id}}` / 步骤输出（见 engine resolver）。
-- **控制流**：`if` / `repeat` / `parallel`（parallel 当前为顺序兼容模式）。
+- **Action ID**：点分命名，如 `template.render`、`copy.run`（见 [actions.md](./actions.md)）。
+- **占位符**：`{{var}}`、`{{input.x}}`、`{{env.X}}`、`{{step.id}}`（见 [shortcut-yaml.md](./shortcut-yaml.md)）。
+- **控制流**：`if` / `repeat` / `parallel`。
+  - **`parallel`**：当有效并发度（步骤 `max_concurrency` 或配置 `runtime.max_parallel`）**> 1** 且子步骤多于 1 个时，使用 `buffer_unordered` **真正并发**；否则顺序执行。
 
 ## 双模式
 
@@ -59,22 +60,25 @@ Value 结果  +  可选 history.jsonl
 |------|------|------|
 | CLI | `corex run <name\|path>` | 进程内加载 registry + Pipeline |
 | Daemon | `corex-daemon` / `corex daemon run` | Unix：`<data-dir>/corex.sock`；Windows：`\\.\pipe\corex` |
-| REPL | `corex repl` | 交互：`help` / `actions` / `list` / `run` / `quit` |
+| REPL | `corex repl` | `help` / `actions` / `list` / `run` / `quit` |
 
-数据目录默认由 `directories` 解析为平台 project data（fallback `.corex/`）。
+数据目录默认由 `directories` 解析为平台 project data（fallback `.corex/`）。IPC 需 `auth_token`（见 [ipc-protocol.md](./ipc-protocol.md)）。
 
 ## WASM 插件
 
-见 [plugins/README.md](../plugins/README.md)。Host（`WasmPluginHost`）使用 wasmtime：async + component model + `WasiCtxBuilder`。WIT bindgen 完全接线前，无效/未完成的插件会被 discovery 记录并跳过。
+见 [plugins/README.md](../plugins/README.md)。Daemon 启动时扫描 `*.wasm`；bindgen 完全接线前，失败的插件会被 discovery 记录并跳过。
 
-## 配置
+## 配置（已接线）
 
-[`config/default.toml`](../config/default.toml)：
+[`config/default.toml`](../config/default.toml) 由 CLI/daemon 加载，下列段**生效**：
 
-- `[daemon]` — socket / lock
-- `[plugins]` — `plugin_dir`、禁用列表
-- `[history]` — JSONL 执行历史
-- `[logging]` / `[runtime]` — 日志与并行度、超时
+| 段 | 用途 |
+|----|------|
+| `[daemon]` | `socket_path`、`lock_path`、`token`（及 `COREX_TOKEN` / token 文件） |
+| `[plugins]` | `plugin_dir`、`disabled`、`disabled_actions` |
+| `[history]` | JSONL 执行历史开关与文件名 |
+| `[logging]` | 级别 / JSON 日志 |
+| `[runtime]` | `max_parallel`（parallel 默认并发）、`step_timeout_secs` |
 
 ## 构建
 
@@ -89,6 +93,10 @@ cargo test --workspace
 
 | 文档 | 说明 |
 |------|------|
+| [ipc-protocol.md](./ipc-protocol.md) | NDJSON 协议、token、端点 |
+| [shortcut-yaml.md](./shortcut-yaml.md) | Shortcut DSL 与占位符 |
+| [actions.md](./actions.md) | 内置 Action ID 表 |
 | [breaking-changes-v4.md](./breaking-changes-v4.md) | v4 破坏性变更 |
+| [tauri-integration.md](./tauri-integration.md) | Tauri + `corex-daemon` |
 | [plugins/README.md](../plugins/README.md) | WASM 插件约定 |
-| [tauri-integration.md](./tauri-integration.md) | Tauri sidecar（请改用 `corex-daemon`） |
+| [archive/](./archive/) | ≤v3 历史文档 |

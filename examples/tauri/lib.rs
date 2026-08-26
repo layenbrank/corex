@@ -82,7 +82,7 @@ fn spawn_corex_sidecar(app: &AppHandle) -> Result<(), String> {
         let _ = app_handle;
     });
 
-    // 等待 Pipe 就绪（首次启动 xcap 初始化可能较慢）
+    // Wait for IPC endpoint (Windows pipe / Unix socket)
     wait_for_daemon(Duration::from_secs(8));
     Ok(())
 }
