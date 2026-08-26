@@ -28,7 +28,10 @@ impl Action for ShellRun {
                 .with_default(Value::List(vec![])),
             ParamSchema::new("cwd", SchemaType::Str, false).with_description("工作目录"),
             ParamSchema::new("shell", SchemaType::Bool, false)
-                .with_description("通过系统 shell 执行")
+                .with_description("通过系统 shell 执行（不信任输入时勿开启）")
+                .with_default(false),
+            ParamSchema::new("allow_nonzero", SchemaType::Bool, false)
+                .with_description("非零退出时仍返回 Ok（默认 false，报错）")
                 .with_default(false),
         ])
     }
@@ -49,6 +52,10 @@ impl Action for ShellRun {
 
         let use_shell = map
             .get("shell")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
+        let allow_nonzero = map
+            .get("allow_nonzero")
             .and_then(|v| v.as_bool())
             .unwrap_or(false);
 
@@ -103,11 +110,12 @@ impl Action for ShellRun {
         );
         result.insert("success".into(), Value::Bool(output.status.success()));
 
-        if !output.status.success() {
-            tracing::warn!(
-                exit = output.status.code(),
-                "shell.run 命令非零退出"
-            );
+        if !output.status.success() && !allow_nonzero {
+            let code = output.status.code().unwrap_or(-1);
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            return Err(ActionError::execution(format!(
+                "命令非零退出 exit={code}: {stderr}"
+            )));
         }
 
         Ok(Value::Map(result))

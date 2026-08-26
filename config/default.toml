@@ -1,11 +1,16 @@
 # Corex default runtime configuration
 
 [daemon]
-# IPC endpoint: Unix socket path (relative = under data dir) or Windows named pipe
+# Paths below that are not absolute are resolved under the platform data dir
+# (e.g. ~/.local/share/corex on Linux). Windows named pipes like \\.\pipe\corex are used as-is.
+# IPC endpoint: Unix socket path or Windows named pipe
 # Windows default is \\.\pipe\corex when unset at runtime
 socket_path = "corex.sock"
 # Singleton lock file
 lock_path = "corex.lock"
+# Shared IPC auth secret. Prefer env COREX_TOKEN when set.
+# Empty / omitted → daemon reads or creates `<data_dir>/token` (random 32-byte hex, mode 0600 on Unix).
+# token = ""
 
 [plugins]
 # Plugin directory (relative to data dir, or absolute)
