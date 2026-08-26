@@ -2,13 +2,14 @@
 
 mod editor;
 mod repl;
+mod ui_cmd;
 
 use anyhow::{bail, Context, Result};
 use clap::{Parser, Subcommand};
-use corex_core::{DaemonConfig, ExecutionContext, LoggingConfig, RuntimeConfig, Value};
+use corex_core::{DaemonConfig, ExecutionContext, LoggingConfig, RuntimeConfig, Value, RUNTIME_CONFIG};
 use corex_engine::{validate_permissions, ExecutionAudit, ExecutionHistory, Pipeline, Directive};
 use corex_ipc::protocol::{Request, Response};
-use corex_ipc::{default_endpoint, platform_data_dir, platform_transport, Transport};
+use corex_ipc::{platform_data_dir, platform_endpoint, platform_transport, Transport};
 use corex_registry::ActionRegistry;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -73,6 +74,11 @@ enum Commands {
         #[command(subcommand)]
         command: DaemonCmd,
     },
+    /// UI element probe (Windows UIAutomation)
+    Ui {
+        #[command(subcommand)]
+        command: ui_cmd::UiCommands,
+    },
 }
 
 #[derive(Subcommand, Debug)]
@@ -101,6 +107,10 @@ async fn main() -> Result<()> {
         Commands::Validate { path, strict } => cmd_validate(&path, strict),
         Commands::Repl => repl::run(cli.dir).await,
         Commands::Daemon { command } => cmd_daemon(command).await,
+        Commands::Ui { command } => {
+            let data = platform_data_dir()?;
+            ui_cmd::run(command, &data).await
+        }
     }
 }
 
@@ -133,7 +143,7 @@ fn ipc_endpoint() -> Result<PathBuf> {
     if let Some(p) = &config.daemon.socket_path {
         return Ok(resolve_data_relative(&data, p));
     }
-    Ok(default_endpoint(&data))
+    Ok(platform_endpoint(&data))
 }
 
 /// Resolve a path from config: absolute stays absolute; relative joins `data`.
@@ -180,7 +190,7 @@ fn build_registry() -> ActionRegistry {
 
 fn load_runtime_config() -> RuntimeConfig {
     let candidates = [
-        PathBuf::from("config/default.toml"),
+        PathBuf::from(RUNTIME_CONFIG),
         platform_data_dir()
             .map(|d| d.join("config.toml"))
             .unwrap_or_default(),
@@ -222,6 +232,12 @@ struct RuntimeSection {
     strict_permissions: Option<bool>,
     #[serde(default)]
     filesystem_roots: Option<Vec<PathBuf>>,
+    #[serde(default)]
+    ui_profile: Option<String>,
+    #[serde(default)]
+    ui_max_selector_chain: Option<usize>,
+    #[serde(default)]
+    ui_max_settle_ms: Option<u64>,
 }
 
 impl RuntimeConfigWrapper {
@@ -251,6 +267,20 @@ impl RuntimeConfigWrapper {
             }
             if let Some(roots) = r.filesystem_roots {
                 cfg.filesystem_roots = roots;
+            }
+            let overrides = corex_core::UiProfileOverrides {
+                max_selector_chain: r.ui_max_selector_chain,
+                max_settle_ms: r.ui_max_settle_ms,
+            };
+            if let Some(profile) = r.ui_profile {
+                cfg.apply_ui_profile(&profile, overrides);
+            } else {
+                if let Some(n) = r.ui_max_selector_chain {
+                    cfg.ui_max_selector_chain = n;
+                }
+                if let Some(ms) = r.ui_max_settle_ms {
+                    cfg.ui_max_settle_ms = ms;
+                }
             }
         }
         cfg
