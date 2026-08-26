@@ -34,3 +34,9 @@ json = false
 max_parallel = 8
 # Default step timeout in seconds (0 = none)
 step_timeout_secs = 0
+# Enterprise: deny directives with no permissions block when true
+strict_permissions = false
+# Allowed roots for file.* (empty = no confine; enterprise sets data dir)
+# filesystem_roots = []
+# Cap total ui.wait ms per directive run (0 = unlimited)
+# ui_max_settle_ms = 0

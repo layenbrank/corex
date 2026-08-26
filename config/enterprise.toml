@@ -1,0 +1,38 @@
+# Enterprise preset (locked-down)
+
+# Copy or merge into your runtime config for production.
+
+[runtime]
+strict_permissions = true
+# Confine file/copy/codec/… path I/O under these roots (use absolute paths in deploy)
+filesystem_roots = ["C:/ProgramData/corex/data"]
+ui_max_settle_ms = 500
+
+[plugins]
+disabled_actions = [
+  "shell.run",
+  "exec.run",
+  "ui.window.list",
+  "ui.window.focus",
+  "ui.window.find",
+  "ui.window.wait",
+  "ui.element.list",
+  "ui.element.find",
+  "ui.element.click",
+  "ui.element.wait",
+  "ui.element.exists",
+  "ui.wait",
+  "ui.click",
+  "ui.type",
+  "ui.key",
+  "capture.ocr",
+  "capture.screenshot",
+]
+
+[logging]
+level = "info"
+json = true
+
+[history]
+enabled = true
+file = "history.jsonl"
