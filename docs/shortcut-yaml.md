@@ -162,7 +162,7 @@ permissions:
 | **All flags omitted / false** | **Allow-all** (unrestricted) — simple shortcuts like `hello.yaml` need no declarations |
 | **Any flag `true`** | Only declared categories are allowed; others → permission denied |
 
-Category mapping (summary): `shell.run` / `exec.run` / bootstrap → shell; `http.request` / `suggest.bing` → network; clipboard / `capture.clipboard` → clipboard; `notify.send` → notifications; file/copy/scrub/shade/compression/morph/generate.path/capture screenshot|crop|monitors → filesystem.
+Category mapping (summary): `shell.run` / `exec.run` / bootstrap → shell; `http.request` → network; clipboard / `capture.clipboard` → clipboard; `notify.send` → notifications; file/copy/scrub/shade/compression/morph/generate.path/capture screenshot|crop|monitors → filesystem.
 
 ## Triggers (declared; scheduling separate)
 

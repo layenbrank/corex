@@ -30,7 +30,6 @@ Invoke via Shortcut YAML (`action: <id>`) or IPC `{"type":"invoke","action":"<id
 | `generate.cvid` | `act-generate` | — | Compact id |
 | `generate.path` | `act-generate` | `from`, `to`, `transform`; `index?`, `separator?`, `includes?`, `excludes?`, `uppercase?` | Path transform / rename helpers |
 | `exec.run` | `act-exec` | `script`; `args?`, `cwd?`, `capture?` | Run a script file |
-| `suggest.bing` | `act-suggest` | `qry`; `pt?`, `cp?`, `csr?`, `pths?`, `cvid?`, `user_agent?` | Bing suggest API |
 | `bootstrap.env` | `act-bootstrap` | — | Windows-oriented env bootstrap (errors off Windows) |
 | `bootstrap.inspect` | `act-bootstrap` | — | Inspect bootstrap state |
 | `bootstrap.force` | `act-bootstrap` | — | Force bootstrap (Windows) |

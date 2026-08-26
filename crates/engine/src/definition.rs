@@ -223,7 +223,7 @@ fn permission_kind_for(action_id: &str) -> PermissionKind {
         "shell.run" | "exec.run" | "bootstrap.env" | "bootstrap.inspect" | "bootstrap.force" => {
             PermissionKind::Shell
         }
-        "http.request" | "suggest.bing" => PermissionKind::Network,
+        "http.request" => PermissionKind::Network,
         "clipboard.get" | "clipboard.set" | "capture.clipboard" => PermissionKind::Clipboard,
         "notify.send" => PermissionKind::Notifications,
         id if id.starts_with("file.")

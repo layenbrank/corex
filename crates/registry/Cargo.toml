@@ -23,7 +23,6 @@ full = [
   "act-compression",
   "act-generate",
   "act-exec",
-  "act-suggest",
   "act-bootstrap",
   "act-codec",
   "act-scan",
@@ -45,7 +44,6 @@ act-shade       = ["dep:image", "dep:walkdir"]
 act-compression = ["dep:zip", "dep:walkdir", "dep:flate2", "dep:tar", "dep:glob"]
 act-generate    = ["dep:uuid", "dep:rand", "dep:walkdir", "dep:glob"]
 act-exec        = []
-act-suggest     = ["dep:reqwest", "dep:rand"]
 act-bootstrap   = []
 act-codec       = ["dep:base64", "dep:md-5"]
 act-scan        = ["dep:sysinfo"]

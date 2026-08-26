@@ -5,10 +5,10 @@ use clap::Parser;
 use corex_core::{DaemonConfig, ExecutionContext, LoggingConfig, RuntimeConfig, Value};
 use corex_engine::{ExecutionHistory, Pipeline, Shortcut};
 use corex_ipc::protocol::{Request, Response, RpcError};
-use corex_ipc::{default_endpoint, serve_platform};
+use corex_ipc::{default_endpoint, platform_data_dir, serve_platform};
 use corex_registry::ActionRegistry;
 use fs2::FileExt;
-use rand::RngCore;
+use rand::RngExt;
 use std::collections::BTreeMap;
 use std::fs::File;
 use std::io::Write;
@@ -46,7 +46,7 @@ struct DaemonState {
 async fn main() -> Result<()> {
     let args = Args::parse();
 
-    let data = data_dir()?;
+    let data = platform_data_dir()?;
     let config = load_runtime_config(args.config.as_deref())?;
     init_tracing(&config.logging);
 
@@ -303,14 +303,6 @@ fn acquire_singleton(lock_path: &Path) -> Result<File> {
     Ok(file)
 }
 
-fn data_dir() -> Result<PathBuf> {
-    let base = directories::ProjectDirs::from("dev", "corex", "corex")
-        .map(|d| d.data_dir().to_path_buf())
-        .unwrap_or_else(|| PathBuf::from(".corex"));
-    std::fs::create_dir_all(&base)?;
-    Ok(base)
-}
-
 fn open_history(data: &Path, config: &RuntimeConfig) -> Result<Option<ExecutionHistory>> {
     if !config.history.enabled {
         return Ok(None);
@@ -386,7 +378,7 @@ fn read_or_create_token_file(path: &Path) -> Result<String> {
         std::fs::create_dir_all(parent)?;
     }
     let mut bytes = [0u8; 32];
-    rand::thread_rng().fill_bytes(&mut bytes);
+    rand::rng().fill(&mut bytes);
     let token: String = bytes.iter().map(|b| format!("{b:02x}")).collect();
 
     #[cfg(unix)]
@@ -431,7 +423,7 @@ fn load_runtime_config(path: Option<&Path>) -> Result<RuntimeConfig> {
     let candidates: Vec<PathBuf> = path.map(|p| vec![p.to_path_buf()]).unwrap_or_else(|| {
         vec![
             PathBuf::from("config/default.toml"),
-            data_dir()
+            platform_data_dir()
                 .map(|d| d.join("config.toml"))
                 .unwrap_or_default(),
         ]

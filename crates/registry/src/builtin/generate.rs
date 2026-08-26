@@ -10,7 +10,7 @@ use corex_core::{
     Action, ActionCategory, ActionError, ActionMeta, ExecutionContext, ParamSchema, SchemaType,
     Value,
 };
-use rand::RngCore;
+use rand::RngExt;
 use std::collections::BTreeMap;
 use std::io::Write;
 use std::path::Path;
@@ -20,7 +20,7 @@ use walkdir::WalkDir;
 
 pub fn generate_secure_cvid() -> String {
     let mut array = [0u8; 16];
-    rand::thread_rng().fill_bytes(&mut array);
+    rand::rng().fill(&mut array);
     array[6] = (array[6] & 0x0f) | 0x40;
     array[8] = (array[8] & 0x3f) | 0x80;
     array.iter().map(|b| format!("{b:02X}")).collect()
@@ -226,49 +226,34 @@ fn path_transform_line(
         format!("{dirpart}{sep}{filename}")
     };
     let index_str = format!("{:0pad_width$}", index, pad_width = pad_width);
+    let filename_v = up(uppercase, "filename", filename);
+    let extension_v = up(uppercase, "extension", &extension);
+    let path_v = up(uppercase, "path", &dirpart);
+    let fullpath_v = up(uppercase, "fullpath", &fullpath);
     let mut out = transform.to_string();
-    let replacements = [
-        ("{{index}}", index_str),
-        (
-            "{{filename}}",
-            if uppercase.iter().any(|s| s == "filename") {
-                filename.to_uppercase()
-            } else {
-                filename.to_string()
-            },
-        ),
-        (
-            "{{extension}}",
-            if uppercase.iter().any(|s| s == "extension") {
-                extension.to_uppercase()
-            } else {
-                extension
-            },
-        ),
-        (
-            "{{path}}",
-            if uppercase.iter().any(|s| s == "path") {
-                dirpart.to_uppercase()
-            } else {
-                dirpart
-            },
-        ),
-        (
-            "{{fullpath}}",
-            if uppercase.iter().any(|s| s == "fullpath") {
-                fullpath.to_uppercase()
-            } else {
-                fullpath
-            },
-        ),
-    ];
-    for (k, v) in replacements {
-        out = out.replace(k, &v);
+    // Prefer `{{name}}` then `{name}` (single braces avoid Shortcut `{{ }}` resolver clash).
+    for (key, val) in [
+        ("index", index_str.as_str()),
+        ("filename", filename_v.as_str()),
+        ("extension", extension_v.as_str()),
+        ("path", path_v.as_str()),
+        ("fullpath", fullpath_v.as_str()),
+    ] {
+        out = out.replace(&format!("{{{{{key}}}}}"), val);
+        out = out.replace(&format!("{{{key}}}"), val);
     }
     if !separator.is_empty() {
         out = out.replace('\\', separator).replace('/', separator);
     }
     out
+}
+
+fn up(uppercase: &[String], field: &str, value: &str) -> String {
+    if uppercase.iter().any(|s| s == field) {
+        value.to_uppercase()
+    } else {
+        value.to_string()
+    }
 }
 
 pub fn register(registry: &mut ActionRegistry) {

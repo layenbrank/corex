@@ -11,9 +11,8 @@ use std::sync::Arc;
 use tracing::{debug, info};
 use wasmtime::component::{Component, Linker, ResourceTable};
 use wasmtime::{Config, Engine, Store};
-use wasmtime_wasi::p2::{
-    add_to_linker_async, IoView, WasiCtx, WasiCtxBuilder, WasiView,
-};
+use wasmtime_wasi::p2::add_to_linker_async;
+use wasmtime_wasi::{WasiCtx, WasiCtxBuilder, WasiCtxView, WasiView};
 
 /// Per-store host state: WASI context + resource table (component-model pattern).
 pub struct HostState {
@@ -21,15 +20,12 @@ pub struct HostState {
     table: ResourceTable,
 }
 
-impl IoView for HostState {
-    fn table(&mut self) -> &mut ResourceTable {
-        &mut self.table
-    }
-}
-
 impl WasiView for HostState {
-    fn ctx(&mut self) -> &mut WasiCtx {
-        &mut self.ctx
+    fn ctx(&mut self) -> WasiCtxView<'_> {
+        WasiCtxView {
+            ctx: &mut self.ctx,
+            table: &mut self.table,
+        }
     }
 }
 

@@ -63,7 +63,7 @@ steps:
 
 ## Actions 已迁移
 
-旧业务 module（copy / scrub / shade / compression / generate / exec / suggest / bootstrap / codec / scan / capture / morph 等）已以 **builtin Action** 形式进入 `crates/registry`。完整 ID 表见 [actions.md](./actions.md)。
+旧业务 module（copy / scrub / shade / compression / generate / exec / bootstrap / codec / scan / capture / morph 等）已以 **builtin Action** 形式进入 `crates/registry`。完整 ID 表见 [actions.md](./actions.md)。Bing 建议请用 `http.request`（已移除专用 `suggest.bing`）。
 
 不再提供 `corex copy` / `corex pipeline` / `corex morph` 等旧 CLI 子命令树——通过 Shortcut YAML 或 `invoke` 使用对应 Action ID。
 

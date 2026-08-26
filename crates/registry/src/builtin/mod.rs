@@ -39,8 +39,6 @@ pub mod compression;
 pub mod generate;
 #[cfg(feature = "act-exec")]
 pub mod exec;
-#[cfg(feature = "act-suggest")]
-pub mod suggest;
 #[cfg(feature = "act-bootstrap")]
 pub mod bootstrap;
 #[cfg(feature = "act-codec")]
@@ -82,8 +80,6 @@ pub fn register_all(registry: &mut ActionRegistry) {
     generate::register(registry);
     #[cfg(feature = "act-exec")]
     exec::register(registry);
-    #[cfg(feature = "act-suggest")]
-    suggest::register(registry);
     #[cfg(feature = "act-bootstrap")]
     bootstrap::register(registry);
     #[cfg(feature = "act-codec")]
