@@ -1,528 +1,126 @@
-# Corex IPC 协议参考
+# Corex IPC Protocol (v4)
 
-本文档定义 `corex-serve` Daemon 与客户端（Tauri `corex_ipc.rs`、库 `serve::request`）之间的通信契约。
+Newline-delimited JSON (NDJSON) between clients (`corex` CLI, Tauri, etc.) and **`corex-daemon`**.
 
-总览请参阅 [architecture-and-tauri-integration.md](./architecture-and-tauri-integration.md)。
+Source of truth: [`crates/ipc/src/protocol.rs`](../crates/ipc/src/protocol.rs).
 
----
+## Framing
 
-## 传输层
+| Rule | Value |
+|------|--------|
+| Encoding | UTF-8 JSON, one message per line, terminated by `\n` |
+| Max line size | **`MAX_LINE_BYTES = 1_048_576` (1 MiB)** |
+| Direction | Client → daemon: `Request`; daemon → client: `Response` |
+| Discriminator | Serde `tag = "type"`, `rename_all = "snake_case"` |
 
-| 项 | 值 |
-|----|-----|
-| 平台 | Windows（当前唯一支持） |
-| 机制 | Named Pipe |
-| 默认路径 | `\\.\pipe\corex` |
-| 编码 | UTF-8 JSON |
-| 帧格式 | 单行 JSON + `\n`（LF）换行 |
-| 请求行上限 | 64 KB（`MAX_LINE_BYTES`） |
-| 连接模式 | 服务端同连接可多行 Invoke；**推荐客户端长连接复用**（每请求新建连接会放大握手竞态） |
+Oversized or malformed lines are rejected by the transport/handler (do not rely on partial parses).
 
-非 Windows 平台：`serve::run` 与 Pipe 客户端均不可用（`pipe/mod.rs` 返回 bail）。
+## Transport endpoints
 
----
+| Platform | Default endpoint | Override |
+|----------|------------------|----------|
+| Linux / macOS | `<data-dir>/corex.sock` (Unix domain socket) | `corex-daemon --socket <path>` or `[daemon].socket_path` |
+| Windows | `\\.\pipe\corex` (Named Pipe) | `--socket` / `--pipe` equivalent path, or config |
 
-## 消息类型
+Relative `socket_path` values resolve under the platform data directory. Windows pipe paths (`\\.\pipe\...` or `//./pipe/...`) are used as-is.
 
-### Invoke（执行业务模块）
+Binary name is **`corex-daemon`** (not `corex-serve`).
 
-```json
-{"type":"invoke","id":1,"module":"capture","action":"screenshot","args":{"to":"C:/Screenshots"}}
-```
+## Authentication
 
-字段说明：
+Every request may include `auth_token` (optional in the schema; **required in practice** when the daemon has a token).
 
-| 字段 | 类型 | 必填 | 说明 |
-|------|------|------|------|
-| type | string | 是 | 固定 `"invoke"` |
-| id | u64 | 是 | 请求 ID，响应原样返回 |
-| module | string | 是 | 模块名，见下表 |
-| action | string? | 多操作模块必填 | CLI 子命令（kebab-case） |
-| format | string? | compression 必填 | `zip` / `tar-gz` / `7z` |
-| algorithm | string? | codec 必填 | `base64` / `md5` |
-| args | object | 否 | 仅 flags；默认 `{}` |
+Token resolution order (daemon):
 
-线格式与 Pipeline YAML 同构（Pipeline 用 `params`，IPC 用 `args`）。内部由 `invoke::assemble_typed` 组装为 clap `Args`。
+1. Environment variable **`COREX_TOKEN`** (non-empty)
+2. Config `[daemon].token` (non-empty)
+3. File **`<data-dir>/token`** — read existing, or create a random 32-byte hex secret (mode `0600` on Unix)
 
-### Shutdown（关闭 Daemon）
+CLI clients load `COREX_TOKEN` or `<data-dir>/token` and attach it via `Request::with_auth_token`. Mismatch → `Response::Error` with code **401**.
 
-```json
-{"type":"shutdown"}
-```
+See [`config/default.toml`](../config/default.toml) comments under `[daemon]`.
 
-收到 Shutdown 后，Daemon **不**返回响应，处理完当前连接后退出主循环。
+## Request types
 
----
+All variants share optional `id` (default `0`) and optional `auth_token`.
 
-## 响应格式
+| `type` | Fields | Purpose |
+|--------|--------|---------|
+| `ping` | `id`, `auth_token` | Liveness |
+| `shutdown` | `id`, `auth_token` | Graceful daemon exit |
+| `list_shortcuts` | `id`, `auth_token`, `dir?` | List shortcut names (optional subdir under shortcuts root; **path-confined**) |
+| `list_actions` | `id`, `auth_token` | List registered Action IDs |
+| `run_shortcut` | `id`, `auth_token`, `name`, `input?`, `path?` | Run a shortcut by name, or by path confined under the shortcuts directory |
+| `invoke` | `id`, `auth_token`, `action`, `params?` | Invoke a single Action by ID |
 
-所有 Invoke 请求返回单行 JSON：
+### Examples
 
 ```json
-{"id":1,"ok":true,"path":"C:/Screenshots/screenshot-Primary-1234567890.png","ms":87}
+{"type":"ping","id":1,"auth_token":"<token>"}
 ```
-
-带结构化数据时（如 scan、codec、morph meta）：
 
 ```json
-{"id":2,"ok":true,"data":{"text":"aGVsbG8="},"ms":1}
+{"type":"list_actions","id":2,"auth_token":"<token>"}
 ```
-
-失败时：
 
 ```json
-{"id":1,"ok":false,"ms":12,"error":"capture params 解析失败: missing field `to`"}
+{"type":"run_shortcut","id":3,"auth_token":"<token>","name":"hello","input":{"who":"Corex"}}
 ```
-
-| 字段 | 类型 | 说明 |
-|------|------|------|
-| id | u64 | 与请求 id 一致 |
-| ok | bool | 是否成功 |
-| path | string? | 成功时可选输出路径（写文件类操作） |
-| data | object? | 成功时可选结构化 JSON（文本、列表、元数据等） |
-| ms | u64 | 处理耗时（毫秒） |
-| error | string? | 失败时错误信息 |
-
-Rust 类型定义见 `corex-core/src/serve/protocol.rs` 的 `Response` 结构体。
-
----
-
-## 支持的 module 与 args
-
-`args` 为扁平 flags；子命令用顶层 `action` / `format` / `algorithm`（与 CLI kebab 词表一致）。
-
-### capture
-
-action 词表：`screenshot` / `tape`（录屏预留，尚未实现）/ `monitors` / `windows` / `crop` / `clipboard`。
 
 ```json
-{
-  "module": "capture",
-  "action": "screenshot",
-  "args": {
-    "to": "C:/Screenshots",
-    "description": "可选描述"
-  }
-}
+{"type":"invoke","id":4,"auth_token":"<token>","action":"capture.screenshot","params":{"to":"/tmp/shot.png"}}
 ```
-
-**Monitors / Windows：**
 
 ```json
-{ "module": "capture", "action": "monitors", "args": {} }
-{ "module": "capture", "action": "windows", "args": {} }
+{"type":"shutdown","id":5,"auth_token":"<token>"}
 ```
 
-成功时 `data` 为 `MonitorInfo[]` 或 `WindowInfo[]`；Screenshot 成功时 `path` 为生成的 PNG 文件路径。
+**v3 note:** There is no `module` + nested `action` wire format. Use a single Action ID string (e.g. `capture.screenshot`).
 
-**Crop / Clipboard：**
+## Response types
+
+| `type` | Fields | Meaning |
+|--------|--------|---------|
+| `pong` | `id` | Reply to `ping` |
+| `ok` | `id`, `data` | Success; `data` is a Corex `Value` (JSON) |
+| `error` | `id`, `error: { code, message }` | Failure |
+| `bye` | `id` | Reply to `shutdown` (daemon exiting) |
+
+### `RpcError` codes (helpers)
+
+| Code | Helper | Typical use |
+|------|--------|-------------|
+| 400 | `invalid` | Bad params / bad request |
+| 401 | `unauthorized` | Missing/wrong auth token |
+| 403 | `forbidden` | Denied |
+| 404 | `not_found` | Unknown shortcut / action |
+| 500 | `internal` | Unexpected failure |
+
+### Examples
 
 ```json
-{
-  "module": "capture",
-  "action": "crop",
-  "args": {
-    "source": "C:/in.png",
-    "to": "C:/out",
-    "x": 0,
-    "y": 0,
-    "w": 100,
-    "h": 100
-  }
-}
+{"type":"pong","id":1}
 ```
-
-IPC 大图裁剪推荐使用 `image_file`（PNG 文件路径）而非 `final_image_base64`，避免超过 64KB 行限。`Crop.to` 与 `Screenshot.to` 相同，均为**输出目录**。
-
-Crop 成功时 `path` 为输出 PNG 路径；Clipboard 无 `path`，仅 `ok: true`。
-
-### codec
-
-路由：`action` = `encode` | `decode` | `hash`；`algorithm` = `base64` | `md5`。
-
-**Base64 编码：**
 
 ```json
-{
-  "module": "codec",
-  "action": "encode",
-  "algorithm": "base64",
-  "args": { "input": "hello" }
-}
+{"type":"ok","id":4,"data":{"path":"/tmp/shot.png"}}
 ```
-
-**Base64 解码：**
 
 ```json
-{
-  "module": "codec",
-  "action": "decode",
-  "algorithm": "base64",
-  "args": { "input": "aGVsbG8=" }
-}
+{"type":"error","id":4,"error":{"code":401,"message":"unauthorized"}}
 ```
-
-**MD5 摘要：**
 
 ```json
-{
-  "module": "codec",
-  "action": "hash",
-  "algorithm": "md5",
-  "args": { "input": "hello" }
-}
+{"type":"bye","id":5}
 ```
 
-成功时 `data` 为 `{"text":"..."}`（Base64 字符串或小写 hex MD5）。
+## Path confinement
 
-### scan
+For `run_shortcut` with `path` and `list_shortcuts` with `dir`, the daemon resolves paths under the configured shortcuts root and **rejects traversal** outside that root (`confine_under`). Shortcut `name` must be a bare name (no `..`, `/`, `\`, or absolute paths).
 
-```json
-{ "module": "scan", "action": "os", "args": {} }
-```
+## Related
 
-成功时 `data` 为 `OsContext` JSON（OS、CPU、内存等），CLI 同样输出 JSON 到 stdout。
-
-### engine
-
-Bing 搜索建议代理。`t`（建议类型码）为任意字符串，非固定枚举。
-
-```json
-{
-  "module": "engine",
-  "action": "suggestion",
-  "args": {
-    "pt": "page.home",
-    "qry": "rust",
-    "cp": 4,
-    "csr": "1",
-    "pths": "1"
-  }
-}
-```
-
-`cvid` / `user_agent` 可选；省略 `cvid` 时自动生成 GUID v4 大写 hex。成功时 `data` 为 Suggestion JSON。
-
-### morph
-
-PDF 操作依赖与 `corex.exe` / `corex-serve.exe` 同目录的 `pdfium.dll`（发布 zip 已包含三件套）。使用 `action`（kebab-case）+ 扁平 `args`。
-
-**Meta：**
-
-```json
-{
-  "module": "morph",
-  "action": "meta",
-  "args": { "path": "C:/report.pdf" }
-}
-```
-
-**Merge：**
-
-```json
-{
-  "module": "morph",
-  "action": "merge",
-  "args": {
-    "paths": ["C:/a.pdf", "C:/b.pdf"],
-    "dest": "C:/out.pdf"
-  }
-}
-```
-
-| action | 主要输出 |
-|--------|----------|
-| `meta` | `data`（PDF 元数据） |
-| `render` | `data`（base64 PNG） |
-| `thumbnails` | `data`（base64 PNG 数组） |
-| `match` | `data`（匹配列表） |
-| `export` / `merge` / `document` | `path` |
-| `split` / `images` | `data` |
-| `reorder` / `rotate` / `remove` / `extract` | `path` |
-
-页操作（0-based `pages`/`order`，写出单文件 `dest`）：
-
-```json
-{"module":"morph","action":"reorder","args":{"path":"C:/a.pdf","order":[2,0,1],"dest":"C:/out.pdf"}}
-{"module":"morph","action":"rotate","args":{"path":"C:/a.pdf","pages":[0,2],"degrees":90,"dest":"C:/out.pdf"}}
-{"module":"morph","action":"remove","args":{"path":"C:/a.pdf","pages":[1],"dest":"C:/out.pdf"}}
-{"module":"morph","action":"extract","args":{"path":"C:/a.pdf","pages":[0,3,4],"dest":"C:/part.pdf"}}
-```
-
-字段约定（与 schema 一致）：`count` / `limit` / `offset` / `dir` / `base64`。
-
-完整字段见 `morph/schema.rs`。
-
-### copy
-
-```json
-{
-  "module": "copy",
-  "args": {
-    "from": "C:/src",
-    "to": "C:/dist",
-    "empty": true,
-    "includes": [],
-    "excludes": ["node_modules", "*.log"]
-  }
-}
-```
-
-成功时 `path` 为 `args.to`。
-
-### scrub
-
-```json
-{
-  "module": "scrub",
-  "args": {
-    "source": "C:/project",
-    "target": "node_modules",
-    "recursive": true
-  }
-}
-```
-
-成功时 `path` 为 `args.target`（名称，非完整路径）。
-
-### shade
-
-```json
-{
-  "module": "shade",
-  "args": {
-    "from": "C:/images",
-    "to": "C:/output",
-    "format": "webp",
-    "quality": 100
-  }
-}
-```
-
-`quality` 默认 100，仅对 jpg 有效。完整字段见 `shade/schema.rs`。
-
-### compression
-
-路由：`action` = `compress` | `decompress`；`format` = `zip` | `tar-gz` | `7z`。
-
-**Zip 压缩（wgt = Zip + `.wgt` 扩展名）：**
-
-```json
-{
-  "module": "compression",
-  "action": "compress",
-  "format": "zip",
-  "args": {
-    "from": "C:/project",
-    "to": "C:/out/app.wgt",
-    "level": 6,
-    "method": "deflated",
-    "encryption": "aes256",
-    "password": "secret",
-    "excludes": ["*.map"]
-  }
-}
-```
-
-**Zip 解压：**
-
-```json
-{
-  "module": "compression",
-  "action": "decompress",
-  "format": "zip",
-  "args": {
-    "from": "C:/in/project.zip",
-    "to": "C:/out",
-    "overwrite": false
-  }
-}
-```
-
-**TarGz / 7z：** 将 `format` 改为 `tar-gz` 或 `7z`。TarGz 不支持 `password`。
-
-Pipeline 密码推荐 `${env.COREX_ARCHIVE_PASSWORD}`，勿在 YAML 写明文。
-
-### generate
-
-**Path：**
-
-```json
-{
-  "module": "generate",
-  "action": "path",
-  "args": {
-    "from": "C:/scan",
-    "to": "C:/paths.txt",
-    "transform": "{path}",
-    "separator": "/",
-    "index": 0,
-    "pad": false,
-    "includes": [],
-    "excludes": []
-  }
-}
-```
-
-`transform` 与 `separator` 为必填字段。
-
-**Uuid：**
-
-```json
-{
-  "module": "generate",
-  "action": "uuid",
-  "args": {
-    "count": 5,
-    "uppercase": false
-  }
-}
-```
-
-Uuid 成功时 `path` 为 null。
-
-**Cvid：**
-
-```json
-{ "module": "generate", "action": "cvid", "args": {} }
-```
-
-成功时 `path` 为 null，`data` 为 `{"value":"..."}`。
-
-### exec
-
-运行外部脚本（`.ps1` / `.bat` / `.exe`），解析 stdout **最后一行 JSON**（须含 `path` + `data`）：
-
-```json
-{
-  "module": "exec",
-  "action": "run",
-  "args": {
-    "script": "C:/Users/me/.corex/scripts/generate-version.ps1",
-    "args": ["-ProjectRoot", "C:/proj/master"],
-    "cwd": "C:/proj/master",
-    "capture": "json"
-  }
-}
-```
-
-脚本 stdout 最后一行示例：
-
-```json
-{"path":"C:/proj/master/version.json","data":{"version":"20260713"}}
-```
-
-- `path` → 响应 `path` / `${steps.*.artifact.path}`
-- `data` 内部结构由脚本自定 → `${steps.*.artifact.data.<key>}`
-
-### bootstrap
-
-```json
-{
-  "module": "bootstrap",
-  "action": "env",
-  "args": {}
-}
-```
-
-可选 `action`：`env` / `inspect` / `force`（无 flags）。
-
----
-
-## 并发与错误语义
-
-- Daemon **串行**接受连接：`run_server` 循环中一次处理一个 Pipe 连接
-- **同连接多请求**：`handle_client` 内 loop 持续读行；每行 Invoke 写一行响应后**继续读**，直到 Shutdown、EOF 或读错误
-- **推荐客户端**：长连接复用——建立一次 Named Pipe，同连接连续 write/read 多行 Invoke（握手失败时服务端 log 后重试，**不**退出进程）
-- **兼容客户端**：`send_request` / `corex_ipc` 每次新建连接、发送一行、读一行响应后关闭（高频建连易触发握手竞态，依赖服务端重试）
-- `CreateNamedPipeW` / `ConnectNamedPipe`（非 ERROR_PIPE_CONNECTED）失败：stderr 记录后短暂等待并继续 accept，**不** `bail!` 退出
-- 请求行超过 64KB：读失败，连接断开
-- 空行或非法 JSON：返回 `{"id":0,"ok":false,...}` 错误响应（id 固定为 0）
-- 未知 module：返回 `ok: false`，error 含 `"未知或未启用的模块"`
-- args 解析失败：返回 `ok: false`，error 含 serde 上下文
-- Shutdown：Daemon **不**写响应，直接退出
-
----
-
-## 客户端实现
-
-### 库 API（corex-core）
-
-```rust
-use cx::invoke::WireArgs;
-use cx::serve;
-
-// 调用模块
-let resp = serve::request(
-    r"\\.\pipe\corex",
-    "capture",
-    WireArgs::action("screenshot", serde_json::json!({ "to": "C:/out" })),
-)?;
-
-// 关闭 Daemon
-serve::shutdown(r"\\.\pipe\corex")?;
-```
-
-### 最小验证示例
-
-`corex-core/examples/ipc.rs`：
-
-```powershell
-# 终端 1
-cargo run -p corex-serve
-
-# 终端 2
-cargo run -p corex-core --example ipc --features serve -- C:\Temp\screenshots
-```
-
-### Tauri 侧（独立实现）
-
-不依赖 `corex-core`，见 `examples/tauri/corex_ipc.rs`：
-
-- `invoke(module, args)` — 通用调用
-- `screenshot(to)` — 截图快捷方法
-- `is_ready()` — 探测 Pipe 是否可连接
-- `shutdown()` — 发送 shutdown
-
-完整 Tauri 接入见 [tauri-integration.md](./tauri-integration.md)。
-
----
-
-## 协议演进
-
-| 版本 | 变更 |
-|------|------|
-| 当前 | typed 格式（`type: invoke/shutdown`）；64KB 行限；Windows Named Pipe |
-
-未来可能扩展：
-
-- Unix Domain Socket（非 Windows）
-- pipeline/schedule/watch 模块（当前仅 CLI）
-
-已落地：客户端长连接复用（服务端同连接多请求 + 握手失败重试不退出）。
-
----
-
-## 调试技巧
-
-### 手动发送请求（PowerShell）
-
-Named Pipe 不适合直接用 echo，建议使用 example 或 Tauri 客户端。
-
-### 查看 Daemon 日志
-
-Daemon 将业务日志写入 stderr，例如：
-
-```
-corex-serve: 已缓存 2 个显示器
-corex-serve: 监听 Named Pipe \\.\pipe\corex
-screenshot saved: C:\out\screenshot-....png (87ms)
-```
-
-### 单元测试
-
-```powershell
-cargo test -p corex-core --features serve -- protocol::
-```
-
-覆盖 `parse_request` 的 typed/empty/invalid 场景。
+- [actions.md](./actions.md) — Action IDs
+- [shortcut-yaml.md](./shortcut-yaml.md) — Shortcut DSL
+- [tauri-integration.md](./tauri-integration.md) — Sidecar client
+- [architecture.md](./architecture.md) — Workspace overview

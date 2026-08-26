@@ -243,6 +243,43 @@ fn permission_kind_for(action_id: &str) -> PermissionKind {
     }
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn unrestricted_allows_everything() {
+        let p = Permissions::default();
+        assert!(p.is_unrestricted());
+        assert!(p.allows_action("shell.run").is_ok());
+        assert!(p.allows_action("http.request").is_ok());
+        assert!(p.allows_action("template.render").is_ok());
+    }
+
+    #[test]
+    fn filesystem_only_denies_shell_and_network() {
+        let p = Permissions {
+            filesystem: true,
+            ..Permissions::default()
+        };
+        assert!(!p.is_unrestricted());
+        assert!(p.allows_action("file.write").is_ok());
+        assert!(p.allows_action("template.render").is_ok()); // None kind
+        assert!(p.allows_action("shell.run").is_err());
+        assert!(p.allows_action("http.request").is_err());
+    }
+
+    #[test]
+    fn shell_true_allows_shell_denies_http() {
+        let p = Permissions {
+            shell: true,
+            ..Permissions::default()
+        };
+        assert!(p.allows_action("shell.run").is_ok());
+        assert!(p.allows_action("http.request").is_err());
+    }
+}
+
 /// Shortcut trigger definitions.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]

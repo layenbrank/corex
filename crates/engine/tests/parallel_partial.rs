@@ -1,0 +1,83 @@
+//! Parallel partial-failure behavior with on_error abort vs continue.
+
+use corex_core::{ExecutionContext, RuntimeConfig, Value};
+use corex_engine::{Pipeline, Shortcut};
+use corex_registry::ActionRegistry;
+use std::sync::Arc;
+
+fn registry() -> Arc<ActionRegistry> {
+    let mut r = ActionRegistry::new();
+    r.register_builtins();
+    Arc::new(r)
+}
+
+#[tokio::test]
+async fn parallel_abort_returns_err() {
+    let yaml = r#"
+name: parallel-abort
+on_error: abort
+steps:
+  - id: fanout
+    max_concurrency: 2
+    parallel:
+      - id: a
+        action: template.render
+        params:
+          template: "A"
+        save_to: a
+      - id: b
+        action: shell.run
+        params:
+          command: "corex-definitely-missing-cmd-xyz"
+"#;
+    let shortcut = Shortcut::from_yaml_str(yaml).unwrap();
+    let pipeline = Pipeline::new(registry());
+    let err = pipeline
+        .execute(&shortcut, ExecutionContext::new(RuntimeConfig::default()))
+        .await
+        .expect_err("abort must surface the failing branch");
+    let msg = err.to_string();
+    assert!(
+        !msg.is_empty(),
+        "expected non-empty error from failed shell branch"
+    );
+}
+
+#[tokio::test]
+async fn parallel_continue_null_for_failed_branch() {
+    let yaml = r#"
+name: parallel-continue
+on_error: continue
+steps:
+  - id: fanout
+    max_concurrency: 2
+    parallel:
+      - id: a
+        action: template.render
+        params:
+          template: "A"
+        save_to: a
+      - id: b
+        action: shell.run
+        params:
+          command: "corex-definitely-missing-cmd-xyz"
+"#;
+    let shortcut = Shortcut::from_yaml_str(yaml).unwrap();
+    let pipeline = Pipeline::new(registry());
+    let result = pipeline
+        .execute(&shortcut, ExecutionContext::new(RuntimeConfig::default()))
+        .await
+        .expect("continue should return Ok with partial results");
+
+    let list = match result {
+        Value::List(items) => items,
+        other => panic!("expected List, got {other}"),
+    };
+    assert_eq!(list.len(), 2);
+    assert_eq!(list[0].as_str(), Some("A"));
+    assert!(
+        matches!(list[1], Value::Null),
+        "failed branch should be Null, got {:?}",
+        list[1]
+    );
+}

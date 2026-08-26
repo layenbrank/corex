@@ -174,3 +174,48 @@ impl std::fmt::Display for RpcError {
 }
 
 impl std::error::Error for RpcError {}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn max_line_bytes_is_one_mib() {
+        assert_eq!(MAX_LINE_BYTES, 1024 * 1024);
+    }
+
+    #[test]
+    fn request_auth_token_roundtrip() {
+        let req = Request::Ping {
+            id: 42,
+            auth_token: Some("secret-token".into()),
+        };
+        let json = serde_json::to_string(&req).unwrap();
+        assert!(json.contains("auth_token"));
+        assert!(json.contains("secret-token"));
+        let back: Request = serde_json::from_str(&json).unwrap();
+        assert_eq!(back.id(), 42);
+        assert_eq!(back.auth_token(), Some("secret-token"));
+    }
+
+    #[test]
+    fn request_auth_token_omitted_deserializes_none() {
+        let json = r#"{"type":"ping","id":1}"#;
+        let req: Request = serde_json::from_str(json).unwrap();
+        assert_eq!(req.auth_token(), None);
+    }
+
+    #[test]
+    fn with_auth_token_sets_field() {
+        let req = Request::Invoke {
+            id: 7,
+            auth_token: None,
+            action: "template.render".into(),
+            params: Value::Null,
+        }
+        .with_auth_token("tok");
+        assert_eq!(req.auth_token(), Some("tok"));
+        let json = serde_json::to_value(&req).unwrap();
+        assert_eq!(json["auth_token"], "tok");
+    }
+}
