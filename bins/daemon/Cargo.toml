@@ -2,7 +2,7 @@
 name        = "corex-daemon"
 version     = { workspace = true }
 edition     = { workspace = true }
-description = "Corex background daemon — IPC server for shortcuts & actions"
+description = "Corex background daemon — IPC server for directives & actions"
 authors     = { workspace = true }
 license     = { workspace = true }
 

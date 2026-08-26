@@ -3,7 +3,10 @@
 use anyhow::{bail, Context, Result};
 use clap::Parser;
 use corex_core::{DaemonConfig, ExecutionContext, LoggingConfig, RuntimeConfig, Value};
-use corex_engine::{ExecutionHistory, Pipeline, Shortcut};
+use corex_engine::{
+    permission_kind_for, AuditEntry, ExecutionAudit, ExecutionHistory, PermissionKind, Pipeline,
+    Directive,
+};
 use corex_ipc::protocol::{Request, Response, RpcError};
 use corex_ipc::{default_endpoint, platform_data_dir, serve_platform};
 use corex_registry::ActionRegistry;
@@ -11,11 +14,12 @@ use fs2::FileExt;
 use rand::RngExt;
 use std::collections::BTreeMap;
 use std::fs::File;
-use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
-use tracing::{error, info, warn};
+use tracing::{info, warn};
+#[cfg(unix)]
+use tracing::error;
 
 #[derive(Parser, Debug)]
 #[command(name = "corex-daemon", version, about = "Corex background daemon")]
@@ -24,9 +28,9 @@ struct Args {
     #[arg(long, alias = "pipe")]
     socket: Option<PathBuf>,
 
-    /// Override shortcuts directory
+    /// Override directives directory
     #[arg(long)]
-    shortcuts: Option<PathBuf>,
+    directives: Option<PathBuf>,
 
     /// Config file (toml)
     #[arg(long)]
@@ -36,8 +40,9 @@ struct Args {
 struct DaemonState {
     registry: Arc<ActionRegistry>,
     config: RuntimeConfig,
-    shortcuts_dir: PathBuf,
+    directives_dir: PathBuf,
     history: Option<ExecutionHistory>,
+    audit: Option<ExecutionAudit>,
     auth_token: String,
     shutdown: AtomicBool,
 }
@@ -52,10 +57,10 @@ async fn main() -> Result<()> {
 
     let endpoint = resolve_endpoint(args.socket, &config.daemon, &data);
     let lock_path = resolve_lock_path(&config.daemon, &data);
-    let shortcuts_dir = args
-        .shortcuts
-        .unwrap_or_else(|| data.join("shortcuts"));
-    std::fs::create_dir_all(&shortcuts_dir)?;
+    let directives_dir = args
+        .directives
+        .unwrap_or_else(|| data.join("directives"));
+    std::fs::create_dir_all(&directives_dir)?;
 
     let auth_token = resolve_auth_token(&data, &config.daemon)?;
 
@@ -79,12 +84,14 @@ async fn main() -> Result<()> {
     }
 
     let history = open_history(&data, &config)?;
+    let audit = ExecutionAudit::under_data_dir(&data).ok();
 
     let state = Arc::new(DaemonState {
         registry: Arc::new(registry),
         config,
-        shortcuts_dir,
+        directives_dir,
         history,
+        audit,
         auth_token,
         shutdown: AtomicBool::new(false),
     });
@@ -146,9 +153,9 @@ async fn handle_request(state: &DaemonState, req: Request) -> Response {
                 .collect();
             Response::ok(id, Value::List(list))
         }
-        Request::ListShortcuts { id, dir, .. } => {
-            match resolve_list_dir(&state.shortcuts_dir, dir.as_deref()) {
-                Ok(base) => match list_shortcuts(&base) {
+        Request::ListDirectives { id, dir, .. } => {
+            match resolve_list_dir(&state.directives_dir, dir.as_deref()) {
+                Ok(base) => match list_directives(&base) {
                     Ok(names) => {
                         let list = names.into_iter().map(Value::Str).collect();
                         Response::ok(id, Value::List(list))
@@ -158,15 +165,22 @@ async fn handle_request(state: &DaemonState, req: Request) -> Response {
                 Err(e) => Response::error(id, RpcError::forbidden(e.to_string())),
             }
         }
-        Request::RunShortcut {
+        Request::RunDirective {
             id,
             name,
             input,
             path,
             ..
-        } => match run_shortcut(state, &name, path.as_deref(), input).await {
+        } => match run_directive(state, &name, path.as_deref(), input).await {
             Ok(v) => Response::ok(id, v),
-            Err(e) => Response::error(id, RpcError::internal(e.to_string())),
+            Err(e) => {
+                let msg = e.to_string();
+                if msg.contains("指令未找到") {
+                    Response::error(id, RpcError::not_found(msg))
+                } else {
+                    Response::error(id, RpcError::internal(msg))
+                }
+            }
         },
         Request::Invoke {
             id,
@@ -175,51 +189,93 @@ async fn handle_request(state: &DaemonState, req: Request) -> Response {
             ..
         } => match invoke_action(state, &action, params).await {
             Ok(v) => Response::ok(id, v),
-            Err(e) => Response::error(id, RpcError::internal(e.to_string())),
+            Err(e) => {
+                let msg = e.to_string();
+                if msg.contains("strict_permissions") || msg.contains("权限") {
+                    Response::error(id, RpcError::forbidden(msg))
+                } else {
+                    Response::error(id, RpcError::internal(msg))
+                }
+            }
         },
     }
 }
 
-async fn run_shortcut(
+async fn run_directive(
     state: &DaemonState,
     name: &str,
     path: Option<&str>,
     input: std::collections::HashMap<String, Value>,
 ) -> Result<Value> {
     let file = if let Some(p) = path {
-        confine_under(&state.shortcuts_dir, Path::new(p))
-            .with_context(|| format!("快捷指令路径越界: {p}"))?
+        confine_under(&state.directives_dir, Path::new(p))
+            .with_context(|| format!("指令路径越界: {p}"))?
     } else {
-        resolve_shortcut(&state.shortcuts_dir, name)?
+        resolve_directive(&state.directives_dir, name)?
     };
-    let shortcut = Shortcut::from_yaml_file(&file)?;
+    let directive = Directive::from_yaml_file(&file)?;
     let ctx = ExecutionContext::new(state.config.clone()).with_input(input);
     let mut pipeline = Pipeline::new(state.registry.clone());
     if let Some(history) = &state.history {
         pipeline = pipeline.with_history(history.clone());
     }
-    Ok(pipeline.execute(&shortcut, ctx).await?)
+    if let Some(audit) = &state.audit {
+        pipeline = pipeline.with_audit(audit.clone());
+    }
+    Ok(pipeline.execute(&directive, ctx).await?)
 }
 
 async fn invoke_action(state: &DaemonState, action_id: &str, params: Value) -> Result<Value> {
+    check_invoke_allowed(&state.config, action_id)?;
     let action = state
         .registry
         .get(action_id)
         .with_context(|| format!("动作未注册: {action_id}"))?;
+    let t0 = std::time::Instant::now();
     let mut ctx = ExecutionContext::new(state.config.clone());
-    action.validate(&params).await?;
-    Ok(action.execute(params, &mut ctx).await?)
+    let outcome = async {
+        action.validate(&params).await?;
+        action.execute(params, &mut ctx).await
+    }
+    .await;
+    let duration_ms = t0.elapsed().as_millis() as u64;
+    let perm_denied = matches!(
+        &outcome,
+        Err(corex_core::ActionError::PermissionDenied(_))
+    );
+    if let Some(audit) = &state.audit {
+        let entry = AuditEntry::new(
+            "invoke",
+            "invoke",
+            action_id,
+            duration_ms,
+            outcome.as_ref().map(|_| ()).map_err(|e| e.to_string()),
+            perm_denied,
+        );
+        audit.record_best_effort(&entry);
+    }
+    Ok(outcome?)
 }
 
-/// Resolve a shortcut by name: only `{name}.yaml` / `{name}.yml` under `dir`.
-fn resolve_shortcut(dir: &Path, name: &str) -> Result<PathBuf> {
+/// Strict mode: Invoke has no Directive permissions context, so any action that
+/// requires a permission kind is denied. Disabled actions are already removed
+/// from the registry via `apply_runtime_config`.
+fn check_invoke_allowed(config: &RuntimeConfig, action_id: &str) -> Result<()> {
+    if config.strict_permissions && permission_kind_for(action_id) != PermissionKind::None {
+        bail!("strict_permissions: Invoke 不允许执行需权限的动作 {action_id}");
+    }
+    Ok(())
+}
+
+/// Resolve a Directive by name: only `{name}.yaml` / `{name}.yml` under `dir`.
+fn resolve_directive(dir: &Path, name: &str) -> Result<PathBuf> {
     if name.is_empty()
         || name.contains("..")
         || name.contains('/')
         || name.contains('\\')
         || Path::new(name).is_absolute()
     {
-        bail!("非法快捷指令名: {name}");
+        bail!("非法指令名: {name}");
     }
     let yaml = dir.join(format!("{name}.yaml"));
     let yml = dir.join(format!("{name}.yml"));
@@ -229,37 +285,19 @@ fn resolve_shortcut(dir: &Path, name: &str) -> Result<PathBuf> {
     if yml.is_file() {
         return Ok(yml);
     }
-    bail!("快捷指令未找到: {name}");
+    bail!("指令未找到: {name}");
 }
 
 /// Ensure `path` resolves under `root` (after joining relative paths).
 fn confine_under(root: &Path, path: &Path) -> Result<PathBuf> {
-    let root_canon = root
-        .canonicalize()
-        .with_context(|| format!("无法解析 shortcuts 根目录 {}", root.display()))?;
-    let candidate = if path.is_absolute() {
-        path.to_path_buf()
-    } else {
-        root.join(path)
-    };
-    let cand_canon = candidate
-        .canonicalize()
-        .with_context(|| format!("无法解析路径 {}", candidate.display()))?;
-    if !cand_canon.starts_with(&root_canon) {
-        bail!(
-            "路径越界: {} 不在 {} 下",
-            cand_canon.display(),
-            root_canon.display()
-        );
-    }
-    Ok(cand_canon)
+    corex_core::path::confine_under(root, path).map_err(|e| anyhow::anyhow!(e.0))
 }
 
-fn resolve_list_dir(shortcuts_dir: &Path, dir: Option<&str>) -> Result<PathBuf> {
+fn resolve_list_dir(directives_dir: &Path, dir: Option<&str>) -> Result<PathBuf> {
     match dir {
-        None => Ok(shortcuts_dir.to_path_buf()),
+        None => Ok(directives_dir.to_path_buf()),
         Some(d) => {
-            let confined = confine_under(shortcuts_dir, Path::new(d))?;
+            let confined = confine_under(directives_dir, Path::new(d))?;
             if !confined.is_dir() {
                 bail!("不是目录: {}", confined.display());
             }
@@ -268,7 +306,7 @@ fn resolve_list_dir(shortcuts_dir: &Path, dir: Option<&str>) -> Result<PathBuf> 
     }
 }
 
-fn list_shortcuts(dir: &Path) -> Result<Vec<String>> {
+fn list_directives(dir: &Path) -> Result<Vec<String>> {
     let mut names = Vec::new();
     if !dir.exists() {
         return Ok(names);
@@ -461,6 +499,10 @@ struct RuntimeSection {
     max_parallel: Option<usize>,
     #[serde(default)]
     step_timeout_secs: Option<u64>,
+    #[serde(default)]
+    strict_permissions: Option<bool>,
+    #[serde(default)]
+    filesystem_roots: Option<Vec<std::path::PathBuf>>,
 }
 
 impl ConfigFile {
@@ -484,6 +526,12 @@ impl ConfigFile {
             }
             if let Some(t) = r.step_timeout_secs {
                 cfg.step_timeout_secs = t;
+            }
+            if let Some(s) = r.strict_permissions {
+                cfg.strict_permissions = s;
+            }
+            if let Some(roots) = r.filesystem_roots {
+                cfg.filesystem_roots = roots;
             }
         }
         cfg
@@ -530,5 +578,32 @@ async fn shutdown_signal() {
     #[cfg(not(unix))]
     {
         ctrl_c.await;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn strict_invoke_denies_file_write() {
+        let mut cfg = RuntimeConfig::default();
+        cfg.strict_permissions = true;
+        assert!(check_invoke_allowed(&cfg, "file.write").is_err());
+        assert!(check_invoke_allowed(&cfg, "shell.run").is_err());
+    }
+
+    #[test]
+    fn non_strict_invoke_allows_file_write() {
+        let cfg = RuntimeConfig::default();
+        assert!(check_invoke_allowed(&cfg, "file.write").is_ok());
+    }
+
+    #[test]
+    fn strict_invoke_allows_none_kind() {
+        let mut cfg = RuntimeConfig::default();
+        cfg.strict_permissions = true;
+        assert!(check_invoke_allowed(&cfg, "template.render").is_ok());
+        assert!(check_invoke_allowed(&cfg, "generate.uuid").is_ok());
     }
 }
