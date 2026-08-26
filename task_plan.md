@@ -1,70 +1,69 @@
-# Task Plan: UI 自动化可靠性修复（通用 Action 层）
+# Task Plan: UI 自动化 + 交互式元素探测
 
 ## Goal
-修复 input 默认值、GUI 启动语义、UI Selector/Sync/Session 三层内核；WeChat 4.x 登录仅作 recipe 示例。
+
+1. **已完成**：UI Selector/Sync/Session 三层内核、directive 可靠性、WeChat recipe、冒烟 YAML。
+2. **当前焦点**：补齐 **交互式元素查找**（对标 Auto.js selector 探索），先分析、再最小 MVP。
 
 ## Current Phase
-**Complete**
+
+**Phase 6 — Interactive find（分析完成，待实现）**
 
 ## Phases
 
-### Phase 1 — Engine input defaults
-- [x] `apply_input_defaults`：空值/Null/空白视为未提供
-- [x] `pipeline.rs` 在 `execute()` 开头调用
-- [x] 测试 `crates/engine/tests/input_defaults.rs`
-- **Status:** complete
+### Phase 1–5 — 可靠性内核（complete）
 
-### Phase 2 — process_launch GUI
-- [x] `wait: sync | detach`
-- [x] `if_running: launch | skip | fail`
-- [x] `if_running_window` + `prefer_largest`
-- [x] shell/exec 透传
-- [x] Bugbot fix：`if_running_window` 未命中时不按进程名 skip
-- **Status:** complete
+见历史记录：input defaults、process_launch GUI、`ui_kernel`、`ui_session`、文档、单测、Bugbot fixes。
 
-### Phase 3 — UI 内核
-- [x] `ui_kernel.rs`：`WindowQuery` / `ElementSelector` / `selectors[]` 回退链
-- [x] `ExecutionContext.ui_session`
-- [x] `ui.element.exists` / `ui.element.wait` (present|absent|enabled)
-- [x] `ui.element.click` safe 模式
-- [x] `ui.wait` 兜底 + `ui_max_settle_ms`
-- [x] audit `ui_phase` / `error_code` / `selector_hint`
-- [x] Bugbot fix：`prefer_largest` 不绑定 stale session hwnd
-- **Status:** complete
+### Phase 6 — Interactive element find（分析 → MVP）
 
-### Phase 4 — WeChat recipe + 文档
-- [x] `wechat-send-message.yaml` v0.5
-- [x] `docs/ui-automation.md`
-- [x] `docs/compliance.md` 人工检查点
-- **Status:** complete
+| 子项 | 状态 | 说明 |
+|------|------|------|
+| Call-graph 梳理 directive → ui.element.* → ui_kernel | [x] | 见 `findings.md` |
+| vs Auto.js 差距分析 | [x] | bounds/REPL/CLI probe 缺失 |
+| Code review（ui refactor + smoke yaml） | [x] | 见 `findings.md` 严重度列表 |
+| `docs/ui-automation.md` 扩展 Auto.js 对照 | [ ] | 待 doc PR：findOne/bounds/id/className |
+| MVP 选型 | [x] | 推荐 `corex ui` 子命令 + REPL `find` |
+| 实现 `corex ui find/list/windows` | [ ] | |
+| REPL：`find` / `list-ui` / `scope` | [ ] | |
+| `elem_to_map` 增加 bounds/enabled | [ ] | |
+| `verify_closed` 语义修正 | [ ] | 窗口仍存在时应失败 |
+| Windows 集成测 / 冒烟实机 | [ ] | |
 
-### Phase 5 — 测试与验收
-- [x] 单测（input_defaults / process_launch / ui_kernel / audit）
-- [x] `example_directives_validate`
-- [x] Bugbot 审查 + Must-Fix 修复
-- [x] `cargo test --workspace` 全绿
-- [ ] Windows 实机清单（手工）
-- **Status:** complete（代码/单测）；实机待运维
+**MVP 候选（择一或组合）：**
+
+- **A. `corex ui find`** — 直接调 ActionRegistry + `ExecutionContext`，JSON 输出；可 `--hwnd` / `--title` / selector flags。
+- **B. REPL 扩展** — `find name=…`、`list-elements`、`windows`；复用 `cmd_run` 同款 registry。
+- **C. Daemon IPC invoke** — 已有 `invoke` 但无 session 串联；适合 Tauri，不适合交互探索首选。
+
+### Phase 7 — 增强（post-MVP）
+
+- [ ] selector builder（从 `ui.element.list` 生成 YAML `selectors[]`）
+- [ ] `capture.screenshot` + `capture.ocr` 与 find 联动
+- [ ] `ui_profile` directive input → runtime variables
+- [ ] `corex directives diff`（data_dir vs examples）
 
 ## 企业门禁 Checklist
+
 - [x] `permissions.ui` 文档化
 - [x] `enterprise.toml` 禁用高风险 UI actions
-- [x] `docs/compliance.md` 人工检查点
 - [ ] `validate --strict` 实机确认
 - [ ] data_dir directive 与 examples 版本一致（运维）
+- [ ] 交互式 find 纳入 enterprise 威胁模型评审（invoke / 屏幕坐标）
 
 ## Decisions
+
 | Decision | Rationale |
 |----------|-----------|
 | 不新增 `wechat.*` | 微信仅 recipe 示例 |
-| 4.x 登录靠 UIA 探测「进入微信」 | 标题同为「微信」 |
-| 跳过 `ui_profile` input | future work |
-| CLI `-i` 用 `Value::from_cli_literal` | 修复 `auto_login=false` 字符串 truthy |
+| 交互 find 优先 CLI/REPL | 比新 directive 更快迭代 selector |
+| `ui_kernel` 保持平台无关解析 | Windows UIA 仅在 `ui.rs` win 模块 |
+| `config/corex.toml` 为运行时主配置 | `default.toml` 已弃用别名 |
+| baseline `ui_max_selector_chain = 8` | `MAX_SELECTOR_CHAIN` + `ui_profile` |
 
 ## Errors Encountered
+
 | Error | Resolution |
 |-------|------------|
-| session-catchup.py 路径不存在 | git diff + grep 手动恢复 |
-| Bugbot: process skip 误触 | `if_running_window` 未命中时不 fallback 进程名 |
-| Bugbot: stale ui_session hwnd | `prefer_largest` 忽略 session hwnd |
-| Bugbot: CLI bool 字符串 | `Value::from_cli_literal` |
+| findings 链长仍写 ≤5 | 本次分析更正为 baseline=8 |
+| docs 路径 `%LOCALAPPDATA%` vs `%AppData%` | 代码实为 `%AppData%\corex\data` |
