@@ -2,14 +2,16 @@
 
 use anyhow::{bail, Context, Result};
 use clap::Parser;
-use corex_core::{ExecutionContext, RuntimeConfig, Value};
+use corex_core::{DaemonConfig, ExecutionContext, LoggingConfig, RuntimeConfig, Value};
 use corex_engine::{ExecutionHistory, Pipeline, Shortcut};
 use corex_ipc::protocol::{Request, Response, RpcError};
 use corex_ipc::{default_endpoint, serve_platform};
 use corex_registry::ActionRegistry;
 use fs2::FileExt;
+use rand::RngCore;
 use std::collections::BTreeMap;
 use std::fs::File;
+use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
@@ -36,24 +38,26 @@ struct DaemonState {
     config: RuntimeConfig,
     shortcuts_dir: PathBuf,
     history: Option<ExecutionHistory>,
+    auth_token: String,
     shutdown: AtomicBool,
 }
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    init_tracing();
     let args = Args::parse();
 
     let data = data_dir()?;
     let config = load_runtime_config(args.config.as_deref())?;
-    let endpoint = args
-        .socket
-        .unwrap_or_else(|| default_endpoint(&data));
-    let lock_path = data.join("corex.lock");
+    init_tracing(&config.logging);
+
+    let endpoint = resolve_endpoint(args.socket, &config.daemon, &data);
+    let lock_path = resolve_lock_path(&config.daemon, &data);
     let shortcuts_dir = args
         .shortcuts
         .unwrap_or_else(|| data.join("shortcuts"));
     std::fs::create_dir_all(&shortcuts_dir)?;
+
+    let auth_token = resolve_auth_token(&data, &config.daemon)?;
 
     let _lock = acquire_singleton(&lock_path)?;
 
@@ -81,6 +85,7 @@ async fn main() -> Result<()> {
         config,
         shortcuts_dir,
         history,
+        auth_token,
         shutdown: AtomicBool::new(false),
     });
 
@@ -113,17 +118,20 @@ async fn main() -> Result<()> {
 
 async fn handle_request(state: &DaemonState, req: Request) -> Response {
     let id = req.id();
+    if !token_matches(req.auth_token(), &state.auth_token) {
+        return Response::error(id, RpcError::unauthorized("invalid or missing auth token"));
+    }
     if state.shutdown.load(Ordering::SeqCst) {
         return Response::Bye { id };
     }
 
     match req {
-        Request::Ping { id } => Response::Pong { id },
-        Request::Shutdown { id } => {
+        Request::Ping { id, .. } => Response::Pong { id },
+        Request::Shutdown { id, .. } => {
             state.shutdown.store(true, Ordering::SeqCst);
             Response::Bye { id }
         }
-        Request::ListActions { id } => {
+        Request::ListActions { id, .. } => {
             let list: Vec<Value> = state
                 .registry
                 .list()
@@ -138,16 +146,16 @@ async fn handle_request(state: &DaemonState, req: Request) -> Response {
                 .collect();
             Response::ok(id, Value::List(list))
         }
-        Request::ListShortcuts { id, dir } => {
-            let base = dir
-                .map(PathBuf::from)
-                .unwrap_or_else(|| state.shortcuts_dir.clone());
-            match list_shortcuts(&base) {
-                Ok(names) => {
-                    let list = names.into_iter().map(Value::Str).collect();
-                    Response::ok(id, Value::List(list))
-                }
-                Err(e) => Response::error(id, RpcError::internal(e.to_string())),
+        Request::ListShortcuts { id, dir, .. } => {
+            match resolve_list_dir(&state.shortcuts_dir, dir.as_deref()) {
+                Ok(base) => match list_shortcuts(&base) {
+                    Ok(names) => {
+                        let list = names.into_iter().map(Value::Str).collect();
+                        Response::ok(id, Value::List(list))
+                    }
+                    Err(e) => Response::error(id, RpcError::internal(e.to_string())),
+                },
+                Err(e) => Response::error(id, RpcError::forbidden(e.to_string())),
             }
         }
         Request::RunShortcut {
@@ -155,12 +163,17 @@ async fn handle_request(state: &DaemonState, req: Request) -> Response {
             name,
             input,
             path,
+            ..
         } => match run_shortcut(state, &name, path.as_deref(), input).await {
             Ok(v) => Response::ok(id, v),
             Err(e) => Response::error(id, RpcError::internal(e.to_string())),
         },
-        Request::Invoke { id, action, params } => match invoke_action(state, &action, params).await
-        {
+        Request::Invoke {
+            id,
+            action,
+            params,
+            ..
+        } => match invoke_action(state, &action, params).await {
             Ok(v) => Response::ok(id, v),
             Err(e) => Response::error(id, RpcError::internal(e.to_string())),
         },
@@ -174,7 +187,8 @@ async fn run_shortcut(
     input: std::collections::HashMap<String, Value>,
 ) -> Result<Value> {
     let file = if let Some(p) = path {
-        PathBuf::from(p)
+        confine_under(&state.shortcuts_dir, Path::new(p))
+            .with_context(|| format!("快捷指令路径越界: {p}"))?
     } else {
         resolve_shortcut(&state.shortcuts_dir, name)?
     };
@@ -197,18 +211,61 @@ async fn invoke_action(state: &DaemonState, action_id: &str, params: Value) -> R
     Ok(action.execute(params, &mut ctx).await?)
 }
 
+/// Resolve a shortcut by name: only `{name}.yaml` / `{name}.yml` under `dir`.
 fn resolve_shortcut(dir: &Path, name: &str) -> Result<PathBuf> {
-    let candidates = [
-        dir.join(format!("{name}.yaml")),
-        dir.join(format!("{name}.yml")),
-        PathBuf::from(name),
-    ];
-    for c in candidates {
-        if c.exists() {
-            return Ok(c);
-        }
+    if name.is_empty()
+        || name.contains("..")
+        || name.contains('/')
+        || name.contains('\\')
+        || Path::new(name).is_absolute()
+    {
+        bail!("非法快捷指令名: {name}");
+    }
+    let yaml = dir.join(format!("{name}.yaml"));
+    let yml = dir.join(format!("{name}.yml"));
+    if yaml.is_file() {
+        return Ok(yaml);
+    }
+    if yml.is_file() {
+        return Ok(yml);
     }
     bail!("快捷指令未找到: {name}");
+}
+
+/// Ensure `path` resolves under `root` (after joining relative paths).
+fn confine_under(root: &Path, path: &Path) -> Result<PathBuf> {
+    let root_canon = root
+        .canonicalize()
+        .with_context(|| format!("无法解析 shortcuts 根目录 {}", root.display()))?;
+    let candidate = if path.is_absolute() {
+        path.to_path_buf()
+    } else {
+        root.join(path)
+    };
+    let cand_canon = candidate
+        .canonicalize()
+        .with_context(|| format!("无法解析路径 {}", candidate.display()))?;
+    if !cand_canon.starts_with(&root_canon) {
+        bail!(
+            "路径越界: {} 不在 {} 下",
+            cand_canon.display(),
+            root_canon.display()
+        );
+    }
+    Ok(cand_canon)
+}
+
+fn resolve_list_dir(shortcuts_dir: &Path, dir: Option<&str>) -> Result<PathBuf> {
+    match dir {
+        None => Ok(shortcuts_dir.to_path_buf()),
+        Some(d) => {
+            let confined = confine_under(shortcuts_dir, Path::new(d))?;
+            if !confined.is_dir() {
+                bail!("不是目录: {}", confined.display());
+            }
+            Ok(confined)
+        }
+    }
 }
 
 fn list_shortcuts(dir: &Path) -> Result<Vec<String>> {
@@ -268,17 +325,117 @@ fn open_history(data: &Path, config: &RuntimeConfig) -> Result<Option<ExecutionH
     ))
 }
 
+/// Resolve a path from config: absolute stays absolute; relative joins `data`.
+/// On Windows, `\\.\pipe\...` (and `//./pipe/...`) are used as-is.
+fn resolve_data_relative(data: &Path, path: &Path) -> PathBuf {
+    #[cfg(windows)]
+    {
+        let s = path.to_string_lossy();
+        if s.starts_with(r"\\.\pipe\") || s.starts_with("//./pipe/") {
+            return path.to_path_buf();
+        }
+    }
+    if path.is_absolute() {
+        path.to_path_buf()
+    } else {
+        data.join(path)
+    }
+}
+
+fn resolve_endpoint(cli: Option<PathBuf>, daemon: &DaemonConfig, data: &Path) -> PathBuf {
+    if let Some(p) = cli {
+        return p;
+    }
+    if let Some(p) = &daemon.socket_path {
+        return resolve_data_relative(data, p);
+    }
+    default_endpoint(data)
+}
+
+fn resolve_lock_path(daemon: &DaemonConfig, data: &Path) -> PathBuf {
+    match &daemon.lock_path {
+        Some(p) => resolve_data_relative(data, p),
+        None => data.join("corex.lock"),
+    }
+}
+
+fn resolve_auth_token(data: &Path, daemon: &DaemonConfig) -> Result<String> {
+    if let Ok(t) = std::env::var("COREX_TOKEN") {
+        if !t.is_empty() {
+            return Ok(t);
+        }
+    }
+    if let Some(t) = &daemon.token {
+        if !t.is_empty() {
+            return Ok(t.clone());
+        }
+    }
+    read_or_create_token_file(&data.join("token"))
+}
+
+fn read_or_create_token_file(path: &Path) -> Result<String> {
+    if path.exists() {
+        let existing = std::fs::read_to_string(path)
+            .with_context(|| format!("无法读取 token 文件 {}", path.display()))?;
+        let trimmed = existing.trim().to_string();
+        if !trimmed.is_empty() {
+            return Ok(trimmed);
+        }
+    }
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    let mut bytes = [0u8; 32];
+    rand::thread_rng().fill_bytes(&mut bytes);
+    let token: String = bytes.iter().map(|b| format!("{b:02x}")).collect();
+
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        let mut file = std::fs::OpenOptions::new()
+            .write(true)
+            .create(true)
+            .truncate(true)
+            .mode(0o600)
+            .open(path)
+            .with_context(|| format!("无法写入 token 文件 {}", path.display()))?;
+        file.write_all(token.as_bytes())?;
+    }
+    #[cfg(not(unix))]
+    {
+        std::fs::write(path, token.as_bytes())
+            .with_context(|| format!("无法写入 token 文件 {}", path.display()))?;
+    }
+    Ok(token)
+}
+
+fn token_matches(provided: Option<&str>, expected: &str) -> bool {
+    match provided {
+        Some(p) => constant_time_eq(p.as_bytes(), expected.as_bytes()),
+        None => false,
+    }
+}
+
+fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
+    if a.len() != b.len() {
+        return false;
+    }
+    let mut diff = 0u8;
+    for (x, y) in a.iter().zip(b.iter()) {
+        diff |= x ^ y;
+    }
+    diff == 0
+}
+
 fn load_runtime_config(path: Option<&Path>) -> Result<RuntimeConfig> {
-    let candidates: Vec<PathBuf> = path
-        .map(|p| vec![p.to_path_buf()])
-        .unwrap_or_else(|| {
-            vec![
-                PathBuf::from("config/default.toml"),
-                data_dir()
-                    .map(|d| d.join("config.toml"))
-                    .unwrap_or_default(),
-            ]
-        });
+    let candidates: Vec<PathBuf> = path.map(|p| vec![p.to_path_buf()]).unwrap_or_else(|| {
+        vec![
+            PathBuf::from("config/default.toml"),
+            data_dir()
+                .map(|d| d.join("config.toml"))
+                .unwrap_or_default(),
+        ]
+    });
 
     for p in candidates {
         if p.exists() {
@@ -298,6 +455,10 @@ struct ConfigFile {
     plugins: Option<corex_core::PluginConfig>,
     #[serde(default)]
     history: Option<corex_core::HistoryConfig>,
+    #[serde(default)]
+    daemon: Option<DaemonConfig>,
+    #[serde(default)]
+    logging: Option<LoggingConfig>,
     #[serde(default)]
     runtime: Option<RuntimeSection>,
 }
@@ -319,6 +480,12 @@ impl ConfigFile {
         if let Some(h) = self.history {
             cfg.history = h;
         }
+        if let Some(d) = self.daemon {
+            cfg.daemon = d;
+        }
+        if let Some(l) = self.logging {
+            cfg.logging = l;
+        }
         if let Some(r) = self.runtime {
             if let Some(m) = r.max_parallel {
                 cfg.max_parallel = m;
@@ -331,13 +498,19 @@ impl ConfigFile {
     }
 }
 
-fn init_tracing() {
-    let _ = tracing_subscriber::fmt()
-        .with_env_filter(
-            tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info")),
-        )
-        .try_init();
+fn init_tracing(logging: &LoggingConfig) {
+    let filter = tracing_subscriber::EnvFilter::try_from_default_env()
+        .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new(&logging.level));
+    if logging.json {
+        let _ = tracing_subscriber::fmt()
+            .json()
+            .with_env_filter(filter)
+            .try_init();
+    } else {
+        let _ = tracing_subscriber::fmt()
+            .with_env_filter(filter)
+            .try_init();
+    }
 }
 
 async fn shutdown_signal() {

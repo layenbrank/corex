@@ -4,6 +4,9 @@ use crate::definition::Trigger;
 use tracing::warn;
 
 /// Stub / optional scheduler for cron triggers.
+///
+/// Not wired into CLI/daemon yet. Prefer external schedulers until this is complete.
+#[doc(hidden)]
 pub struct Scheduler;
 
 impl Scheduler {
@@ -23,13 +26,11 @@ impl Scheduler {
 
     #[cfg(feature = "cron")]
     async fn register_cron(name: &str, expr: &str) -> Result<(), corex_core::EngineError> {
-        // Full wiring (job → pipeline execute) lands in a later pass.
-        // Validate the expression by constructing a scheduler job stub.
+        use tracing::info;
         let _sched = tokio_cron_scheduler::JobScheduler::new()
             .await
             .map_err(|e| corex_core::EngineError::other(format!("cron 调度器初始化失败: {e}")))?;
         info!(shortcut = name, expr, "已注册 cron 触发器（骨架）");
-        let _ = expr;
         Ok(())
     }
 

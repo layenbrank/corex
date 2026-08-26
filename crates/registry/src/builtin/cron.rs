@@ -1,4 +1,4 @@
-//! `cron.schedule` — stub that acknowledges a schedule registration.
+//! `cron.schedule` — not implemented (returns explicit error).
 
 use crate::ActionRegistry;
 use async_trait::async_trait;
@@ -16,12 +16,11 @@ impl Action for CronSchedule {
         ActionMeta::new(
             "cron.schedule",
             "Cron Schedule",
-            "注册 cron 表达式（骨架，返回确认值）",
+            "注册 cron 表达式（尚未实现，调用将报错）",
             ActionCategory::System,
         )
         .with_params(vec![
-            ParamSchema::new("expr", SchemaType::Str, true)
-                .with_description("cron 表达式"),
+            ParamSchema::new("expr", SchemaType::Str, true).with_description("cron 表达式"),
             ParamSchema::new("shortcut", SchemaType::Str, false)
                 .with_description("关联的快捷指令名"),
         ])
@@ -35,22 +34,14 @@ impl Action for CronSchedule {
         let map = params
             .as_map()
             .ok_or_else(|| ActionError::InvalidParams("需要 map 参数".to_string()))?;
-        let expr = map
+        let _expr = map
             .get("expr")
             .and_then(|v| v.as_str())
             .ok_or_else(|| ActionError::MissingParam("expr".to_string()))?;
-        let shortcut = map
-            .get("shortcut")
-            .and_then(|v| v.as_str())
-            .unwrap_or("");
 
-        tracing::info!(expr, shortcut, "cron.schedule 骨架注册");
-
-        let mut out = std::collections::BTreeMap::new();
-        out.insert("scheduled".into(), Value::Bool(true));
-        out.insert("expr".into(), Value::Str(expr.into()));
-        out.insert("shortcut".into(), Value::Str(shortcut.into()));
-        Ok(Value::Map(out))
+        Err(ActionError::execution(
+            "cron.schedule 尚未实现：请使用外部调度器或等待后续版本",
+        ))
     }
 }
 

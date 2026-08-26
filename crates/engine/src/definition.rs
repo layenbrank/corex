@@ -156,6 +156,10 @@ pub enum OnError {
 }
 
 /// Declared permissions a shortcut may need.
+///
+/// When **all** flags are false (YAML omitted / empty), the shortcut is treated as
+/// unrestricted (allow-all) for backward compatibility with simple shortcuts.
+/// Once any flag is `true`, undeclared categories are denied.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct Permissions {
     #[serde(default)]
@@ -168,6 +172,75 @@ pub struct Permissions {
     pub clipboard: bool,
     #[serde(default)]
     pub notifications: bool,
+}
+
+impl Permissions {
+    /// `true` when no category was explicitly enabled → allow all actions.
+    pub fn is_unrestricted(&self) -> bool {
+        !self.network
+            && !self.filesystem
+            && !self.shell
+            && !self.clipboard
+            && !self.notifications
+    }
+
+    /// Check whether `action_id` is permitted under this declaration.
+    pub fn allows_action(&self, action_id: &str) -> Result<(), corex_core::ActionError> {
+        if self.is_unrestricted() {
+            return Ok(());
+        }
+        let need = permission_kind_for(action_id);
+        let ok = match need {
+            PermissionKind::None => true,
+            PermissionKind::Network => self.network,
+            PermissionKind::Filesystem => self.filesystem,
+            PermissionKind::Shell => self.shell,
+            PermissionKind::Clipboard => self.clipboard,
+            PermissionKind::Notifications => self.notifications,
+        };
+        if ok {
+            Ok(())
+        } else {
+            Err(corex_core::ActionError::PermissionDenied(format!(
+                "快捷指令未声明权限以执行 {action_id}"
+            )))
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+enum PermissionKind {
+    None,
+    Network,
+    Filesystem,
+    Shell,
+    Clipboard,
+    Notifications,
+}
+
+fn permission_kind_for(action_id: &str) -> PermissionKind {
+    match action_id {
+        "shell.run" | "exec.run" | "bootstrap.env" | "bootstrap.inspect" | "bootstrap.force" => {
+            PermissionKind::Shell
+        }
+        "http.request" | "suggest.bing" => PermissionKind::Network,
+        "clipboard.get" | "clipboard.set" | "capture.clipboard" => PermissionKind::Clipboard,
+        "notify.send" => PermissionKind::Notifications,
+        id if id.starts_with("file.")
+            || id.starts_with("copy.")
+            || id.starts_with("scrub.")
+            || id.starts_with("shade.")
+            || id.starts_with("compression.")
+            || id.starts_with("morph.")
+            || id.starts_with("generate.path")
+            || id == "capture.screenshot"
+            || id == "capture.crop"
+            || id == "capture.monitors" =>
+        {
+            PermissionKind::Filesystem
+        }
+        _ => PermissionKind::None,
+    }
 }
 
 /// Shortcut trigger definitions.

@@ -51,6 +51,42 @@ impl Default for HistoryConfig {
     }
 }
 
+/// Daemon IPC / lock settings from `[daemon]` in config.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct DaemonConfig {
+    /// Unix socket path (relative to data dir) or Windows named pipe path.
+    #[serde(default)]
+    pub socket_path: Option<PathBuf>,
+    /// Singleton lock file (relative to data dir when not absolute).
+    #[serde(default)]
+    pub lock_path: Option<PathBuf>,
+    /// Shared secret for IPC. Empty / unset → auto-generate into data-dir `token`.
+    #[serde(default)]
+    pub token: Option<String>,
+}
+
+/// Logging settings from `[logging]` in config.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LoggingConfig {
+    #[serde(default = "default_log_level")]
+    pub level: String,
+    #[serde(default)]
+    pub json: bool,
+}
+
+fn default_log_level() -> String {
+    "info".into()
+}
+
+impl Default for LoggingConfig {
+    fn default() -> Self {
+        Self {
+            level: default_log_level(),
+            json: false,
+        }
+    }
+}
+
 /// Runtime knobs loaded from `config/default.toml` (and overrides).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RuntimeConfig {
@@ -58,6 +94,10 @@ pub struct RuntimeConfig {
     pub plugins: PluginConfig,
     #[serde(default)]
     pub history: HistoryConfig,
+    #[serde(default)]
+    pub daemon: DaemonConfig,
+    #[serde(default)]
+    pub logging: LoggingConfig,
     #[serde(default = "default_max_parallel")]
     pub max_parallel: usize,
     #[serde(default)]
@@ -73,6 +113,8 @@ impl Default for RuntimeConfig {
         Self {
             plugins: PluginConfig::default(),
             history: HistoryConfig::default(),
+            daemon: DaemonConfig::default(),
+            logging: LoggingConfig::default(),
             max_parallel: default_max_parallel(),
             step_timeout_secs: 0,
         }

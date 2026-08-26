@@ -4,7 +4,7 @@ mod repl;
 
 use anyhow::{bail, Context, Result};
 use clap::{Parser, Subcommand};
-use corex_core::{ExecutionContext, RuntimeConfig, Value};
+use corex_core::{DaemonConfig, ExecutionContext, LoggingConfig, RuntimeConfig, Value};
 use corex_engine::{ExecutionHistory, Pipeline, Shortcut};
 use corex_ipc::protocol::{Request, Response};
 use corex_ipc::{default_endpoint, platform_transport, Transport};
@@ -125,7 +125,46 @@ fn shortcuts_dir(override_dir: Option<&Path>) -> Result<PathBuf> {
 }
 
 fn ipc_endpoint() -> Result<PathBuf> {
-    Ok(default_endpoint(&data_dir()?))
+    let data = data_dir()?;
+    let config = load_runtime_config();
+    if let Some(p) = &config.daemon.socket_path {
+        return Ok(resolve_data_relative(&data, p));
+    }
+    Ok(default_endpoint(&data))
+}
+
+/// Resolve a path from config: absolute stays absolute; relative joins `data`.
+/// On Windows, `\\.\pipe\...` (and `//./pipe/...`) are used as-is.
+fn resolve_data_relative(data: &Path, path: &Path) -> PathBuf {
+    #[cfg(windows)]
+    {
+        let s = path.to_string_lossy();
+        if s.starts_with(r"\\.\pipe\") || s.starts_with("//./pipe/") {
+            return path.to_path_buf();
+        }
+    }
+    if path.is_absolute() {
+        path.to_path_buf()
+    } else {
+        data.join(path)
+    }
+}
+
+/// Auth token for daemon IPC: `COREX_TOKEN` env, else `<data_dir>/token`.
+fn load_auth_token() -> Result<String> {
+    if let Ok(t) = std::env::var("COREX_TOKEN") {
+        if !t.is_empty() {
+            return Ok(t);
+        }
+    }
+    let path = data_dir()?.join("token");
+    let text = std::fs::read_to_string(&path)
+        .with_context(|| format!("无法读取 auth token {}", path.display()))?;
+    let token = text.trim().to_string();
+    if token.is_empty() {
+        bail!("auth token 为空: {}", path.display());
+    }
+    Ok(token)
 }
 
 fn build_registry() -> ActionRegistry {
@@ -163,6 +202,10 @@ struct RuntimeConfigWrapper {
     #[serde(default)]
     history: Option<corex_core::HistoryConfig>,
     #[serde(default)]
+    daemon: Option<DaemonConfig>,
+    #[serde(default)]
+    logging: Option<LoggingConfig>,
+    #[serde(default)]
     runtime: Option<RuntimeSection>,
 }
 
@@ -182,6 +225,12 @@ impl RuntimeConfigWrapper {
         }
         if let Some(h) = self.history {
             cfg.history = h;
+        }
+        if let Some(d) = self.daemon {
+            cfg.daemon = d;
+        }
+        if let Some(l) = self.logging {
+            cfg.logging = l;
         }
         if let Some(r) = self.runtime {
             if let Some(m) = r.max_parallel {
@@ -385,8 +434,14 @@ async fn cmd_daemon(cmd: DaemonCmd) -> Result<()> {
         }
         DaemonCmd::Stop => {
             let endpoint = ipc_endpoint()?;
+            let token = load_auth_token()?;
             let mut transport = platform_transport(&endpoint);
-            match transport.send(&Request::Shutdown { id: 1 }).await {
+            let req = Request::Shutdown {
+                id: 1,
+                auth_token: None,
+            }
+            .with_auth_token(token);
+            match transport.send(&req).await {
                 Ok(Response::Bye { .. }) | Ok(Response::Ok { .. }) => {
                     println!("已发送 shutdown");
                     Ok(())
@@ -398,8 +453,14 @@ async fn cmd_daemon(cmd: DaemonCmd) -> Result<()> {
         }
         DaemonCmd::Status => {
             let endpoint = ipc_endpoint()?;
+            let token = load_auth_token()?;
             let mut transport = platform_transport(&endpoint);
-            match transport.send(&Request::Ping { id: 1 }).await {
+            let req = Request::Ping {
+                id: 1,
+                auth_token: None,
+            }
+            .with_auth_token(token);
+            match transport.send(&req).await {
                 Ok(Response::Pong { .. }) => {
                     println!("running ({})", endpoint.display());
                     Ok(())
