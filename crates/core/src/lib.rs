@@ -10,7 +10,8 @@ pub mod value;
 pub use action::{Action, ActionCategory, ActionMeta, ActionStore, HashMapStore, ParamSchema};
 pub use context::{
     DaemonConfig, ExecutionContext, HistoryConfig, LoggingConfig, PluginConfig, RuntimeConfig,
-    UiSession,
+    UiProfileOverrides, UiProfilePreset, UiSession, MAX_PARALLEL, MAX_SELECTOR_CHAIN,
+    RUNTIME_CONFIG, UI_PROFILE,
 };
 pub use error::{ActionError, EngineError};
 pub use schema::SchemaType;
