@@ -1,0 +1,224 @@
+# Windows UI 自动化全动作冒烟测试（Win11 记事本）
+#
+# 靶应用：Win11 新版记事本（标签页 + 文件/编辑/查看 菜单 + 富文本工具栏）
+# 窗口标题：标签显示「无标题」；顶层 HWND 标题多为「无标题 - Notepad」
+#
+# 覆盖全部 13 个 ui.* action：
+#   ui.window.list | focus | find | wait
+#   ui.element.list | find | exists | wait | click
+#   ui.wait | ui.type | ui.key | ui.click（可选）
+#
+# 运行：
+#   corex run ui-smoke-notepad
+#   corex run ui-smoke-notepad -i close_after=false
+#   corex run ui-smoke-notepad -i sample_text="Hello 世界"
+#
+# 同步：%AppData%\corex\data\directives\ui-smoke-notepad.yaml
+name: ui-smoke-notepad
+description: Win11 记事本 UI 自动化冒烟测试（简体中文）
+version: '1.3'
+
+inputs:
+  - name: notepad_cmd
+    description: 记事本启动命令
+    required: false
+    default: "notepad.exe"
+  - name: window_hint
+    description: 顶层窗口标题子串（Win11 中文默认「无标题」）
+    required: false
+    default: "无标题"
+  - name: sample_text
+    description: 写入编辑区的示例文本
+    required: false
+    default: "corex ui smoke - 你好"
+  - name: demo_screen_click
+    description: 是否演示 ui.click（需手动指定屏幕坐标）
+    required: false
+    default: false
+  - name: click_x
+    description: ui.click 屏幕 X
+    required: false
+    default: 0
+  - name: click_y
+    description: ui.click 屏幕 Y
+    required: false
+    default: 0
+  - name: close_after
+    description: 结束后 Alt+F4 关闭记事本
+    required: false
+    default: true
+  - name: settle_ms
+    description: 启动后等待毫秒（Win11 记事本冷启动略慢）
+    required: false
+    default: 1000
+
+permissions:
+  shell: true
+  ui: true
+
+steps:
+  - id: launch
+    action: shell.run
+    params:
+      command: '{{input.notepad_cmd}}'
+      wait: detach
+      if_running: launch
+
+  - id: post_launch_settle
+    action: ui.wait
+    params:
+      ms: '{{input.settle_ms}}'
+
+  - id: list_windows
+    action: ui.window.list
+    save_to: windows
+
+  - id: wait_notepad
+    action: ui.window.wait
+    params:
+      title_contains: '{{input.window_hint}}'
+      timeout_ms: 15000
+      prefer_largest: true
+
+  - id: find_notepad
+    action: ui.window.find
+    params:
+      title_contains: '{{input.window_hint}}'
+      prefer_largest: true
+    save_to: target_window
+
+  - id: focus_notepad
+    action: ui.window.focus
+    params:
+      title_contains: '{{input.window_hint}}'
+      prefer_largest: true
+
+  - id: list_elements
+    action: ui.element.list
+    params:
+      depth: 5
+      limit: 40
+    save_to: elements
+
+  - id: probe_editor
+    action: ui.element.exists
+    params:
+      selectors:
+        - control_type: Document
+        - control_type: Edit
+      timeout_ms: 3000
+    save_to: editor_probe
+
+  - id: find_editor
+    action: ui.element.find
+    params:
+      selectors:
+        - control_type: Document
+        - control_type: Edit
+      timeout_ms: 5000
+    save_to: editor
+
+  - id: wait_editor_present
+    action: ui.element.wait
+    params:
+      selectors:
+        - control_type: Document
+        - control_type: Edit
+      state: present
+      timeout_ms: 8000
+      poll_interval_ms: 200
+
+  - id: wait_editor_enabled
+    action: ui.element.wait
+    params:
+      selectors:
+        - control_type: Document
+        - control_type: Edit
+      state: enabled
+      timeout_ms: 5000
+      poll_interval_ms: 200
+
+  - id: wait_save_dialog_absent
+    action: ui.element.wait
+    params:
+      selectors:
+        - name: '另存为'
+        - name: 'Save As'
+      state: absent
+      timeout_ms: 2000
+      poll_interval_ms: 200
+
+  - id: click_editor
+    action: ui.element.click
+    params:
+      selectors:
+        - control_type: Document
+        - control_type: Edit
+      safe: true
+      timeout_ms: 5000
+
+  - id: type_sample
+    action: ui.type
+    params:
+      text: '{{input.sample_text}}'
+
+  - id: key_select_all
+    action: ui.key
+    params:
+      keys: 'Ctrl+A'
+
+  - id: key_end
+    action: ui.key
+    params:
+      keys: 'End'
+
+  - id: type_suffix
+    action: ui.type
+    params:
+      text: ' [typed]'
+
+  - id: key_dismiss
+    action: ui.key
+    params:
+      keys: 'Esc'
+
+  - id: settle
+    action: ui.wait
+    params:
+      ms: 400
+
+  - id: screen_click
+    action: ui.click
+    when: '{{input.demo_screen_click}}'
+    params:
+      x: '{{input.click_x}}'
+      y: '{{input.click_y}}'
+
+  # Win11 菜单栏：文件 / 编辑 / 查看（仅 UIA 探测；默认 runtime 允许 8 条 selectors）
+  - id: probe_menus
+    action: ui.element.exists
+    params:
+      selectors:
+        - name: '文件'
+        - name: '编辑'
+        - name: '查看'
+        - name: 'File'
+        - name: 'Edit'
+        - name: 'View'
+      timeout_ms: 2000
+    save_to: menus
+
+  - id: close_notepad
+    action: ui.key
+    when: '{{input.close_after}}'
+    params:
+      keys: 'Alt+F4'
+
+  # Win11 输入后标签标题会变（无标题 → 首行文本），用 hwnd 验证是否已关闭
+  - id: verify_closed
+    action: ui.window.find
+    when: '{{input.close_after}}'
+    on_error: continue
+    params:
+      hwnd: '{{target_window.hwnd}}'
+    save_to: after_close
