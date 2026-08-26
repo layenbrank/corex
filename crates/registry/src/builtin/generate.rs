@@ -2,7 +2,8 @@
 
 use crate::builtin::filter::Filter;
 use crate::builtin::util::{
-    ensure_parent, opt_bool, opt_i64, opt_str, opt_str_list, require_map, require_path, require_str,
+    confine_path, ensure_parent, opt_bool, opt_i64, opt_str, opt_str_list, require_map, require_path,
+    require_str,
 };
 use crate::ActionRegistry;
 use async_trait::async_trait;
@@ -29,6 +30,7 @@ pub fn generate_secure_cvid() -> String {
 pub struct GenerateUuid;
 pub struct GenerateCvid;
 pub struct GeneratePath;
+pub struct GenerateTimestamp;
 
 #[async_trait]
 impl Action for GenerateUuid {
@@ -46,8 +48,7 @@ impl Action for GenerateUuid {
     }
 
     async fn execute(
-        &self,
-        params: Value,
+        &self, params: Value,
         _ctx: &mut ExecutionContext,
     ) -> Result<Value, ActionError> {
         let empty = BTreeMap::new();
@@ -85,8 +86,7 @@ impl Action for GenerateCvid {
     }
 
     async fn execute(
-        &self,
-        _params: Value,
+        &self, _params: Value,
         _ctx: &mut ExecutionContext,
     ) -> Result<Value, ActionError> {
         Ok(Value::Str(generate_secure_cvid()))
@@ -115,13 +115,12 @@ impl Action for GeneratePath {
     }
 
     async fn execute(
-        &self,
-        params: Value,
-        _ctx: &mut ExecutionContext,
+        &self, params: Value,
+        ctx: &mut ExecutionContext,
     ) -> Result<Value, ActionError> {
         let map = require_map(&params)?;
-        let from = require_path(map, "from")?;
-        let to = require_path(map, "to")?;
+        let from = confine_path(ctx, &require_path(map, "from")?)?;
+        let to = confine_path(ctx, &require_path(map, "to")?)?;
         let transform = require_str(map, "transform")?;
         let index_start = opt_i64(map, "index", 0) as usize;
         let separator = opt_str(map, "separator").unwrap_or_default();
@@ -231,7 +230,7 @@ fn path_transform_line(
     let path_v = up(uppercase, "path", &dirpart);
     let fullpath_v = up(uppercase, "fullpath", &fullpath);
     let mut out = transform.to_string();
-    // Prefer `{{name}}` then `{name}` (single braces avoid Shortcut `{{ }}` resolver clash).
+    // Prefer `{{name}}` then `{name}` (single braces avoid Directive `{{ }}` resolver clash).
     for (key, val) in [
         ("index", index_str.as_str()),
         ("filename", filename_v.as_str()),
@@ -256,10 +255,59 @@ fn up(uppercase: &[String], field: &str, value: &str) -> String {
     }
 }
 
+#[async_trait]
+impl Action for GenerateTimestamp {
+    fn meta(&self) -> ActionMeta {
+        ActionMeta::new(
+            "generate.timestamp",
+            "Generate Timestamp",
+            "生成当前时间戳字符串",
+            ActionCategory::Data,
+        )
+        .with_params(vec![
+            ParamSchema::new("format", SchemaType::Str, false)
+                .with_default("%Y-%m-%d %H:%M:%S"),
+            ParamSchema::new("utc", SchemaType::Bool, false).with_default(false),
+        ])
+    }
+
+    async fn execute(
+        &self, params: Value,
+        _ctx: &mut ExecutionContext,
+    ) -> Result<Value, ActionError> {
+        use chrono::{Local, Utc};
+        let empty = BTreeMap::new();
+        let map = params.as_map().unwrap_or(&empty);
+        let format = opt_str(map, "format").unwrap_or_else(|| "%Y-%m-%d %H:%M:%S".into());
+        let utc = opt_bool(map, "utc", false);
+        let (formatted, unix, iso8601) = if utc {
+            let dt = Utc::now();
+            (
+                dt.format(&format).to_string(),
+                dt.timestamp(),
+                dt.to_rfc3339(),
+            )
+        } else {
+            let dt = Local::now();
+            (
+                dt.format(&format).to_string(),
+                dt.timestamp(),
+                dt.to_rfc3339(),
+            )
+        };
+        let mut out = BTreeMap::new();
+        out.insert("value".into(), Value::Str(formatted));
+        out.insert("unix".into(), Value::Int(unix));
+        out.insert("iso8601".into(), Value::Str(iso8601));
+        Ok(Value::Map(out))
+    }
+}
+
 pub fn register(registry: &mut ActionRegistry) {
     registry.register(Arc::new(GenerateUuid));
     registry.register(Arc::new(GenerateCvid));
     registry.register(Arc::new(GeneratePath));
+    registry.register(Arc::new(GenerateTimestamp));
 }
 
 #[cfg(test)]

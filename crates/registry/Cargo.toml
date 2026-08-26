@@ -28,28 +28,36 @@ full = [
   "act-scan",
   "act-capture",
   "act-morph",
+  "act-ui",
   "wasm",
 ]
-act-shell       = []
-act-http        = ["dep:reqwest"]
-act-clipboard   = ["dep:arboard"]
-act-notify      = ["dep:notify-rust"]
-act-file        = []
-act-template    = ["dep:minijinja"]
-act-cron        = []
-act-keyring     = ["dep:keyring"]
-act-copy        = ["dep:walkdir", "dep:glob"]
-act-scrub       = ["dep:walkdir"]
-act-shade       = ["dep:image", "dep:walkdir"]
-act-compression = ["dep:zip", "dep:walkdir", "dep:flate2", "dep:tar", "dep:glob"]
-act-generate    = ["dep:uuid", "dep:rand", "dep:walkdir", "dep:glob"]
-act-exec        = []
-act-bootstrap   = []
-act-codec       = ["dep:base64", "dep:md-5"]
-act-scan        = ["dep:sysinfo"]
-act-capture     = ["dep:image", "dep:base64", "dep:arboard"]
-act-morph       = ["dep:lopdf", "dep:base64"]
-wasm            = ["dep:wasmtime", "dep:wasmtime-wasi"]
+act-shell = []
+act-http = ["dep:reqwest"]
+act-clipboard = ["dep:arboard", "dep:image"]
+act-notify = ["dep:notify-rust"]
+act-file = ["dep:regex", "dep:uuid"]
+act-template = ["dep:minijinja"]
+act-cron = []
+act-keyring = ["dep:keyring"]
+act-copy = ["dep:walkdir", "dep:glob"]
+act-scrub = ["dep:walkdir"]
+act-shade = ["dep:image", "dep:walkdir"]
+act-compression = [
+  "dep:zip",
+  "dep:walkdir",
+  "dep:flate2",
+  "dep:tar",
+  "dep:glob",
+]
+act-generate = ["dep:uuid", "dep:rand", "dep:walkdir", "dep:glob", "dep:chrono"]
+act-exec = []
+act-bootstrap = []
+act-codec = ["dep:base64", "dep:md-5"]
+act-scan = ["dep:sysinfo"]
+act-capture = ["dep:image", "dep:base64", "dep:screenshots"]
+act-morph = ["dep:lopdf", "dep:base64"]
+act-ui = ["dep:uiautomation"]
+wasm = ["dep:wasmtime", "dep:wasmtime-wasi"]
 
 [dependencies]
 corex-core    = { workspace = true }
@@ -75,9 +83,27 @@ zip           = { workspace = true, optional = true }
 flate2        = { workspace = true, optional = true }
 tar           = { workspace = true, optional = true }
 rand          = { workspace = true, optional = true }
+regex         = { workspace = true, optional = true }
 uuid          = { workspace = true, optional = true }
+chrono        = { workspace = true, optional = true }
 lopdf         = { workspace = true, optional = true }
+screenshots   = { version = "0.8", optional = true }
+
+[target.'cfg(windows)'.dependencies]
+uiautomation = { version = "0.25", optional = true }
+windows = { version = "0.58", features = [
+  "Graphics_Imaging",
+  "Media_Ocr",
+  "Storage",
+  "Storage_Streams",
+  "Foundation",
+  "Win32_Foundation",
+  "Win32_UI_WindowsAndMessaging",
+  "Win32_UI_Input_KeyboardAndMouse",
+  "Win32_System_Diagnostics_ToolHelp",
+] }
 
 [dev-dependencies]
-tempfile = { workspace = true }
-tokio    = { workspace = true, features = ["rt-multi-thread", "macros"] }
+tempfile  = { workspace = true }
+tokio     = { workspace = true, features = ["rt-multi-thread", "macros"] }
+proptest = { workspace = true }

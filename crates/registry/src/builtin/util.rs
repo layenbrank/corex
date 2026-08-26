@@ -1,8 +1,14 @@
 //! Shared param helpers for builtin actions.
 
-use corex_core::{ActionError, Value};
+use corex_core::path::confine_in_roots;
+use corex_core::{ActionError, ExecutionContext, Value};
 use std::collections::BTreeMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
+
+/// Reject paths outside `ctx.config.filesystem_roots` when roots are set.
+pub fn confine_path(ctx: &ExecutionContext, path: &Path) -> Result<PathBuf, ActionError> {
+    confine_in_roots(&ctx.config.filesystem_roots, path).map_err(|e| ActionError::execution(e.0))
+}
 
 pub fn require_map(params: &Value) -> Result<&BTreeMap<String, Value>, ActionError> {
     params

@@ -2,7 +2,7 @@
 
 use crate::builtin::filter::Filter;
 use crate::builtin::util::{
-    ensure_parent, opt_bool, opt_str_list, require_map, require_path,
+    confine_path, ensure_parent, opt_bool, opt_str_list, require_map, require_path,
 };
 use crate::ActionRegistry;
 use async_trait::async_trait;
@@ -35,13 +35,12 @@ impl Action for CopyRun {
     }
 
     async fn execute(
-        &self,
-        params: Value,
-        _ctx: &mut ExecutionContext,
+        &self, params: Value,
+        ctx: &mut ExecutionContext,
     ) -> Result<Value, ActionError> {
         let map = require_map(&params)?;
-        let from = require_path(map, "from")?;
-        let to = require_path(map, "to")?;
+        let from = confine_path(ctx, &require_path(map, "from")?)?;
+        let to = confine_path(ctx, &require_path(map, "to")?)?;
         let empty = opt_bool(map, "empty", false);
         let includes = opt_str_list(map, "includes");
         let excludes = opt_str_list(map, "excludes");
@@ -157,5 +156,38 @@ mod tests {
             .unwrap();
         assert!(dst.join("a/keep.txt").exists());
         assert!(!dst.join("a/skip.tmp").exists());
+    }
+
+    #[tokio::test]
+    async fn filesystem_roots_rejects_outside() {
+        let dir = tempdir().unwrap();
+        let root = dir.path().join("root");
+        let outside = dir.path().join("outside");
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::create_dir_all(&outside).unwrap();
+        std::fs::write(outside.join("x.txt"), b"x").unwrap();
+
+        let mut cfg = corex_core::RuntimeConfig::default();
+        cfg.filesystem_roots = vec![root.clone()];
+        let mut ctx = ExecutionContext::new(cfg);
+
+        let mut params = BTreeMap::new();
+        params.insert(
+            "from".into(),
+            Value::Str(outside.join("x.txt").to_string_lossy().into()),
+        );
+        params.insert(
+            "to".into(),
+            Value::Str(root.join("y.txt").to_string_lossy().into()),
+        );
+        let err = CopyRun
+            .execute(Value::Map(params), &mut ctx)
+            .await
+            .unwrap_err();
+        let msg = err.to_string();
+        assert!(
+            msg.contains("越界") || msg.contains("不在") || msg.contains("无法解析"),
+            "got: {msg}"
+        );
     }
 }

@@ -58,7 +58,6 @@ impl WasmPluginHost {
     /// Create an engine with async support and the Wasm component model enabled.
     pub fn new() -> Result<Self, ActionError> {
         let mut config = Config::new();
-        config.async_support(true);
         config.wasm_component_model(true);
         let engine = Engine::new(&config).map_err(|e| {
             ActionError::other(format!("wasmtime Engine 初始化失败: {e}"))

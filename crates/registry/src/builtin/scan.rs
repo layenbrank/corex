@@ -23,8 +23,7 @@ impl Action for ScanOs {
     }
 
     async fn execute(
-        &self,
-        _params: Value,
+        &self, _params: Value,
         _ctx: &mut ExecutionContext,
     ) -> Result<Value, ActionError> {
         let mut sys = System::new_all();

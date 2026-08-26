@@ -1,0 +1,1154 @@
+//! Windows UI automation: window-level Win32 + element-level UIAutomation.
+//!
+//! - `ui.window.*` — top-level HWND (title / class / pid)
+//! - `ui.element.*` — in-app controls (name / automation_id / control_type)
+//! - `ui.click` / `ui.type` / `ui.key` — raw input (screen coords / keyboard)
+
+use crate::builtin::ui_kernel::{
+    poll_interval_ms, selector_chain_from_params, wait_state_from_params, window_query_from_params,
+    ElementSelector, WaitState, WindowQuery,
+};
+use crate::builtin::util::{opt_i64, require_map, require_str};
+use crate::ActionRegistry;
+use async_trait::async_trait;
+use corex_core::{
+    Action, ActionCategory, ActionError, ActionMeta, ExecutionContext, ParamSchema, SchemaType,
+    Value,
+};
+use std::collections::BTreeMap;
+use std::sync::Arc;
+use std::time::{Duration, Instant};
+
+pub struct UiWindowList;
+pub struct UiWindowFocus;
+/// Window-level find by title (HWND). Prefer `ui.element.find` for in-app controls.
+pub struct UiWindowFind;
+pub struct UiWindowWait;
+pub struct UiElementList;
+pub struct UiElementFind;
+pub struct UiElementClick;
+pub struct UiElementWait;
+pub struct UiElementExists;
+pub struct UiWait;
+pub struct UiClick;
+pub struct UiType;
+pub struct UiKey;
+
+#[cfg(not(windows))]
+macro_rules! ui_unavailable {
+    () => {
+        Err(ActionError::execution(
+            "ui.* 在当前平台不可用（需要 Windows UI 后端）",
+        ))
+    };
+}
+
+macro_rules! impl_ui_action_ctx {
+    ($ty:ty, $id:expr, $title:expr, $desc:expr, $params:expr, $call:ident) => {
+        #[async_trait]
+        impl Action for $ty {
+            fn meta(&self) -> ActionMeta {
+                ActionMeta::new($id, $title, $desc, ActionCategory::Ui).with_params($params)
+            }
+            async fn execute(
+                &self, params: Value,
+                ctx: &mut ExecutionContext,
+            ) -> Result<Value, ActionError> {
+                $call(params, ctx).await
+            }
+        }
+    };
+}
+
+macro_rules! impl_ui_action {
+    ($ty:ty, $id:expr, $title:expr, $desc:expr, $params:expr, $call:ident) => {
+        #[async_trait]
+        impl Action for $ty {
+            fn meta(&self) -> ActionMeta {
+                ActionMeta::new($id, $title, $desc, ActionCategory::Ui).with_params($params)
+            }
+            async fn execute(
+                &self, params: Value,
+                _ctx: &mut ExecutionContext,
+            ) -> Result<Value, ActionError> {
+                $call(params).await
+            }
+        }
+    };
+}
+
+#[async_trait]
+impl Action for UiWindowList {
+    fn meta(&self) -> ActionMeta {
+        ActionMeta::new(
+            "ui.window.list",
+            "List Windows",
+            "枚举顶层窗口（hwnd/title/class/pid）",
+            ActionCategory::Ui,
+        )
+    }
+    async fn execute(
+        &self, _params: Value,
+        _ctx: &mut ExecutionContext,
+    ) -> Result<Value, ActionError> {
+        ui_window_list_impl().await
+    }
+}
+
+impl_ui_action_ctx!(
+    UiWindowFocus,
+    "ui.window.focus",
+    "Focus Window",
+    "按标题或 hwnd 聚焦顶层窗口",
+    vec![
+        ParamSchema::new("title_contains", SchemaType::Str, false),
+        ParamSchema::new("hwnd", SchemaType::Int, false),
+        ParamSchema::new("prefer_largest", SchemaType::Bool, false),
+        ParamSchema::new("class_name", SchemaType::Str, false),
+    ],
+    ui_window_focus_impl
+);
+
+impl_ui_action_ctx!(
+    UiWindowFind,
+    "ui.window.find",
+    "Find Window",
+    "按标题查找顶层窗口（非应用内元素）",
+    vec![
+        ParamSchema::new("title_contains", SchemaType::Str, false),
+        ParamSchema::new("name", SchemaType::Str, false),
+        ParamSchema::new("hwnd", SchemaType::Int, false),
+        ParamSchema::new("prefer_largest", SchemaType::Bool, false),
+        ParamSchema::new("class_name", SchemaType::Str, false),
+    ],
+    ui_window_find_impl
+);
+
+impl_ui_action_ctx!(
+    UiWindowWait,
+    "ui.window.wait",
+    "Wait Window",
+    "等待顶层窗口标题出现",
+    vec![
+        ParamSchema::new("title_contains", SchemaType::Str, false),
+        ParamSchema::new("timeout_ms", SchemaType::Int, false).with_default(5000),
+        ParamSchema::new("prefer_largest", SchemaType::Bool, false),
+        ParamSchema::new("class_name", SchemaType::Str, false),
+    ],
+    ui_window_wait_impl
+);
+
+impl_ui_action_ctx!(
+    UiElementList,
+    "ui.element.list",
+    "List Elements",
+    "枚举窗口下子元素（UIAutomation）",
+    vec![
+        ParamSchema::new("hwnd", SchemaType::Int, false),
+        ParamSchema::new("title_contains", SchemaType::Str, false),
+        ParamSchema::new("depth", SchemaType::Int, false).with_default(3),
+        ParamSchema::new("limit", SchemaType::Int, false).with_default(50),
+    ],
+    ui_element_list_impl
+);
+
+impl_ui_action_ctx!(
+    UiElementFind,
+    "ui.element.find",
+    "Find Element",
+    "按 name / automation_id / control_type 查找元素",
+    vec![
+        ParamSchema::new("hwnd", SchemaType::Int, false),
+        ParamSchema::new("title_contains", SchemaType::Str, false),
+        ParamSchema::new("name", SchemaType::Str, false),
+        ParamSchema::new("name_contains", SchemaType::Str, false),
+        ParamSchema::new("automation_id", SchemaType::Str, false),
+        ParamSchema::new("control_type", SchemaType::Str, false),
+        ParamSchema::new("selectors", SchemaType::List, false),
+        ParamSchema::new("timeout_ms", SchemaType::Int, false).with_default(3000),
+    ],
+    ui_element_find_impl
+);
+
+impl_ui_action_ctx!(
+    UiElementClick,
+    "ui.element.click",
+    "Click Element",
+    "点击元素（按 selector）",
+    vec![
+        ParamSchema::new("hwnd", SchemaType::Int, false),
+        ParamSchema::new("title_contains", SchemaType::Str, false),
+        ParamSchema::new("name", SchemaType::Str, false),
+        ParamSchema::new("automation_id", SchemaType::Str, false),
+        ParamSchema::new("control_type", SchemaType::Str, false),
+        ParamSchema::new("selectors", SchemaType::List, false),
+        ParamSchema::new("timeout_ms", SchemaType::Int, false).with_default(3000),
+        ParamSchema::new("safe", SchemaType::Bool, false).with_default(true),
+    ],
+    ui_element_click_impl
+);
+
+impl_ui_action_ctx!(
+    UiElementWait,
+    "ui.element.wait",
+    "Wait Element",
+    "等待元素 present/absent/enabled",
+    vec![
+        ParamSchema::new("hwnd", SchemaType::Int, false),
+        ParamSchema::new("title_contains", SchemaType::Str, false),
+        ParamSchema::new("name", SchemaType::Str, false),
+        ParamSchema::new("automation_id", SchemaType::Str, false),
+        ParamSchema::new("control_type", SchemaType::Str, false),
+        ParamSchema::new("selectors", SchemaType::List, false),
+        ParamSchema::new("state", SchemaType::Str, false).with_default("present"),
+        ParamSchema::new("timeout_ms", SchemaType::Int, true),
+        ParamSchema::new("poll_interval_ms", SchemaType::Int, false).with_default(200),
+    ],
+    ui_element_wait_impl
+);
+
+impl_ui_action_ctx!(
+    UiElementExists,
+    "ui.element.exists",
+    "Element Exists",
+    "探测元素是否存在（非阻塞语义）",
+    vec![
+        ParamSchema::new("hwnd", SchemaType::Int, false),
+        ParamSchema::new("title_contains", SchemaType::Str, false),
+        ParamSchema::new("name", SchemaType::Str, false),
+        ParamSchema::new("automation_id", SchemaType::Str, false),
+        ParamSchema::new("control_type", SchemaType::Str, false),
+        ParamSchema::new("selectors", SchemaType::List, false),
+        ParamSchema::new("timeout_ms", SchemaType::Int, false).with_default(2000),
+    ],
+    ui_element_exists_impl
+);
+
+#[async_trait]
+impl Action for UiWait {
+    fn meta(&self) -> ActionMeta {
+        ActionMeta::new(
+            "ui.wait",
+            "Wait",
+            "固定毫秒等待（兜底；优先使用 ui.element.wait）",
+            ActionCategory::Ui,
+        )
+        .with_params(vec![ParamSchema::new("ms", SchemaType::Int, true)])
+    }
+    async fn execute(
+        &self, params: Value,
+        ctx: &mut ExecutionContext,
+    ) -> Result<Value, ActionError> {
+        ui_wait_impl(params, ctx).await
+    }
+}
+
+impl_ui_action!(
+    UiClick,
+    "ui.click",
+    "Click",
+    "在屏幕坐标点击",
+    vec![
+        ParamSchema::new("x", SchemaType::Int, true),
+        ParamSchema::new("y", SchemaType::Int, true),
+    ],
+    ui_click_impl
+);
+
+impl_ui_action!(
+    UiType,
+    "ui.type",
+    "Type Text",
+    "键盘输入文本",
+    vec![ParamSchema::new("text", SchemaType::Str, true)],
+    ui_type_impl
+);
+
+impl_ui_action!(
+    UiKey,
+    "ui.key",
+    "Send Key",
+    "发送按键或组合键（如 Enter、Ctrl+F）",
+    vec![ParamSchema::new("keys", SchemaType::Str, true)],
+    ui_key_impl
+);
+
+pub fn register(registry: &mut ActionRegistry) {
+    registry.register(Arc::new(UiWindowList));
+    registry.register(Arc::new(UiWindowFocus));
+    registry.register(Arc::new(UiWindowFind));
+    registry.register(Arc::new(UiWindowWait));
+    registry.register(Arc::new(UiElementList));
+    registry.register(Arc::new(UiElementFind));
+    registry.register(Arc::new(UiElementClick));
+    registry.register(Arc::new(UiElementWait));
+    registry.register(Arc::new(UiElementExists));
+    registry.register(Arc::new(UiWait));
+    registry.register(Arc::new(UiClick));
+    registry.register(Arc::new(UiType));
+    registry.register(Arc::new(UiKey));
+}
+
+#[cfg(windows)]
+mod win {
+    use super::*;
+    use std::ffi::OsString;
+    use std::os::windows::ffi::OsStringExt;
+    use windows::Win32::Foundation::{BOOL, HWND, LPARAM, RECT};
+    use windows::Win32::UI::Input::KeyboardAndMouse::{
+        SendInput, INPUT, INPUT_0, INPUT_KEYBOARD, INPUT_MOUSE, KEYBDINPUT, KEYEVENTF_KEYUP,
+        KEYEVENTF_UNICODE, KEYBD_EVENT_FLAGS, MOUSEEVENTF_LEFTDOWN, MOUSEEVENTF_LEFTUP, MOUSEINPUT,
+        VIRTUAL_KEY,
+    };
+    use windows::Win32::UI::WindowsAndMessaging::{
+        EnumWindows, GetClassNameW, GetWindowRect, GetWindowTextLengthW, GetWindowTextW,
+        GetWindowThreadProcessId, IsWindow, IsWindowVisible, SetCursorPos, SetForegroundWindow,
+    };
+
+    fn hwnd_to_i64(hwnd: HWND) -> i64 {
+        hwnd.0 as isize as i64
+    }
+
+    fn hwnd_from_i64(id: i64) -> HWND {
+        HWND(id as isize as *mut core::ffi::c_void)
+    }
+
+    fn window_title(hwnd: HWND) -> String {
+        let len = unsafe { GetWindowTextLengthW(hwnd) };
+        if len <= 0 {
+            return String::new();
+        }
+        let mut buf = vec![0u16; (len + 1) as usize];
+        let read = unsafe { GetWindowTextW(hwnd, &mut buf) };
+        if read <= 0 {
+            return String::new();
+        }
+        OsString::from_wide(&buf[..read as usize])
+            .to_string_lossy()
+            .into_owned()
+    }
+
+    fn window_class(hwnd: HWND) -> String {
+        let mut buf = [0u16; 256];
+        let n = unsafe { GetClassNameW(hwnd, &mut buf) };
+        if n <= 0 {
+            return String::new();
+        }
+        OsString::from_wide(&buf[..n as usize])
+            .to_string_lossy()
+            .into_owned()
+    }
+
+    fn window_pid(hwnd: HWND) -> u32 {
+        let mut pid = 0u32;
+        unsafe {
+            GetWindowThreadProcessId(hwnd, Some(&mut pid));
+        }
+        pid
+    }
+
+    fn window_area(hwnd: HWND) -> i64 {
+        let mut rect = RECT::default();
+        if unsafe { GetWindowRect(hwnd, &mut rect).is_err() } {
+            return 0;
+        }
+        let w = (rect.right - rect.left).max(0) as i64;
+        let h = (rect.bottom - rect.top).max(0) as i64;
+        w * h
+    }
+
+    fn title_matches(query: &WindowQuery, title: &str) -> bool {
+        let lower = title.to_lowercase();
+        if let Some(needle) = &query.title_contains {
+            if !lower.contains(&needle.to_lowercase()) {
+                return false;
+            }
+        }
+        for ex in &query.title_excludes {
+            if lower.contains(&ex.to_lowercase()) {
+                return false;
+            }
+        }
+        true
+    }
+
+    fn collect_windows(query: &WindowQuery) -> Vec<HWND> {
+        let out: Vec<HWND> = Vec::new();
+        unsafe extern "system" fn enum_proc(hwnd: HWND, lparam: LPARAM) -> BOOL {
+            let ctx = lparam.0 as *mut (WindowQuery, Vec<HWND>);
+            if ctx.is_null() {
+                return BOOL(0);
+            }
+            let (query, list) = unsafe { &mut *ctx };
+            if query.visible_only && !unsafe { IsWindowVisible(hwnd).as_bool() } {
+                return BOOL(1);
+            }
+            let title = window_title(hwnd);
+            if title.is_empty() {
+                return BOOL(1);
+            }
+            if !title_matches(query, &title) {
+                return BOOL(1);
+            }
+            if let Some(want_class) = &query.class_name {
+                if window_class(hwnd) != *want_class {
+                    return BOOL(1);
+                }
+            }
+            list.push(hwnd);
+            BOOL(1)
+        }
+        let q = query.clone();
+        let mut ctx = (q, out);
+        unsafe {
+            let _ = EnumWindows(Some(enum_proc), LPARAM(&mut ctx as *mut _ as isize));
+        }
+        ctx.1
+    }
+
+    fn find_window(query: &WindowQuery) -> Option<HWND> {
+        if let Some(id) = query.hwnd {
+            let hwnd = hwnd_from_i64(id);
+            if !unsafe { IsWindow(hwnd).as_bool() } {
+                return None;
+            }
+            if unsafe { IsWindowVisible(hwnd).as_bool() } || !query.visible_only {
+                return Some(hwnd);
+            }
+            return None;
+        }
+        let mut matches = collect_windows(query);
+        if matches.is_empty() {
+            return None;
+        }
+        if query.prefer_largest {
+            matches.sort_by_key(|h| window_area(*h));
+        }
+        matches.last().copied()
+    }
+
+    fn hwnd_map(hwnd: HWND) -> BTreeMap<String, Value> {
+        let mut m = BTreeMap::new();
+        m.insert("hwnd".into(), Value::Int(hwnd_to_i64(hwnd)));
+        m.insert("title".into(), Value::Str(window_title(hwnd)));
+        m.insert("class".into(), Value::Str(window_class(hwnd)));
+        m.insert("pid".into(), Value::Int(window_pid(hwnd) as i64));
+        m
+    }
+
+    fn resolve_scope_hwnd(
+        map: &BTreeMap<String, Value>,
+        ctx: &ExecutionContext,
+    ) -> Result<HWND, ActionError> {
+        let mut q = window_query_from_params(map, ctx)?;
+        if q.title_contains.is_none() && map.get("name").and_then(|v| v.as_str()).is_some() {
+            q.title_contains = map.get("name").and_then(|v| v.as_str()).map(|s| s.to_string());
+        }
+        find_window(&q).ok_or_else(|| {
+            ActionError::ui(
+                "ui_wrong_window",
+                format!(
+                    "未找到窗口: {}",
+                    q.title_contains.unwrap_or_else(|| "scope".into())
+                ),
+            )
+        })
+    }
+
+    pub async fn ui_window_list_impl() -> Result<Value, ActionError> {
+        tokio::task::spawn_blocking(|| {
+            let mut windows: Vec<Value> = Vec::new();
+            unsafe extern "system" fn enum_proc(hwnd: HWND, lparam: LPARAM) -> BOOL {
+                let list = lparam.0 as *mut Vec<Value>;
+                if list.is_null() {
+                    return BOOL(0);
+                }
+                if !unsafe { IsWindowVisible(hwnd).as_bool() } {
+                    return BOOL(1);
+                }
+                let title = window_title(hwnd);
+                if title.is_empty() {
+                    return BOOL(1);
+                }
+                let mut m = BTreeMap::new();
+                m.insert("hwnd".into(), Value::Int(hwnd_to_i64(hwnd)));
+                m.insert("title".into(), Value::Str(title));
+                m.insert("class".into(), Value::Str(window_class(hwnd)));
+                m.insert("pid".into(), Value::Int(window_pid(hwnd) as i64));
+                unsafe {
+                    (*list).push(Value::Map(m));
+                }
+                BOOL(1)
+            }
+            unsafe {
+                let _ = EnumWindows(Some(enum_proc), LPARAM(&mut windows as *mut _ as isize));
+            }
+            let mut out = BTreeMap::new();
+            out.insert("windows".into(), Value::List(windows));
+            Ok(Value::Map(out))
+        })
+        .await
+        .map_err(|e| ActionError::execution(format!("ui.window.list 失败: {e}")))?
+    }
+
+    pub async fn ui_window_focus_impl(
+        params: Value,
+        ctx: &mut ExecutionContext,
+    ) -> Result<Value, ActionError> {
+        let map = require_map(&params)?.clone();
+        let exec_ctx = ctx.clone();
+        let out: BTreeMap<String, Value> = tokio::task::spawn_blocking(
+            move || -> Result<BTreeMap<String, Value>, ActionError> {
+                let hwnd = resolve_scope_hwnd(&map, &exec_ctx)?;
+                unsafe {
+                    if !SetForegroundWindow(hwnd).as_bool() {
+                        return Err(ActionError::execution("SetForegroundWindow 失败"));
+                    }
+                }
+                Ok(hwnd_map(hwnd))
+            },
+        )
+        .await
+        .map_err(|e| ActionError::execution(format!("ui.window.focus 失败: {e}")))?
+        ?;
+        if let Some(id) = out.get("hwnd").and_then(|v| v.as_i64()) {
+            let title = out.get("title").and_then(|v| v.as_str()).map(|s| s.to_string());
+            ctx.set_ui_scope(id, title);
+        }
+        Ok(Value::Map(out))
+    }
+
+    pub async fn ui_window_find_impl(
+        params: Value,
+        ctx: &mut ExecutionContext,
+    ) -> Result<Value, ActionError> {
+        let map = require_map(&params)?.clone();
+        let exec_ctx = ctx.clone();
+        let out: BTreeMap<String, Value> = tokio::task::spawn_blocking(
+            move || -> Result<BTreeMap<String, Value>, ActionError> {
+                let hwnd = resolve_scope_hwnd(&map, &exec_ctx)?;
+                Ok(hwnd_map(hwnd))
+            },
+        )
+        .await
+        .map_err(|e| ActionError::execution(format!("ui.window.find 失败: {e}")))?
+        ?;
+        if let Some(id) = out.get("hwnd").and_then(|v| v.as_i64()) {
+            let title = out.get("title").and_then(|v| v.as_str()).map(|s| s.to_string());
+            ctx.set_ui_scope(id, title);
+        }
+        Ok(Value::Map(out))
+    }
+
+    pub async fn ui_window_wait_impl(
+        params: Value,
+        ctx: &mut ExecutionContext,
+    ) -> Result<Value, ActionError> {
+        let map = require_map(&params)?.clone();
+        let exec_ctx = ctx.clone();
+        let timeout_ms = opt_i64(&map, "timeout_ms", 5000).max(1) as u64;
+        let poll = poll_interval_ms(&map, 200);
+        let out: BTreeMap<String, Value> = tokio::task::spawn_blocking(
+            move || -> Result<BTreeMap<String, Value>, ActionError> {
+                let q = window_query_from_params(&map, &exec_ctx)?;
+                if q.title_contains.is_none() && q.hwnd.is_none() {
+                    return Err(ActionError::MissingParam(
+                        "title_contains|hwnd|ui_session".into(),
+                    ));
+                }
+                let deadline = Instant::now() + Duration::from_millis(timeout_ms);
+                loop {
+                    if let Some(hwnd) = find_window(&q) {
+                        return Ok(hwnd_map(hwnd));
+                    }
+                    if Instant::now() >= deadline {
+                        let needle = q.title_contains.unwrap_or_else(|| "window".into());
+                        return Err(ActionError::ui_with_hint(
+                            "ui_sync_timeout",
+                            &needle,
+                            "等待窗口超时",
+                        ));
+                    }
+                    std::thread::sleep(Duration::from_millis(poll));
+                }
+            },
+        )
+        .await
+        .map_err(|e| ActionError::execution(format!("ui.window.wait 失败: {e}")))?
+        ?;
+        if let Some(id) = out.get("hwnd").and_then(|v| v.as_i64()) {
+            let title = out.get("title").and_then(|v| v.as_str()).map(|s| s.to_string());
+            ctx.set_ui_scope(id, title);
+        }
+        Ok(Value::Map(out))
+    }
+
+    fn elem_to_map(el: &uiautomation::UIElement) -> BTreeMap<String, Value> {
+        let mut m = BTreeMap::new();
+        if let Ok(h) = el.get_native_window_handle() {
+            let raw: isize = h.into();
+            m.insert("hwnd".into(), Value::Int(raw as i64));
+        }
+        if let Ok(n) = el.get_name() {
+            m.insert("name".into(), Value::Str(n));
+        }
+        if let Ok(aid) = el.get_automation_id() {
+            m.insert("automation_id".into(), Value::Str(aid));
+        }
+        if let Ok(ct) = el.get_control_type() {
+            m.insert("control_type".into(), Value::Str(format!("{ct:?}")));
+        }
+        if let Ok(cn) = el.get_classname() {
+            m.insert("class".into(), Value::Str(cn));
+        }
+        m
+    }
+
+    fn parse_control_type(s: &str) -> Option<uiautomation::types::ControlType> {
+        use uiautomation::types::ControlType;
+        match s.to_ascii_lowercase().as_str() {
+            "button" => Some(ControlType::Button),
+            "edit" => Some(ControlType::Edit),
+            "text" => Some(ControlType::Text),
+            "window" => Some(ControlType::Window),
+            "pane" => Some(ControlType::Pane),
+            "list" => Some(ControlType::List),
+            "listitem" => Some(ControlType::ListItem),
+            "menu" => Some(ControlType::Menu),
+            "menuitem" => Some(ControlType::MenuItem),
+            "checkbox" => Some(ControlType::CheckBox),
+            "combobox" => Some(ControlType::ComboBox),
+            "tab" => Some(ControlType::Tab),
+            "tabitem" => Some(ControlType::TabItem),
+            "tree" => Some(ControlType::Tree),
+            "treeitem" => Some(ControlType::TreeItem),
+            "document" => Some(ControlType::Document),
+            "hyperlink" => Some(ControlType::Hyperlink),
+            _ => None,
+        }
+    }
+
+    fn apply_selector(
+        mut matcher: uiautomation::UIMatcher,
+        sel: &ElementSelector,
+    ) -> Result<uiautomation::UIMatcher, ActionError> {
+        if let Some(name) = &sel.name {
+            matcher = matcher.filter_fn({
+                let want = name.clone();
+                Box::new(move |el: &uiautomation::UIElement| {
+                    Ok(el.get_name().map(|n| n == want).unwrap_or(false))
+                })
+            });
+        } else if let Some(part) = &sel.name_contains {
+            matcher = matcher.contains_name(part.clone());
+        }
+        if let Some(ct) = &sel.control_type {
+            if let Some(t) = parse_control_type(ct) {
+                matcher = matcher.control_type(t);
+            } else {
+                return Err(ActionError::InvalidParams(format!(
+                    "未知 control_type: {ct}"
+                )));
+            }
+        }
+        if let Some(aid) = &sel.automation_id {
+            let want = aid.clone();
+            matcher = matcher.filter_fn(Box::new(move |el: &uiautomation::UIElement| {
+                Ok(el.get_automation_id().map(|id| id == want).unwrap_or(false))
+            }));
+        }
+        Ok(matcher)
+    }
+
+    fn build_matcher_for(
+        map: &BTreeMap<String, Value>,
+        ctx: &ExecutionContext,
+        sel: &ElementSelector,
+        timeout_ms: u64,
+    ) -> Result<uiautomation::UIMatcher, ActionError> {
+        let auto = uiautomation::UIAutomation::new()
+            .map_err(|e| ActionError::execution(format!("UIAutomation 初始化失败: {e}")))?;
+        let mut matcher = auto
+            .create_matcher()
+            .timeout(timeout_ms)
+            .depth(sel.depth);
+        let hwnd = resolve_scope_hwnd(map, ctx)?;
+        let handle = uiautomation::types::Handle::from(hwnd.0 as isize);
+        let root = auto
+            .element_from_handle(handle)
+            .map_err(|e| ActionError::execution(format!("ElementFromHandle 失败: {e}")))?;
+        matcher = matcher.from(root);
+        apply_selector(matcher, sel)
+    }
+
+    fn find_with_chain(
+        map: &BTreeMap<String, Value>,
+        ctx: &ExecutionContext,
+        chain: &[ElementSelector],
+        timeout_ms: u64,
+    ) -> Result<uiautomation::UIElement, ActionError> {
+        let mut last_err = String::new();
+        for sel in chain {
+            match build_matcher_for(map, ctx, sel, timeout_ms) {
+                Ok(matcher) => match matcher.find_first() {
+                    Ok(el) => return Ok(el),
+                    Err(e) => last_err = e.to_string(),
+                },
+                Err(e) => last_err = e.to_string(),
+            }
+        }
+        let hint = chain.first().map(|s| s.hint()).unwrap_or_else(|| "selector".into());
+        Err(ActionError::ui_with_hint(
+            "ui_selector_not_found",
+            &hint,
+            format!("未找到元素: {last_err}"),
+        ))
+    }
+
+    fn element_present(
+        map: &BTreeMap<String, Value>,
+        ctx: &ExecutionContext,
+        chain: &[ElementSelector],
+        probe_ms: u64,
+    ) -> bool {
+        find_with_chain(map, ctx, chain, probe_ms).is_ok()
+    }
+
+    fn element_enabled(el: &uiautomation::UIElement) -> bool {
+        el.is_enabled().unwrap_or(false) && !el.is_offscreen().unwrap_or(true)
+    }
+
+    fn wait_element_state(
+        map: &BTreeMap<String, Value>,
+        ctx: &ExecutionContext,
+        chain: &[ElementSelector],
+        state: WaitState,
+        timeout_ms: u64,
+        poll_ms: u64,
+    ) -> Result<uiautomation::UIElement, ActionError> {
+        let deadline = Instant::now() + Duration::from_millis(timeout_ms);
+        let hint = chain.first().map(|s| s.hint()).unwrap_or_else(|| "selector".into());
+        loop {
+            match state {
+                WaitState::Present | WaitState::Enabled => {
+                    if let Ok(el) = find_with_chain(map, ctx, chain, poll_ms.min(500)) {
+                        if state == WaitState::Present || element_enabled(&el) {
+                            return Ok(el);
+                        }
+                    }
+                }
+                WaitState::Absent => unreachable!("absent handled in ui_element_wait_impl"),
+            }
+            if Instant::now() >= deadline {
+                return Err(ActionError::ui_with_hint(
+                    "ui_sync_timeout",
+                    &hint,
+                    "等待元素超时",
+                ));
+            }
+            std::thread::sleep(Duration::from_millis(poll_ms));
+        }
+    }
+
+    pub async fn ui_element_list_impl(
+        params: Value,
+        ctx: &mut ExecutionContext,
+    ) -> Result<Value, ActionError> {
+        let map = require_map(&params)?.clone();
+        let exec_ctx = ctx.clone();
+        let depth = opt_i64(&map, "depth", 3).clamp(1, 10) as u32;
+        let limit = opt_i64(&map, "limit", 50).clamp(1, 500) as usize;
+        tokio::task::spawn_blocking(move || {
+            let auto = uiautomation::UIAutomation::new()
+                .map_err(|e| ActionError::execution(format!("UIAutomation 初始化失败: {e}")))?;
+            let hwnd = resolve_scope_hwnd(&map, &exec_ctx)?;
+            let handle = uiautomation::types::Handle::from(hwnd.0 as isize);
+            let root = auto
+                .element_from_handle(handle)
+                .map_err(|e| ActionError::execution(format!("ElementFromHandle 失败: {e}")))?;
+            let matcher = auto
+                .create_matcher()
+                .from(root)
+                .depth(depth)
+                .timeout(500);
+            let found = matcher.find_all().unwrap_or_default();
+            let list: Vec<Value> = found
+                .iter()
+                .take(limit)
+                .map(|el| Value::Map(elem_to_map(el)))
+                .collect();
+            let mut out = BTreeMap::new();
+            out.insert("elements".into(), Value::List(list));
+            Ok(Value::Map(out))
+        })
+        .await
+        .map_err(|e| ActionError::execution(format!("ui.element.list 失败: {e}")))?
+    }
+
+    pub async fn ui_element_find_impl(
+        params: Value,
+        ctx: &mut ExecutionContext,
+    ) -> Result<Value, ActionError> {
+        let map = require_map(&params)?.clone();
+        let exec_ctx = ctx.clone();
+        let timeout_ms = opt_i64(&map, "timeout_ms", 3000).max(0) as u64;
+        let chain = selector_chain_from_params(&map)?;
+        tokio::task::spawn_blocking(move || {
+            let el = find_with_chain(&map, &exec_ctx, &chain, timeout_ms)?;
+            Ok(Value::Map(elem_to_map(&el)))
+        })
+        .await
+        .map_err(|e| ActionError::execution(format!("ui.element.find 失败: {e}")))?
+    }
+
+    pub async fn ui_element_exists_impl(
+        params: Value,
+        ctx: &mut ExecutionContext,
+    ) -> Result<Value, ActionError> {
+        let map = require_map(&params)?.clone();
+        let exec_ctx = ctx.clone();
+        let timeout_ms = opt_i64(&map, "timeout_ms", 2000).max(0) as u64;
+        let chain = selector_chain_from_params(&map)?;
+        tokio::task::spawn_blocking(move || {
+            let found = find_with_chain(&map, &exec_ctx, &chain, timeout_ms);
+            let mut out = BTreeMap::new();
+            match found {
+                Ok(el) => {
+                    out.insert("found".into(), Value::Bool(true));
+                    out.insert("element".into(), Value::Map(elem_to_map(&el)));
+                }
+                Err(_) => {
+                    out.insert("found".into(), Value::Bool(false));
+                }
+            }
+            Ok(Value::Map(out))
+        })
+        .await
+        .map_err(|e| ActionError::execution(format!("ui.element.exists 失败: {e}")))?
+    }
+
+    pub async fn ui_element_click_impl(
+        params: Value,
+        ctx: &mut ExecutionContext,
+    ) -> Result<Value, ActionError> {
+        let map = require_map(&params)?.clone();
+        let exec_ctx = ctx.clone();
+        let timeout_ms = opt_i64(&map, "timeout_ms", 3000).max(0) as u64;
+        let safe = crate::builtin::ui_kernel::opt_bool(&map, "safe", true);
+        let chain = selector_chain_from_params(&map)?;
+        tokio::task::spawn_blocking(move || {
+            let el = if safe {
+                wait_element_state(
+                    &map,
+                    &exec_ctx,
+                    &chain,
+                    WaitState::Enabled,
+                    timeout_ms.min(3000).max(500),
+                    200,
+                )?
+            } else {
+                find_with_chain(&map, &exec_ctx, &chain, timeout_ms)?
+            };
+            if safe && !element_enabled(&el) {
+                let hint = chain.first().map(|s| s.hint()).unwrap_or_else(|| "selector".into());
+                return Err(ActionError::ui_with_hint("ui_not_clickable", &hint, "元素不可点击"));
+            }
+            el.click()
+                .map_err(|e| ActionError::execution(format!("元素点击失败: {e}")))?;
+            Ok(Value::Map(elem_to_map(&el)))
+        })
+        .await
+        .map_err(|e| ActionError::execution(format!("ui.element.click 失败: {e}")))?
+    }
+
+    pub async fn ui_element_wait_impl(
+        params: Value,
+        ctx: &mut ExecutionContext,
+    ) -> Result<Value, ActionError> {
+        let map = require_map(&params)?.clone();
+        let exec_ctx = ctx.clone();
+        let timeout_ms = map
+            .get("timeout_ms")
+            .and_then(|v| v.as_i64())
+            .ok_or_else(|| ActionError::MissingParam("timeout_ms".into()))?
+            .max(1) as u64;
+        let state = wait_state_from_params(&map)?;
+        let poll = poll_interval_ms(&map, 200);
+        let chain = selector_chain_from_params(&map)?;
+        tokio::task::spawn_blocking(move || {
+            if state == WaitState::Absent {
+                let deadline = Instant::now() + Duration::from_millis(timeout_ms);
+                let hint = chain.first().map(|s| s.hint()).unwrap_or_else(|| "selector".into());
+                loop {
+                    if !element_present(&map, &exec_ctx, &chain, poll.min(500)) {
+                        let mut m = BTreeMap::new();
+                        m.insert("absent".into(), Value::Bool(true));
+                        m.insert("selector_hint".into(), Value::Str(hint));
+                        return Ok(Value::Map(m));
+                    }
+                    if Instant::now() >= deadline {
+                        return Err(ActionError::ui_with_hint(
+                            "ui_login_pending",
+                            &hint,
+                            "等待元素消失超时",
+                        ));
+                    }
+                    std::thread::sleep(Duration::from_millis(poll));
+                }
+            }
+            let el = wait_element_state(&map, &exec_ctx, &chain, state, timeout_ms, poll)?;
+            Ok(Value::Map(elem_to_map(&el)))
+        })
+        .await
+        .map_err(|e| ActionError::execution(format!("ui.element.wait 失败: {e}")))?
+    }
+
+    pub async fn ui_wait_impl(
+        params: Value,
+        ctx: &mut ExecutionContext,
+    ) -> Result<Value, ActionError> {
+        let map = require_map(&params)?;
+        let ms = map
+            .get("ms")
+            .and_then(|v| v.as_i64())
+            .ok_or_else(|| ActionError::MissingParam("ms".into()))?
+            .max(0) as u64;
+        ctx.add_ui_settle_ms(ms)
+            .map_err(ActionError::execution)?;
+        tokio::time::sleep(Duration::from_millis(ms)).await;
+        Ok(Value::Bool(true))
+    }
+
+    pub async fn ui_click_impl(params: Value) -> Result<Value, ActionError> {
+        let map = require_map(&params)?;
+        let x = map
+            .get("x")
+            .and_then(|v| v.as_i64())
+            .ok_or_else(|| ActionError::MissingParam("x".into()))? as i32;
+        let y = map
+            .get("y")
+            .and_then(|v| v.as_i64())
+            .ok_or_else(|| ActionError::MissingParam("y".into()))? as i32;
+        tokio::task::spawn_blocking(move || {
+            unsafe {
+                SetCursorPos(x, y)
+                    .map_err(|e| ActionError::execution(format!("SetCursorPos 失败: {e}")))?;
+            }
+            let down = INPUT {
+                r#type: INPUT_MOUSE,
+                Anonymous: INPUT_0 {
+                    mi: MOUSEINPUT {
+                        dx: 0,
+                        dy: 0,
+                        mouseData: 0,
+                        dwFlags: MOUSEEVENTF_LEFTDOWN,
+                        time: 0,
+                        dwExtraInfo: 0,
+                    },
+                },
+            };
+            let up = INPUT {
+                r#type: INPUT_MOUSE,
+                Anonymous: INPUT_0 {
+                    mi: MOUSEINPUT {
+                        dx: 0,
+                        dy: 0,
+                        mouseData: 0,
+                        dwFlags: MOUSEEVENTF_LEFTUP,
+                        time: 0,
+                        dwExtraInfo: 0,
+                    },
+                },
+            };
+            unsafe {
+                let _ = SendInput(&[down, up], std::mem::size_of::<INPUT>() as i32);
+            }
+            Ok(Value::Bool(true))
+        })
+        .await
+        .map_err(|e| ActionError::execution(format!("ui.click 失败: {e}")))?
+    }
+
+    fn send_unicode_char(ch: char) {
+        let code = ch as u16;
+        let down = INPUT {
+            r#type: INPUT_KEYBOARD,
+            Anonymous: INPUT_0 {
+                ki: KEYBDINPUT {
+                    wVk: VIRTUAL_KEY(0),
+                    wScan: code,
+                    dwFlags: KEYEVENTF_UNICODE,
+                    time: 0,
+                    dwExtraInfo: 0,
+                },
+            },
+        };
+        let up = INPUT {
+            r#type: INPUT_KEYBOARD,
+            Anonymous: INPUT_0 {
+                ki: KEYBDINPUT {
+                    wVk: VIRTUAL_KEY(0),
+                    wScan: code,
+                    dwFlags: KEYEVENTF_UNICODE | KEYEVENTF_KEYUP,
+                    time: 0,
+                    dwExtraInfo: 0,
+                },
+            },
+        };
+        unsafe {
+            let _ = SendInput(&[down, up], std::mem::size_of::<INPUT>() as i32);
+        }
+    }
+
+    fn send_vk(vk: u16, key_up: bool) {
+        let flags = if key_up {
+            KEYEVENTF_KEYUP
+        } else {
+            KEYBD_EVENT_FLAGS(0)
+        };
+        let input = INPUT {
+            r#type: INPUT_KEYBOARD,
+            Anonymous: INPUT_0 {
+                ki: KEYBDINPUT {
+                    wVk: VIRTUAL_KEY(vk),
+                    wScan: 0,
+                    dwFlags: flags,
+                    time: 0,
+                    dwExtraInfo: 0,
+                },
+            },
+        };
+        unsafe {
+            let _ = SendInput(&[input], std::mem::size_of::<INPUT>() as i32);
+        }
+    }
+
+    fn vk_from_token(tok: &str) -> Option<u16> {
+        match tok.to_ascii_lowercase().as_str() {
+            "ctrl" | "control" => Some(0x11),
+            "alt" => Some(0x12),
+            "shift" => Some(0x10),
+            "win" | "meta" => Some(0x5B),
+            "enter" | "return" => Some(0x0D),
+            "tab" => Some(0x09),
+            "esc" | "escape" => Some(0x1B),
+            "space" => Some(0x20),
+            "backspace" => Some(0x08),
+            "delete" | "del" => Some(0x2E),
+            "up" => Some(0x26),
+            "down" => Some(0x28),
+            "left" => Some(0x25),
+            "right" => Some(0x27),
+            "f1" => Some(0x70),
+            "f2" => Some(0x71),
+            "f3" => Some(0x72),
+            "f4" => Some(0x73),
+            "f5" => Some(0x74),
+            s if s.len() == 1 => {
+                let c = s.chars().next()?.to_ascii_uppercase();
+                if c.is_ascii_alphanumeric() {
+                    Some(c as u16)
+                } else {
+                    None
+                }
+            }
+            _ => None,
+        }
+    }
+
+    pub async fn ui_type_impl(params: Value) -> Result<Value, ActionError> {
+        let map = require_map(&params)?;
+        let text = require_str(map, "text")?;
+        tokio::task::spawn_blocking(move || {
+            for ch in text.chars() {
+                send_unicode_char(ch);
+            }
+            Ok(Value::Bool(true))
+        })
+        .await
+        .map_err(|e| ActionError::execution(format!("ui.type 失败: {e}")))?
+    }
+
+    pub async fn ui_key_impl(params: Value) -> Result<Value, ActionError> {
+        let map = require_map(&params)?;
+        let keys = require_str(map, "keys")?;
+        tokio::task::spawn_blocking(move || {
+            let parts: Vec<&str> = keys.split('+').map(|s| s.trim()).filter(|s| !s.is_empty()).collect();
+            if parts.is_empty() {
+                return Err(ActionError::InvalidParams("keys 为空".into()));
+            }
+            let mut vks = Vec::new();
+            for p in &parts {
+                let vk = vk_from_token(p).ok_or_else(|| {
+                    ActionError::InvalidParams(format!("不支持的 keys 片段: {p}"))
+                })?;
+                vks.push(vk);
+            }
+            for vk in &vks {
+                send_vk(*vk, false);
+            }
+            for vk in vks.iter().rev() {
+                send_vk(*vk, true);
+            }
+            Ok(Value::Bool(true))
+        })
+        .await
+        .map_err(|e| ActionError::execution(format!("ui.key 失败: {e}")))?
+    }
+}
+
+#[cfg(windows)]
+use win::*;
+
+#[cfg(not(windows))]
+async fn ui_window_list_impl() -> Result<Value, ActionError> {
+    ui_unavailable!()
+}
+#[cfg(not(windows))]
+async fn ui_window_focus_impl(_: Value, _: &mut ExecutionContext) -> Result<Value, ActionError> {
+    ui_unavailable!()
+}
+#[cfg(not(windows))]
+async fn ui_window_find_impl(_: Value, _: &mut ExecutionContext) -> Result<Value, ActionError> {
+    ui_unavailable!()
+}
+#[cfg(not(windows))]
+async fn ui_window_wait_impl(_: Value, _: &mut ExecutionContext) -> Result<Value, ActionError> {
+    ui_unavailable!()
+}
+#[cfg(not(windows))]
+async fn ui_element_list_impl(_: Value, _: &mut ExecutionContext) -> Result<Value, ActionError> {
+    ui_unavailable!()
+}
+#[cfg(not(windows))]
+async fn ui_element_find_impl(_: Value, _: &mut ExecutionContext) -> Result<Value, ActionError> {
+    ui_unavailable!()
+}
+#[cfg(not(windows))]
+async fn ui_element_exists_impl(_: Value, _: &mut ExecutionContext) -> Result<Value, ActionError> {
+    ui_unavailable!()
+}
+#[cfg(not(windows))]
+async fn ui_element_click_impl(_: Value, _: &mut ExecutionContext) -> Result<Value, ActionError> {
+    ui_unavailable!()
+}
+#[cfg(not(windows))]
+async fn ui_element_wait_impl(_: Value, _: &mut ExecutionContext) -> Result<Value, ActionError> {
+    ui_unavailable!()
+}
+#[cfg(not(windows))]
+async fn ui_wait_impl(_: Value, _: &mut ExecutionContext) -> Result<Value, ActionError> {
+    ui_unavailable!()
+}
+#[cfg(not(windows))]
+async fn ui_click_impl(_: Value) -> Result<Value, ActionError> {
+    ui_unavailable!()
+}
+#[cfg(not(windows))]
+async fn ui_type_impl(_: Value) -> Result<Value, ActionError> {
+    ui_unavailable!()
+}
+#[cfg(not(windows))]
+async fn ui_key_impl(_: Value) -> Result<Value, ActionError> {
+    ui_unavailable!()
+}

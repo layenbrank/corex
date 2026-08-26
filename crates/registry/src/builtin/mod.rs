@@ -4,6 +4,9 @@ use crate::ActionRegistry;
 
 pub mod util;
 
+#[cfg(any(feature = "act-shell", feature = "act-exec"))]
+pub mod process_launch;
+
 #[cfg(any(
     feature = "act-copy",
     feature = "act-generate",
@@ -49,6 +52,10 @@ pub mod scan;
 pub mod capture;
 #[cfg(feature = "act-morph")]
 pub mod morph;
+#[cfg(feature = "act-ui")]
+pub mod ui;
+#[cfg(feature = "act-ui")]
+pub mod ui_kernel;
 
 /// Register every feature-enabled builtin into `registry`.
 pub fn register_all(registry: &mut ActionRegistry) {
@@ -90,4 +97,6 @@ pub fn register_all(registry: &mut ActionRegistry) {
     capture::register(registry);
     #[cfg(feature = "act-morph")]
     morph::register(registry);
+    #[cfg(feature = "act-ui")]
+    ui::register(registry);
 }

@@ -27,8 +27,7 @@ impl Action for NotifySend {
     }
 
     async fn execute(
-        &self,
-        params: Value,
+        &self, params: Value,
         _ctx: &mut ExecutionContext,
     ) -> Result<Value, ActionError> {
         let map = params

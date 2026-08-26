@@ -1,7 +1,7 @@
 //! `shade.convert` — image format conversion / compression.
 
 use crate::builtin::util::{
-    ensure_parent, opt_i64, opt_str, require_map, require_path,
+    confine_path, ensure_parent, opt_i64, opt_str, require_map, require_path,
 };
 use crate::ActionRegistry;
 use async_trait::async_trait;
@@ -42,13 +42,12 @@ impl Action for ShadeConvert {
     }
 
     async fn execute(
-        &self,
-        params: Value,
-        _ctx: &mut ExecutionContext,
+        &self, params: Value,
+        ctx: &mut ExecutionContext,
     ) -> Result<Value, ActionError> {
         let map = require_map(&params)?;
-        let from = require_path(map, "from")?;
-        let to = require_path(map, "to")?;
+        let from = confine_path(ctx, &require_path(map, "from")?)?;
+        let to = confine_path(ctx, &require_path(map, "to")?)?;
         let quality = opt_i64(map, "quality", 100).clamp(1, 100) as u8;
         let format_hint = opt_str(map, "format");
 

@@ -2,7 +2,7 @@
 
 use crate::builtin::filter::Filter;
 use crate::builtin::util::{
-    ensure_parent, opt_i64, opt_str, require_map, require_path,
+    confine_path, ensure_parent, opt_i64, opt_str, require_map, require_path,
 };
 use crate::ActionRegistry;
 use async_trait::async_trait;
@@ -47,13 +47,12 @@ impl Action for CompressionCompress {
     }
 
     async fn execute(
-        &self,
-        params: Value,
-        _ctx: &mut ExecutionContext,
+        &self, params: Value,
+        ctx: &mut ExecutionContext,
     ) -> Result<Value, ActionError> {
         let map = require_map(&params)?;
-        let from = require_path(map, "from")?;
-        let to = require_path(map, "to")?;
+        let from = confine_path(ctx, &require_path(map, "from")?)?;
+        let to = confine_path(ctx, &require_path(map, "to")?)?;
         let format = opt_str(map, "format").unwrap_or_else(|| "zip".into());
         let level = opt_i64(map, "level", 6) as u32;
         let includes = crate::builtin::util::opt_str_list(map, "includes");
@@ -98,13 +97,12 @@ impl Action for CompressionDecompress {
     }
 
     async fn execute(
-        &self,
-        params: Value,
-        _ctx: &mut ExecutionContext,
+        &self, params: Value,
+        ctx: &mut ExecutionContext,
     ) -> Result<Value, ActionError> {
         let map = require_map(&params)?;
-        let from = require_path(map, "from")?;
-        let to = require_path(map, "to")?;
+        let from = confine_path(ctx, &require_path(map, "from")?)?;
+        let to = confine_path(ctx, &require_path(map, "to")?)?;
         let format = opt_str(map, "format").unwrap_or_else(|| infer_format(&from));
         std::fs::create_dir_all(&to)?;
 

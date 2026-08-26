@@ -3,9 +3,9 @@ members  = ["crates/*", "bins/*", "pdfium"]
 resolver = "2"
 
 [workspace.package]
-version     = "4.0.0"
+version     = "5.0.0"
 edition     = "2024"
-description = "corex — composable shortcut / action runtime"
+description = "corex — composable Directive / action runtime"
 authors     = ["layen"]
 license     = "MIT"
 
@@ -55,6 +55,7 @@ dirs        = "6.0"
 uuid        = { version = "1.25.0", features = ["v4"] }
 chrono      = { version = "0.4", features = ["serde"] }
 tempfile    = "3.14"
+proptest   = "1.5"
 
 # Builtin action deps
 reqwest = { version = "0.13.4", default-features = false, features = [

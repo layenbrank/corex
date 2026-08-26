@@ -1,7 +1,7 @@
 //! Morph PDF actions — export/merge/split via lopdf; meta/render soft-fail without pdfium.
 
 use crate::builtin::util::{
-    ensure_parent, opt_i64, opt_str_list, require_map, require_path, require_str,
+    confine_path, ensure_parent, opt_i64, opt_str_list, require_map, require_path, require_str,
 };
 use crate::ActionRegistry;
 use async_trait::async_trait;
@@ -33,8 +33,7 @@ impl Action for MorphMeta {
     }
 
     async fn execute(
-        &self,
-        _params: Value,
+        &self, _params: Value,
         _ctx: &mut ExecutionContext,
     ) -> Result<Value, ActionError> {
         Err(ActionError::execution(
@@ -60,8 +59,7 @@ impl Action for MorphRender {
     }
 
     async fn execute(
-        &self,
-        _params: Value,
+        &self, _params: Value,
         _ctx: &mut ExecutionContext,
     ) -> Result<Value, ActionError> {
         Err(ActionError::execution(
@@ -86,13 +84,12 @@ impl Action for MorphExport {
     }
 
     async fn execute(
-        &self,
-        params: Value,
-        _ctx: &mut ExecutionContext,
+        &self, params: Value,
+        ctx: &mut ExecutionContext,
     ) -> Result<Value, ActionError> {
         let map = require_map(&params)?;
-        let src = require_path(map, "src")?;
-        let dest = require_path(map, "dest")?;
+        let src = confine_path(ctx, &require_path(map, "src")?)?;
+        let dest = confine_path(ctx, &require_path(map, "dest")?)?;
         ensure_parent(&dest)?;
         std::fs::copy(&src, &dest)?;
         Ok(Value::File(dest))
@@ -115,25 +112,28 @@ impl Action for MorphMerge {
     }
 
     async fn execute(
-        &self,
-        params: Value,
-        _ctx: &mut ExecutionContext,
+        &self, params: Value,
+        ctx: &mut ExecutionContext,
     ) -> Result<Value, ActionError> {
         let map = require_map(&params)?;
         let paths = opt_str_list(map, "paths");
         if paths.is_empty() {
             return Err(ActionError::InvalidParams("至少需要一个输入文件".to_string()));
         }
-        let dest = require_path(map, "dest")?;
+        let mut confined = Vec::with_capacity(paths.len());
+        for path in &paths {
+            confined.push(confine_path(ctx, Path::new(path))?);
+        }
+        let dest = confine_path(ctx, &require_path(map, "dest")?)?;
         ensure_parent(&dest)?;
 
         let mut merged = LopdfDoc::with_version("1.5");
         let mut kids: Vec<LopdfId> = Vec::new();
         merged.max_id += 1;
         let pages_id: LopdfId = (merged.max_id, 0);
-        for path in &paths {
+        for path in &confined {
             let mut src = LopdfDoc::load(path)
-                .map_err(|e| ActionError::execution(format!("无法加载 {path}: {e}")))?;
+                .map_err(|e| ActionError::execution(format!("无法加载 {}: {e}", path.display())))?;
             src.renumber_objects_with(merged.max_id + 1);
             let pages_map = src.get_pages();
             let mut sorted: Vec<(u32, LopdfId)> = pages_map.into_iter().collect();
@@ -197,13 +197,12 @@ impl Action for MorphSplit {
     }
 
     async fn execute(
-        &self,
-        params: Value,
-        _ctx: &mut ExecutionContext,
+        &self, params: Value,
+        ctx: &mut ExecutionContext,
     ) -> Result<Value, ActionError> {
         let map = require_map(&params)?;
-        let path = require_str(map, "path")?;
-        let dir = require_str(map, "dir")?;
+        let path = confine_path(ctx, Path::new(&require_str(map, "path")?))?;
+        let dir = confine_path(ctx, Path::new(&require_str(map, "dir")?))?;
         std::fs::create_dir_all(&dir)?;
 
         let ranges = if let Some(Value::List(raw)) = map.get("ranges") {
@@ -248,7 +247,11 @@ impl Action for MorphSplit {
             ranges
         };
 
-        let paths = split_pdf(&path, ranges, &dir)?;
+        let paths = split_pdf(
+            &path.to_string_lossy(),
+            ranges,
+            &dir.to_string_lossy(),
+        )?;
         Ok(Value::List(
             paths.into_iter().map(|p| Value::File(p.into())).collect(),
         ))

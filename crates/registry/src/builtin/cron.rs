@@ -21,14 +21,13 @@ impl Action for CronSchedule {
         )
         .with_params(vec![
             ParamSchema::new("expr", SchemaType::Str, true).with_description("cron 表达式"),
-            ParamSchema::new("shortcut", SchemaType::Str, false)
-                .with_description("关联的快捷指令名"),
+            ParamSchema::new("Directive", SchemaType::Str, false)
+                .with_description("关联的指令名"),
         ])
     }
 
     async fn execute(
-        &self,
-        params: Value,
+        &self, params: Value,
         _ctx: &mut ExecutionContext,
     ) -> Result<Value, ActionError> {
         let map = params

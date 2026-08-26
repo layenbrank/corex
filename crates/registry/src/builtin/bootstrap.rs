@@ -91,8 +91,7 @@ impl Action for BootstrapEnv {
     }
 
     async fn execute(
-        &self,
-        _params: Value,
+        &self, _params: Value,
         _ctx: &mut ExecutionContext,
     ) -> Result<Value, ActionError> {
         let dir = exe_dir()?;
@@ -122,8 +121,7 @@ impl Action for BootstrapInspect {
     }
 
     async fn execute(
-        &self,
-        _params: Value,
+        &self, _params: Value,
         _ctx: &mut ExecutionContext,
     ) -> Result<Value, ActionError> {
         let dir = exe_dir()?;
@@ -143,8 +141,7 @@ impl Action for BootstrapForce {
     }
 
     async fn execute(
-        &self,
-        _params: Value,
+        &self, _params: Value,
         _ctx: &mut ExecutionContext,
     ) -> Result<Value, ActionError> {
         let dir = exe_dir()?;

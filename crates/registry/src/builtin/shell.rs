@@ -1,13 +1,17 @@
-//! `shell.run` — execute a shell command.
+//! `shell.run` — general process launcher (facade over process_launch).
 
+use crate::builtin::process_launch::{
+    launch, launch_spec_from_command_params, TargetKind,
+};
+use crate::builtin::util::{require_map, require_str};
 use crate::ActionRegistry;
 use async_trait::async_trait;
 use corex_core::{
     Action, ActionCategory, ActionError, ActionMeta, ExecutionContext, ParamSchema, SchemaType,
     Value,
 };
+use std::path::PathBuf;
 use std::sync::Arc;
-use tokio::process::Command;
 
 pub struct ShellRun;
 
@@ -17,22 +21,30 @@ impl Action for ShellRun {
         ActionMeta::new(
             "shell.run",
             "Shell",
-            "执行 shell 命令并返回 stdout/stderr/exit_code",
+            "执行进程/命令并返回 stdout/stderr/exit_code",
             ActionCategory::System,
         )
         .with_params(vec![
             ParamSchema::new("command", SchemaType::Str, true)
-                .with_description("要执行的命令"),
+                .with_description("可执行文件或命令名"),
             ParamSchema::new("args", SchemaType::List, false)
                 .with_description("参数列表")
                 .with_default(Value::List(vec![])),
             ParamSchema::new("cwd", SchemaType::Str, false).with_description("工作目录"),
-            ParamSchema::new("shell", SchemaType::Bool, false)
-                .with_description("通过系统 shell 执行（不信任输入时勿开启）")
-                .with_default(false),
+            ParamSchema::new("host", SchemaType::Str, false)
+                .with_default("auto")
+                .with_description("none | cmd | powershell | pwsh | auto"),
             ParamSchema::new("allow_nonzero", SchemaType::Bool, false)
                 .with_description("非零退出时仍返回 Ok（默认 false，报错）")
                 .with_default(false),
+            ParamSchema::new("wait", SchemaType::Str, false)
+                .with_default("sync")
+                .with_description("sync | detach（GUI 应用建议 detach）"),
+            ParamSchema::new("if_running", SchemaType::Str, false)
+                .with_default("launch")
+                .with_description("launch | skip | fail"),
+            ParamSchema::new("if_running_window", SchemaType::Map, false)
+                .with_description("窗口已存在则 skip：title_contains, title_excludes?, prefer_largest?"),
         ])
     }
 
@@ -41,84 +53,15 @@ impl Action for ShellRun {
         params: Value,
         _ctx: &mut ExecutionContext,
     ) -> Result<Value, ActionError> {
-        let map = params
-            .as_map()
-            .ok_or_else(|| ActionError::InvalidParams("需要 map 参数".to_string()))?;
-
-        let command = map
-            .get("command")
-            .and_then(|v| v.as_str())
-            .ok_or_else(|| ActionError::MissingParam("command".to_string()))?;
-
-        let use_shell = map
-            .get("shell")
-            .and_then(|v| v.as_bool())
-            .unwrap_or(false);
-        let allow_nonzero = map
-            .get("allow_nonzero")
-            .and_then(|v| v.as_bool())
-            .unwrap_or(false);
-
-        let mut cmd = if use_shell {
-            #[cfg(windows)]
-            {
-                let mut c = Command::new("cmd");
-                c.arg("/C").arg(command);
-                c
-            }
-            #[cfg(not(windows))]
-            {
-                let mut c = Command::new("sh");
-                c.arg("-c").arg(command);
-                c
-            }
-        } else {
-            let mut c = Command::new(command);
-            if let Some(Value::List(args)) = map.get("args") {
-                for a in args {
-                    if let Some(s) = a.as_str() {
-                        c.arg(s);
-                    } else {
-                        c.arg(a.to_string());
-                    }
-                }
-            }
-            c
-        };
-
-        if let Some(cwd) = map.get("cwd").and_then(|v| v.as_str()) {
-            cmd.current_dir(cwd);
-        }
-
-        let output = cmd
-            .output()
-            .await
-            .map_err(|e| ActionError::execution(format!("启动进程失败: {e}")))?;
-
-        let mut result = std::collections::BTreeMap::new();
-        result.insert(
-            "stdout".into(),
-            Value::Str(String::from_utf8_lossy(&output.stdout).into_owned()),
-        );
-        result.insert(
-            "stderr".into(),
-            Value::Str(String::from_utf8_lossy(&output.stderr).into_owned()),
-        );
-        result.insert(
-            "exit_code".into(),
-            Value::Int(output.status.code().unwrap_or(-1) as i64),
-        );
-        result.insert("success".into(), Value::Bool(output.status.success()));
-
-        if !output.status.success() && !allow_nonzero {
-            let code = output.status.code().unwrap_or(-1);
-            let stderr = String::from_utf8_lossy(&output.stderr);
-            return Err(ActionError::execution(format!(
-                "命令非零退出 exit={code}: {stderr}"
-            )));
-        }
-
-        Ok(Value::Map(result))
+        let map = require_map(&params)?;
+        let command = require_str(map, "command")?;
+        let spec = launch_spec_from_command_params(
+            map,
+            PathBuf::from(command),
+            TargetKind::Command,
+        )?;
+        let result = launch(spec).await?;
+        Ok(result.into_value())
     }
 }
 
@@ -179,5 +122,27 @@ mod tests {
         let map = out.as_map().expect("map");
         assert_eq!(map.get("success"), Some(&Value::Bool(false)));
         assert_ne!(map.get("exit_code"), Some(&Value::Int(0)));
+    }
+
+    #[tokio::test]
+    async fn host_cmd_runs_line() {
+        let mut ctx = ExecutionContext::default();
+        let mut m = BTreeMap::new();
+        #[cfg(windows)]
+        {
+            m.insert("command".into(), Value::Str("echo ok".into()));
+            m.insert("host".into(), Value::Str("cmd".into()));
+        }
+        #[cfg(unix)]
+        {
+            m.insert("command".into(), Value::Str("echo ok".into()));
+            m.insert("host".into(), Value::Str("cmd".into()));
+        }
+        let out = ShellRun
+            .execute(Value::Map(m), &mut ctx)
+            .await
+            .expect("host:cmd echo");
+        let map = out.as_map().unwrap();
+        assert_eq!(map.get("success"), Some(&Value::Bool(true)));
     }
 }
