@@ -15,7 +15,7 @@
 | `crates/plugin-sdk` | `corex-plugin-sdk` | WIT 契约 |
 | `bins/cli` | `corex` | CLI |
 | `bins/daemon` | `corex-daemon` | 后台 Daemon |
-| `config/default.toml` | — | 默认运行时配置 |
+| `config/corex.toml` | — | 运行时配置 |
 | `examples/directives/` | — | Directive 示例 |
 | `pdfium/` | `pdfium` | 可选 native DLL（morph） |
 

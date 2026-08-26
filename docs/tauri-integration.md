@@ -134,7 +134,7 @@ Unix 示例：
 corex-daemon --socket /path/to/corex.sock
 ```
 
-也可依赖 `config/default.toml` 的 `[daemon].socket_path`。确保 Tauri 与 daemon 看到同一 `COREX_TOKEN`（或同一 token 文件）。
+也可依赖 `config/corex.toml` 的 `[daemon].socket_path`。确保 Tauri 与 daemon 看到同一 `COREX_TOKEN`（或同一 token 文件）。
 
 ---
 

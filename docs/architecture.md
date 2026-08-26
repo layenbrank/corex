@@ -17,7 +17,7 @@ bins/
 pdfium/          # 构建辅助：bundled pdfium（morph 等）
 plugins/         # 第三方 *.wasm 插件目录说明
 config/
-  default.toml   # 默认运行时配置
+  corex.toml     # 运行时配置
 examples/
   directives/     # Directive YAML 示例
   legacy/        # ≤v3 Pipeline 样例（仅历史）
@@ -70,7 +70,7 @@ Value 结果  +  可选 history.jsonl
 
 ## 配置（已接线）
 
-[`config/default.toml`](../config/default.toml) 由 CLI/daemon 加载，下列段**生效**：
+[`config/corex.toml`](../config/corex.toml) 由 CLI/daemon 加载，下列段**生效**：
 
 | 段 | 用途 |
 |----|------|

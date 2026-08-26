@@ -3,7 +3,7 @@
 Recommended settings for locked-down environments.
 Prefer copying [`config/enterprise.toml`](../config/enterprise.toml) as a starting point.
 
-## Config (`config/default.toml` or override)
+## Config (`config/corex.toml` or override)
 
 ```toml
 [runtime]

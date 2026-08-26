@@ -86,7 +86,7 @@ corex run | list | actions | create | validate | repl | daemon
 
 ## 配置
 
-[`config/default.toml`](../config/default.toml)：`[daemon]`（含 token 注释）、`[plugins]`、`[history]`、`[logging]`、`[runtime]`（`max_parallel`、`step_timeout_secs`）。这些段由 daemon/CLI 加载并生效。
+[`config/corex.toml`](../config/corex.toml)：`[daemon]`（含 token 注释）、`[plugins]`、`[history]`、`[logging]`、`[runtime]`（`max_parallel`、`step_timeout_secs`）。这些段由 daemon/CLI 加载并生效。
 
 ## 兼容策略
 

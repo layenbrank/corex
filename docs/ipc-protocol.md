@@ -38,7 +38,7 @@ Token resolution order (daemon):
 
 CLI clients load `COREX_TOKEN` or `<data-dir>/token` and attach it via `Request::with_auth_token`. Mismatch → `Response::Error` with code **401**.
 
-See [`config/default.toml`](../config/default.toml) comments under `[daemon]`.
+See [`config/corex.toml`](../config/corex.toml) comments under `[daemon]`.
 
 ## Request types
 
