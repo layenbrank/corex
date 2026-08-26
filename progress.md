@@ -1,31 +1,49 @@
 # Progress Log
 
-## Session: 2026-08-26 — Phase B+C docs/config
+## Session: 2026-08-26 — UI 自动化验证收尾
 
 ### Done
-- Rewrote `docs/ipc-protocol.md` from `protocol.rs` (NDJSON, 1MiB, auth_token, endpoints)
-- Created `docs/shortcut-yaml.md`, `docs/actions.md`
-- Fixed `breaking-changes-v4.md` (Named Pipe exists, actions migrated, repl, token, confine)
-- Fixed `architecture.md` (parallel concurrent when max>1; config sections; new doc links)
-- Rewrote README v4-first; removed fake copy/pipeline/watch chapters
-- Rewrote `docs/tauri-integration.md`; updated `examples/tauri/corex_ipc.rs` (+ README, capabilities)
-- Archived ≤v3 docs → `docs/archive/`; moved `pipelines-v3-legacy.yaml` → `examples/legacy/`
-- Added `control-flow.yaml`, `copy-demo.yaml`
-- Polished `plugins/README.md`, synced `.agents` + `.cursor` `corex-add-module` skills
-- Verified `config/default.toml` token comments present
-- **No commit** (parent may commit)
+- [x] 重写 planning 文件（task_plan / findings / progress）
+- [x] call-graph 验证：无双轨；`find_hwnd_by_title` 已移除
+- [x] audit `selector_hint` + `ActionError::ui_with_hint`
+- [x] `docs/compliance.md` Human-in-the-loop checkpoints
+- [x] 移除 wasmtime deprecated `async_support`
+- [x] Bugbot 3× Must-Fix 已修复
+- [x] `cargo test --workspace` 全绿（88 tests）
 
-### Files touched
-See agent final file list in reply.
+### Bugbot Must-Fix 修复
+1. **process_launch**：配置 `if_running_window` 且窗口未命中时，不再按进程名 skip
+2. **ui_kernel**：`prefer_largest: true` 时忽略 `ui_session.scope_hwnd`，重新枚举选最大窗
+3. **CLI**：`-i auto_login=false` 解析为 `Value::Bool(false)`（`Value::from_cli_literal`）
 
-## Prior sessions
-- 2026-08-25: Windows Named Pipe + REPL + cleanup; P3 WASM + P5 history; Windows CI fix
+### Validate
+```bash
+cargo test --workspace
+cargo test -p corex-engine example_directives_validate
+```
+结果：**全部通过**
+
+### data_dir 同步（运维必做）
+```
+%LOCALAPPDATA%\corex\directives\wechat-send-message.yaml
+```
+必须与 `examples/directives/wechat-send-message.yaml` 同步（含 `default` inputs）。
+
+### Windows 实机验收清单
+- [ ] 1. 不传 `wechat_path` → 无 `input.wechat_path` 错误
+- [ ] 2. 已登录 + 主窗在 → skip launch，完整发消息
+- [ ] 3. 误 spawn 登录壳 → 自动点「进入微信」→ 手机确认 → 发消息
+- [ ] 4. 冷启动未登录 → 登录壳 → 点按钮 → 等手机确认 → 发消息
+- [ ] 5. 手机未确认 → `ui_login_pending` 超时，明确失败
+- [ ] 6. audit 含 `ui_phase` + `error_code` + `selector_hint`
+- [ ] 7. selector 回退链有效
+- [ ] 8. `enterprise.toml` + `ui_max_settle_ms=500` 无大量 `ui.wait` 仍通过
 
 ## 5-Question Reboot Check
 | Question | Answer |
 |----------|--------|
-| Where am I? | Phase B+C complete |
-| Where am I going? | Parent review / commit |
-| What's the goal? | Docs/config align Corex v4 |
-| What have I learned? | Pipe exists; parallel concurrent; cron Err; 7z soft-fail |
-| What have I done? | Full docs rewrite + archive + examples + Tauri client |
+| Where am I? | All plan todos complete |
+| Where am I going? | Windows 实机验收（运维） |
+| What's the goal? | 企业级 UI 自动化内核可靠 |
+| What have I learned? | 托盘常驻 + 无窗口时不应 process skip |
+| What have I done? | 验证收尾 + Bugbot fixes + 全量测试 |
