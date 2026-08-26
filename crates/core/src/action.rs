@@ -122,8 +122,7 @@ pub trait Action: Send + Sync {
     }
 
     async fn execute(
-        &self,
-        params: Value,
+        &self, params: Value,
         ctx: &mut ExecutionContext,
     ) -> Result<Value, ActionError>;
 }

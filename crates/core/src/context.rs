@@ -102,6 +102,15 @@ pub struct RuntimeConfig {
     pub max_parallel: usize,
     #[serde(default)]
     pub step_timeout_secs: u64,
+    /// When true, directives with no declared permissions are denied (enterprise mode).
+    #[serde(default)]
+    pub strict_permissions: bool,
+    /// Allowed filesystem roots for file.* actions. Empty = no confine (dev default).
+    #[serde(default)]
+    pub filesystem_roots: Vec<PathBuf>,
+    /// Cap total fixed `ui.wait` ms per directive run (0 = unlimited).
+    #[serde(default)]
+    pub ui_max_settle_ms: u64,
 }
 
 fn default_max_parallel() -> usize {
@@ -117,25 +126,39 @@ impl Default for RuntimeConfig {
             logging: LoggingConfig::default(),
             max_parallel: default_max_parallel(),
             step_timeout_secs: 0,
+            strict_permissions: false,
+            filesystem_roots: Vec::new(),
+            ui_max_settle_ms: 0,
         }
     }
 }
 
-/// Mutable state available while a shortcut / pipeline runs.
+/// Cached UI automation scope for a directive run.
+#[derive(Debug, Clone, Default)]
+pub struct UiSession {
+    pub scope_hwnd: Option<i64>,
+    pub scope_title: Option<String>,
+    /// Accumulated fixed sleep from `ui.wait` (ms).
+    pub settle_ms_used: u64,
+}
+
+/// Mutable state available while a Directive / pipeline runs.
 #[derive(Debug, Clone)]
 pub struct ExecutionContext {
-    /// User-defined / shortcut variables.
+    /// User-defined / Directive variables.
     pub variables: HashMap<String, Value>,
-    /// Declared shortcut inputs resolved at run time.
+    /// Declared Directive inputs resolved at run time.
     pub input: HashMap<String, Value>,
-    /// Optional payload from a launcher / previous shortcut.
-    pub shortcut_input: Option<Value>,
+    /// Optional payload from a launcher / previous directive.
+    pub directive_input: Option<Value>,
     /// Outputs of completed steps keyed by step id.
     pub step_outputs: HashMap<String, Value>,
     /// Process environment snapshot (string values).
     pub env: HashMap<String, String>,
     /// Runtime configuration.
     pub config: RuntimeConfig,
+    /// UI automation session (window scope, settle budget).
+    pub ui_session: UiSession,
 }
 
 impl Default for ExecutionContext {
@@ -150,10 +173,11 @@ impl ExecutionContext {
         Self {
             variables: HashMap::new(),
             input: HashMap::new(),
-            shortcut_input: None,
+            directive_input: None,
             step_outputs: HashMap::new(),
             env,
             config,
+            ui_session: UiSession::default(),
         }
     }
 
@@ -167,8 +191,8 @@ impl ExecutionContext {
         self
     }
 
-    pub fn with_shortcut_input(mut self, value: Value) -> Self {
-        self.shortcut_input = Some(value);
+    pub fn with_directive_input(mut self, value: Value) -> Self {
+        self.directive_input = Some(value);
         self
     }
 
@@ -184,8 +208,21 @@ impl ExecutionContext {
         self.variables.get(name)
     }
 
-    pub fn get_step_output(&self, step_id: &str) -> Option<&Value> {
-        self.step_outputs.get(step_id)
+    pub fn set_ui_scope(&mut self, hwnd: i64, title: Option<String>) {
+        self.ui_session.scope_hwnd = Some(hwnd);
+        self.ui_session.scope_title = title;
+    }
+
+    pub fn add_ui_settle_ms(&mut self, ms: u64) -> Result<(), String> {
+        let max = self.config.ui_max_settle_ms;
+        let next = self.ui_session.settle_ms_used.saturating_add(ms);
+        if max > 0 && next > max {
+            return Err(format!(
+                "ui.wait 累计 {next}ms 超过 ui_max_settle_ms={max}"
+            ));
+        }
+        self.ui_session.settle_ms_used = next;
+        Ok(())
     }
 
     /// Merge outputs (and newly written variables) from a parallel branch context.

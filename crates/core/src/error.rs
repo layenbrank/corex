@@ -38,18 +38,41 @@ impl ActionError {
         Self::ExecutionFailed(msg.as_ref().to_string())
     }
 
+    pub fn ui(code: &str, msg: impl AsRef<str>) -> Self {
+        Self::ExecutionFailed(format!("[{code}] {}", msg.as_ref()))
+    }
+
+    /// UI error with a redacted selector hint for audit (`[selector_hint=...]`).
+    pub fn ui_with_hint(code: &str, hint: &str, msg: impl AsRef<str>) -> Self {
+        Self::ExecutionFailed(format!("[{code}][selector_hint={hint}] {}", msg.as_ref()))
+    }
+
+    /// Parse UI error code prefix `[ui_*]` if present.
+    pub fn ui_code(&self) -> Option<&str> {
+        match self {
+            Self::ExecutionFailed(s) | Self::Other(s) | Self::Timeout(s) => {
+                s.strip_prefix('[').and_then(|rest| {
+                    let end = rest.find(']')?;
+                    let code = &rest[..end];
+                    if code.starts_with("ui_") { Some(code) } else { None }
+                })
+            }
+            _ => None,
+        }
+    }
+
     pub fn other(msg: impl AsRef<str>) -> Self {
         Self::Other(msg.as_ref().to_string())
     }
 }
 
-/// Errors from shortcut loading, variable resolution, and pipeline control flow.
+/// Errors from Directive loading, variable resolution, and pipeline control flow.
 #[derive(Debug, Error)]
 pub enum EngineError {
-    #[error("快捷指令未找到: {0}")]
-    ShortcutNotFound(String),
+    #[error("指令未找到: {0}")]
+    DirectiveNotFound(String),
 
-    #[error("快捷指令解析失败: {0}")]
+    #[error("指令解析失败: {0}")]
     ParseError(String),
 
     #[error("变量未定义: {0}")]

@@ -1,4 +1,4 @@
-//! Dynamic value type used across actions, shortcuts, and IPC.
+//! Dynamic value type used across actions, directives, and IPC.
 
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
@@ -96,6 +96,24 @@ impl Value {
             Value::Map(m) => !m.is_empty(),
             Value::File(_) => true,
             Value::Bytes(b) => !b.is_empty(),
+        }
+    }
+
+    /// Parse a CLI `-i KEY=VALUE` literal into a typed [`Value`] when unambiguous.
+    pub fn from_cli_literal(raw: &str) -> Self {
+        let s = raw.trim();
+        match s.to_ascii_lowercase().as_str() {
+            "true" | "yes" | "on" => Value::Bool(true),
+            "false" | "no" | "off" => Value::Bool(false),
+            _ => {
+                if let Ok(i) = s.parse::<i64>() {
+                    Value::Int(i)
+                } else if let Ok(f) = s.parse::<f64>() {
+                    Value::Float(f)
+                } else {
+                    Value::Str(s.to_string())
+                }
+            }
         }
     }
 
@@ -347,5 +365,14 @@ mod tests {
         assert_eq!(Value::from(true).to_string(), "true");
         assert_eq!(Value::from(42i64).to_string(), "42");
         assert_eq!(Value::from("hi").to_string(), "hi");
+    }
+
+    #[test]
+    fn from_cli_literal_parses_bool_and_int() {
+        assert_eq!(Value::from_cli_literal("false"), Value::Bool(false));
+        assert_eq!(Value::from_cli_literal("true"), Value::Bool(true));
+        assert!(!Value::from_cli_literal("false").is_truthy());
+        assert_eq!(Value::from_cli_literal("120000"), Value::Int(120000));
+        assert_eq!(Value::from_cli_literal("hello"), Value::Str("hello".into()));
     }
 }
