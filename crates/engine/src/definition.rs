@@ -1,13 +1,13 @@
-//! Shortcut YAML definitions.
+//! Directive YAML definitions.
 
 use corex_core::Value;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::Path;
 
-/// Top-level shortcut document.
+/// Top-level Directive document.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Shortcut {
+pub struct Directive {
     pub name: String,
     #[serde(default)]
     pub description: String,
@@ -26,7 +26,7 @@ pub struct Shortcut {
     pub on_error: OnError,
 }
 
-impl Shortcut {
+impl Directive {
     pub fn from_yaml_str(s: &str) -> Result<Self, corex_core::EngineError> {
         serde_yml::from_str(s).map_err(|e| {
             corex_core::EngineError::ParseError(format!("YAML 解析失败: {e}"))
@@ -39,7 +39,7 @@ impl Shortcut {
     }
 }
 
-/// Declared shortcut input.
+/// Declared Directive input.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct InputDecl {
     pub name: String,
@@ -155,10 +155,10 @@ pub enum OnError {
     Skip,
 }
 
-/// Declared permissions a shortcut may need.
+/// Declared permissions a Directive may need.
 ///
-/// When **all** flags are false (YAML omitted / empty), the shortcut is treated as
-/// unrestricted (allow-all) for backward compatibility with simple shortcuts.
+/// When **all** flags are false (YAML omitted / empty), the Directive is treated as
+/// unrestricted (allow-all) for backward compatibility with simple directives.
 /// Once any flag is `true`, undeclared categories are denied.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct Permissions {
@@ -172,6 +172,12 @@ pub struct Permissions {
     pub clipboard: bool,
     #[serde(default)]
     pub notifications: bool,
+    #[serde(default)]
+    pub ui: bool,
+    #[serde(default)]
+    pub capture: bool,
+    #[serde(default)]
+    pub secret: bool,
 }
 
 impl Permissions {
@@ -182,6 +188,9 @@ impl Permissions {
             && !self.shell
             && !self.clipboard
             && !self.notifications
+            && !self.ui
+            && !self.capture
+            && !self.secret
     }
 
     /// Check whether `action_id` is permitted under this declaration.
@@ -197,35 +206,47 @@ impl Permissions {
             PermissionKind::Shell => self.shell,
             PermissionKind::Clipboard => self.clipboard,
             PermissionKind::Notifications => self.notifications,
+            PermissionKind::Ui => self.ui,
+            PermissionKind::Capture => self.capture,
+            PermissionKind::Secret => self.secret,
         };
         if ok {
             Ok(())
         } else {
             Err(corex_core::ActionError::PermissionDenied(format!(
-                "快捷指令未声明权限以执行 {action_id}"
+                "指令未声明权限以执行 {action_id}"
             )))
         }
     }
 }
 
-#[derive(Debug, Clone, Copy)]
-enum PermissionKind {
+/// Permission category required by an action id.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PermissionKind {
     None,
     Network,
     Filesystem,
     Shell,
     Clipboard,
     Notifications,
+    Ui,
+    Capture,
+    Secret,
 }
 
-fn permission_kind_for(action_id: &str) -> PermissionKind {
+/// Map action id → required permission kind.
+pub fn permission_kind_for(action_id: &str) -> PermissionKind {
     match action_id {
         "shell.run" | "exec.run" | "bootstrap.env" | "bootstrap.inspect" | "bootstrap.force" => {
             PermissionKind::Shell
         }
         "http.request" => PermissionKind::Network,
-        "clipboard.get" | "clipboard.set" | "capture.clipboard" => PermissionKind::Clipboard,
+        "clipboard.get" | "clipboard.set" => PermissionKind::Clipboard,
         "notify.send" => PermissionKind::Notifications,
+        id if id.starts_with("ui.") => PermissionKind::Ui,
+        "capture.screenshot" | "capture.monitors" | "capture.ocr" => PermissionKind::Capture,
+        id if id.starts_with("keyring.") => PermissionKind::Secret,
+        "codec.json.parse" => PermissionKind::None,
         id if id.starts_with("file.")
             || id.starts_with("copy.")
             || id.starts_with("scrub.")
@@ -233,13 +254,45 @@ fn permission_kind_for(action_id: &str) -> PermissionKind {
             || id.starts_with("compression.")
             || id.starts_with("morph.")
             || id.starts_with("generate.path")
-            || id == "capture.screenshot"
-            || id == "capture.crop"
-            || id == "capture.monitors" =>
+            || id.starts_with("codec.")
+            || id == "capture.crop" =>
         {
             PermissionKind::Filesystem
         }
         _ => PermissionKind::None,
+    }
+}
+
+/// Validate that declared permissions cover all action steps (enterprise `--strict`).
+pub fn validate_permissions(directive: &Directive) -> Result<(), String> {
+    if directive.permissions.is_unrestricted() {
+        return Err(
+            "strict: 必须声明 permissions（当前为 unrestricted / allow-all）".into(),
+        );
+    }
+    fn walk(steps: &[Step], perms: &Permissions, errs: &mut Vec<String>) {
+        for step in steps {
+            match step {
+                Step::Action(a) => {
+                    if let Err(e) = perms.allows_action(&a.action) {
+                        errs.push(format!("{}: {e}", a.id));
+                    }
+                }
+                Step::If(i) => {
+                    walk(&i.then, perms, errs);
+                    walk(&i.else_steps, perms, errs);
+                }
+                Step::Repeat(r) => walk(&r.steps, perms, errs),
+                Step::Parallel(p) => walk(&p.parallel, perms, errs),
+            }
+        }
+    }
+    let mut errs = Vec::new();
+    walk(&directive.steps, &directive.permissions, &mut errs);
+    if errs.is_empty() {
+        Ok(())
+    } else {
+        Err(errs.join("; "))
     }
 }
 
@@ -278,9 +331,23 @@ mod tests {
         assert!(p.allows_action("shell.run").is_ok());
         assert!(p.allows_action("http.request").is_err());
     }
+
+    #[test]
+    fn validate_permissions_rejects_unrestricted() {
+        let yaml = r#"
+name: bare
+steps:
+  - id: t
+    action: template.render
+    params:
+      template: "x"
+"#;
+        let s = Directive::from_yaml_str(yaml).unwrap();
+        assert!(validate_permissions(&s).is_err());
+    }
 }
 
-/// Shortcut trigger definitions.
+/// Directive trigger definitions.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum Trigger {

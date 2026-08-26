@@ -1,20 +1,25 @@
-//! Pipeline executor for shortcuts.
+//! Pipeline executor for directives.
 
+use crate::audit::{self, AuditEntry, ExecutionAudit};
 use crate::control_flow::evaluate_condition;
 use crate::definition::{
-    ActionStep, IfStep, OnError, ParallelStep, Permissions, RepeatStep, Shortcut, Step,
+    ActionStep, IfStep, OnError, ParallelStep, Permissions, RepeatStep, Directive, Step,
 };
 use crate::history::{ExecutionHistory, HistoryEntry};
+use crate::inputs::apply_input_defaults;
 use crate::resolver::Resolver;
 use corex_core::{ActionError, ActionStore, EngineError, ExecutionContext, Value};
 use std::sync::Arc;
-use std::time::{Duration, SystemTime};
+use std::time::{Duration, Instant, SystemTime};
 use tracing::{debug, error, info, warn};
 
-/// Executes a [`Shortcut`] against an [`ActionStore`].
+/// Executes a [`Directive`] against an [`ActionStore`].
 pub struct Pipeline {
     store: Arc<dyn ActionStore>,
     history: Option<ExecutionHistory>,
+    audit: Option<ExecutionAudit>,
+    /// Set during [`Self::execute`] for step audit / logs.
+    run_name: Option<String>,
 }
 
 impl Pipeline {
@@ -22,6 +27,8 @@ impl Pipeline {
         Self {
             store,
             history: None,
+            audit: None,
+            run_name: None,
         }
     }
 
@@ -31,58 +38,71 @@ impl Pipeline {
         self
     }
 
-    /// Execute an entire shortcut.
+    /// Enable step-level redacted audit JSONL.
+    pub fn with_audit(mut self, audit: ExecutionAudit) -> Self {
+        self.audit = Some(audit);
+        self
+    }
+
+    /// Execute an entire directive.
     pub async fn execute(
-        &self,
-        shortcut: &Shortcut,
+        &self, directive: &Directive,
         mut ctx: ExecutionContext,
     ) -> Result<Value, EngineError> {
         let started = SystemTime::now();
+        let pipeline = Self {
+            store: Arc::clone(&self.store),
+            history: self.history.clone(),
+            audit: self.audit.clone(),
+            run_name: Some(directive.name.clone()),
+        };
 
-        for (k, v) in &shortcut.variables {
+        for (k, v) in &directive.variables {
             let resolved = Resolver::resolve_value(v, &ctx)?;
             ctx.variables.entry(k.clone()).or_insert(resolved);
         }
-        for decl in &shortcut.inputs {
-            if !ctx.input.contains_key(&decl.name) {
-                if let Some(default) = &decl.default {
-                    let resolved = Resolver::resolve_value(default, &ctx)?;
-                    ctx.input.insert(decl.name.clone(), resolved);
-                } else if decl.required {
-                    let err = EngineError::UndefinedVariable(format!("input.{}", decl.name));
-                    self.record_history(shortcut, started, Err(&err));
-                    return Err(err);
-                }
-            }
+        if let Err(e) = apply_input_defaults(directive, &mut ctx) {
+            pipeline.record_history(directive, started, Err(&e));
+            return Err(e);
         }
 
-        info!(name = %shortcut.name, steps = shortcut.steps.len(), "开始执行快捷指令");
-        let result = self
+        info!(
+            directive_name = %directive.name,
+            steps = directive.steps.len(),
+            "开始执行指令"
+        );
+        if ctx.config.strict_permissions && directive.permissions.is_unrestricted() {
+            let err = EngineError::Action(corex_core::ActionError::PermissionDenied(
+                "strict_permissions 已启用：指令必须声明 permissions".into(),
+            ));
+            pipeline.record_history(directive, started, Err(&err));
+            return Err(err);
+        }
+        let result = pipeline
             .execute_steps(
-                &shortcut.steps,
+                &directive.steps,
                 &mut ctx,
-                shortcut.on_error,
-                &shortcut.permissions,
+                directive.on_error,
+                &directive.permissions,
             )
             .await;
 
         match result {
             Ok(v) => {
-                info!(name = %shortcut.name, "快捷指令执行完成");
-                self.record_history(shortcut, started, Ok(()));
+                info!(directive_name = %directive.name, "指令执行完成");
+                pipeline.record_history(directive, started, Ok(()));
                 Ok(v)
             }
             Err(e) => {
-                error!(name = %shortcut.name, error = %e, "快捷指令执行失败");
-                self.record_history(shortcut, started, Err(&e));
+                error!(directive_name = %directive.name, error = %e, "指令执行失败");
+                pipeline.record_history(directive, started, Err(&e));
                 Err(e)
             }
         }
     }
 
     fn record_history(
-        &self,
-        shortcut: &Shortcut,
+        &self, directive: &Directive,
         started: SystemTime,
         outcome: Result<(), &EngineError>,
     ) {
@@ -91,23 +111,49 @@ impl Pipeline {
         };
         let ended = SystemTime::now();
         let result = outcome.map_err(|e| e.to_string());
-        let entry = HistoryEntry::new(&shortcut.name, started, ended, result);
+        let entry = HistoryEntry::new(&directive.name, started, ended, result);
         history.record_best_effort(&entry);
+    }
+
+    fn record_step_audit(
+        &self, step: &ActionStep,
+        duration_ms: u64,
+        outcome: Result<(), &EngineError>,
+    ) {
+        let name = self.run_name.as_deref().unwrap_or("unknown");
+        let perm_denied = outcome
+            .as_ref()
+            .err()
+            .map(|e| {
+                let s = e.to_string();
+                s.contains("PermissionDenied") || s.contains("权限") || s.contains("permission")
+            })
+            .unwrap_or(false);
+        let entry = AuditEntry::new(
+            name,
+            &step.id,
+            &step.action,
+            duration_ms,
+            outcome.map_err(|e| e.to_string()),
+            perm_denied,
+        );
+        audit::log_step_end(&entry);
+        if let Some(a) = &self.audit {
+            a.record_best_effort(&entry);
+        }
     }
 
     /// Alias of [`Self::execute`] (kept for API stability).
     #[doc(hidden)]
     pub async fn execute_with_resilience(
-        &self,
-        shortcut: &Shortcut,
+        &self, directive: &Directive,
         ctx: ExecutionContext,
     ) -> Result<Value, EngineError> {
-        self.execute(shortcut, ctx).await
+        self.execute(directive, ctx).await
     }
 
     pub async fn execute_steps(
-        &self,
-        steps: &[Step],
+        &self, steps: &[Step],
         ctx: &mut ExecutionContext,
         default_on_error: OnError,
         permissions: &Permissions,
@@ -122,8 +168,7 @@ impl Pipeline {
     }
 
     pub async fn execute_step(
-        &self,
-        step: &Step,
+        &self, step: &Step,
         ctx: &mut ExecutionContext,
         default_on_error: OnError,
         permissions: &Permissions,
@@ -146,8 +191,7 @@ impl Pipeline {
     }
 
     async fn run_action_step(
-        &self,
-        step: &ActionStep,
+        &self, step: &ActionStep,
         ctx: &mut ExecutionContext,
         default_on_error: OnError,
         permissions: &Permissions,
@@ -179,6 +223,9 @@ impl Pipeline {
                         warn!(id = %step.id, attempt, error = %e, "步骤失败，重试中");
                         continue;
                     }
+                    if is_permission_denied(&e) {
+                        return Err(e);
+                    }
                     return match on_error {
                         OnError::Abort => Err(e),
                         OnError::Continue => {
@@ -201,32 +248,50 @@ impl Pipeline {
     }
 
     async fn invoke_action(
-        &self,
-        step: &ActionStep,
+        &self, step: &ActionStep,
         ctx: &mut ExecutionContext,
         permissions: &Permissions,
     ) -> Result<Value, EngineError> {
-        permissions
-            .allows_action(&step.action)
-            .map_err(|e| EngineError::StepFailed {
+        let t0 = Instant::now();
+        let name = self.run_name.as_deref().unwrap_or("unknown");
+        audit::log_step_start(name, &step.id, &step.action);
+
+        if let Err(e) = permissions.allows_action(&step.action) {
+            let err = EngineError::StepFailed {
                 step: step.id.clone(),
                 source: e,
-            })?;
+            };
+            self.record_step_audit(step, t0.elapsed().as_millis() as u64, Err(&err));
+            return Err(err);
+        }
 
-        let action = self
-            .store
-            .get_action(&step.action)
-            .ok_or_else(|| EngineError::ActionNotRegistered(step.action.clone()))?;
+        let action = match self.store.get_action(&step.action) {
+            Some(a) => a,
+            None => {
+                let err = EngineError::ActionNotRegistered(step.action.clone());
+                self.record_step_audit(step, t0.elapsed().as_millis() as u64, Err(&err));
+                return Err(err);
+            }
+        };
 
-        let params = Resolver::resolve_value(&step.params, ctx)?;
-        action
-            .validate(&params)
-            .await
-            .map_err(|e| EngineError::StepFailed {
+        let params = match Resolver::resolve_value(&step.params, ctx) {
+            Ok(p) => p,
+            Err(e) => {
+                self.record_step_audit(step, t0.elapsed().as_millis() as u64, Err(&e));
+                return Err(e);
+            }
+        };
+        if let Err(e) = action.validate(&params).await {
+            let err = EngineError::StepFailed {
                 step: step.id.clone(),
                 source: e,
-            })?;
+            };
+            self.record_step_audit(step, t0.elapsed().as_millis() as u64, Err(&err));
+            return Err(err);
+        }
 
+        // Sensitive actions: do not log param payloads (keys only if needed later).
+        let _ = audit::is_sensitive_action(&step.action);
         debug!(id = %step.id, action = %step.action, "执行动作");
         let timeout_secs = ctx.config.step_timeout_secs;
         let fut = action.execute(params, ctx);
@@ -242,15 +307,25 @@ impl Pipeline {
             fut.await
         };
 
-        result.map_err(|e| EngineError::StepFailed {
-            step: step.id.clone(),
-            source: e,
-        })
+        let duration_ms = t0.elapsed().as_millis() as u64;
+        match result {
+            Ok(v) => {
+                self.record_step_audit(step, duration_ms, Ok(()));
+                Ok(v)
+            }
+            Err(e) => {
+                let err = EngineError::StepFailed {
+                    step: step.id.clone(),
+                    source: e,
+                };
+                self.record_step_audit(step, duration_ms, Err(&err));
+                Err(err)
+            }
+        }
     }
 
     async fn run_if_step(
-        &self,
-        step: &IfStep,
+        &self, step: &IfStep,
         ctx: &mut ExecutionContext,
         default_on_error: OnError,
         permissions: &Permissions,
@@ -266,8 +341,7 @@ impl Pipeline {
     }
 
     async fn run_repeat_step(
-        &self,
-        step: &RepeatStep,
+        &self, step: &RepeatStep,
         ctx: &mut ExecutionContext,
         default_on_error: OnError,
         permissions: &Permissions,
@@ -308,8 +382,7 @@ impl Pipeline {
     }
 
     async fn run_parallel_step(
-        &self,
-        step: &ParallelStep,
+        &self, step: &ParallelStep,
         ctx: &mut ExecutionContext,
         default_on_error: OnError,
         permissions: &Permissions,
@@ -322,21 +395,11 @@ impl Pipeline {
             .max(1);
         let children = step.parallel.len();
 
-        if max <= 1 || children <= 1 {
-            debug!(id = %step.id, max, children, "执行 parallel（顺序模式）");
-            let mut outputs = Vec::new();
-            for child in &step.parallel {
-                let v =
-                    Box::pin(self.execute_step(child, ctx, default_on_error, permissions)).await?;
-                outputs.push(v);
-            }
-            let result = Value::List(outputs);
-            ctx.set_step_output(&step.id, result.clone());
-            return Ok(result);
-        }
-
-        debug!(id = %step.id, max, children, "执行 parallel（并发 buffer_unordered）");
+        debug!(id = %step.id, max, children, "执行 parallel（buffer_unordered）");
         let store = Arc::clone(&self.store);
+        let audit = self.audit.clone();
+        let history = self.history.clone();
+        let run_name = self.run_name.clone();
         let base_ctx = ctx.clone();
         let perms = permissions.clone();
 
@@ -347,10 +410,20 @@ impl Pipeline {
                 .enumerate()
                 .map(|(idx, child)| {
                     let store = Arc::clone(&store);
+                    let audit = audit.clone();
+                    let history = history.clone();
+                    let run_name = run_name.clone();
                     let mut branch_ctx = base_ctx.clone();
                     let perms = perms.clone();
                     async move {
-                        let pipeline = Pipeline::new(store);
+                        let mut pipeline = Pipeline::new(store);
+                        if let Some(h) = history {
+                            pipeline = pipeline.with_history(h);
+                        }
+                        if let Some(a) = audit {
+                            pipeline = pipeline.with_audit(a);
+                        }
+                        pipeline.run_name = run_name;
                         let value = Box::pin(pipeline.execute_step(
                             &child,
                             &mut branch_ctx,
@@ -380,20 +453,20 @@ impl Pipeline {
         }
         successes.sort_by_key(|(idx, _, _)| *idx);
 
-        let mut outputs: Vec<Option<Value>> = vec![None; children];
-        for (idx, branch_ctx, value) in successes {
-            ctx.merge_from_branch(&branch_ctx);
-            if idx < outputs.len() {
-                outputs[idx] = Some(value);
-            }
-        }
-
         if let Some(e) = first_err {
             match default_on_error {
                 OnError::Abort => return Err(e),
                 OnError::Continue | OnError::Skip => {
                     warn!(id = %step.id, error = %e, "parallel 部分失败，按 on_error 继续");
                 }
+            }
+        }
+
+        let mut outputs: Vec<Option<Value>> = vec![None; children];
+        for (idx, branch_ctx, value) in successes {
+            ctx.merge_from_branch(&branch_ctx);
+            if idx < outputs.len() {
+                outputs[idx] = Some(value);
             }
         }
 
@@ -411,5 +484,19 @@ impl Pipeline {
         ctx: &ExecutionContext,
     ) -> Result<bool, EngineError> {
         evaluate_condition(condition, ctx)
+    }
+}
+
+fn is_permission_denied(err: &EngineError) -> bool {
+    match err {
+        EngineError::StepFailed {
+            source: ActionError::PermissionDenied(_),
+            ..
+        }
+        | EngineError::Action(ActionError::PermissionDenied(_)) => true,
+        other => {
+            let s = other.to_string();
+            s.contains("权限") || s.contains("PermissionDenied") || s.contains("permission denied")
+        }
     }
 }

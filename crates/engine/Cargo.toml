@@ -2,7 +2,7 @@
 name        = "corex-engine"
 version     = { workspace = true }
 edition     = { workspace = true }
-description = "Shortcut definition, variable resolver, and pipeline executor"
+description = "Directive definition, variable resolver, and pipeline executor"
 authors     = { workspace = true }
 license     = { workspace = true }
 
@@ -22,7 +22,8 @@ tracing      = { workspace = true }
 [dev-dependencies]
 tempfile       = { workspace = true }
 tokio          = { workspace = true, features = ["rt-multi-thread", "macros"] }
-corex-registry = { workspace = true }
+corex-registry = { workspace = true, features = ["full"] }
+proptest      = { workspace = true }
 
 [features]
 default = []

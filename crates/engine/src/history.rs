@@ -7,11 +7,11 @@ use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tracing::{debug, warn};
 
-/// One shortcut / pipeline execution record.
+/// One Directive / pipeline execution record.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct HistoryEntry {
-    /// Shortcut name (or file stem).
-    pub shortcut: String,
+    /// Directive name (or file stem).
+    pub directive: String,
     /// Unix epoch millis when execution started.
     pub started_at_ms: u64,
     /// Unix epoch millis when execution ended.
@@ -27,7 +27,7 @@ pub struct HistoryEntry {
 
 impl HistoryEntry {
     pub fn new(
-        shortcut: impl Into<String>,
+        directive: impl Into<String>,
         started: SystemTime,
         ended: SystemTime,
         result: Result<(), String>,
@@ -43,7 +43,7 @@ impl HistoryEntry {
             Err(e) => (false, Some(e)),
         };
         Self {
-            shortcut: shortcut.into(),
+            directive: directive.into(),
             started_at_ms,
             ended_at_ms,
             ok,
@@ -103,7 +103,7 @@ impl ExecutionHistory {
         file.flush()?;
         debug!(
             path = %self.path.display(),
-            shortcut = %entry.shortcut,
+            directive = %entry.directive,
             ok = entry.ok,
             duration_ms = entry.duration_ms,
             "已写入执行历史"
@@ -167,7 +167,7 @@ mod tests {
         let all = hist.read_all().unwrap();
         assert_eq!(all.len(), 2);
         assert!(all[0].ok);
-        assert_eq!(all[0].shortcut, "hello");
+        assert_eq!(all[0].directive, "hello");
         assert!(!all[1].ok);
         assert_eq!(all[1].error.as_deref(), Some("boom"));
         assert_eq!(all[0].duration_ms, 12);

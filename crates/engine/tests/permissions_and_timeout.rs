@@ -1,7 +1,7 @@
 //! Permissions gating, on_error skip/continue, and step timeout.
 
 use corex_core::{ExecutionContext, RuntimeConfig};
-use corex_engine::{Pipeline, Shortcut};
+use corex_engine::{Pipeline, Directive};
 use corex_registry::ActionRegistry;
 use std::sync::Arc;
 
@@ -23,10 +23,10 @@ steps:
     params:
       command: "true"
 "#;
-    let shortcut = Shortcut::from_yaml_str(yaml).unwrap();
+    let directive = Directive::from_yaml_str(yaml).unwrap();
     let pipeline = Pipeline::new(registry());
     let err = pipeline
-        .execute(&shortcut, ExecutionContext::new(RuntimeConfig::default()))
+        .execute(&directive, ExecutionContext::new(RuntimeConfig::default()))
         .await
         .expect_err("shell.run must be denied");
     let msg = err.to_string();
@@ -46,10 +46,10 @@ steps:
     params:
       template: "ok"
 "#;
-    let shortcut = Shortcut::from_yaml_str(yaml).unwrap();
+    let directive = Directive::from_yaml_str(yaml).unwrap();
     let pipeline = Pipeline::new(registry());
     let result = pipeline
-        .execute(&shortcut, ExecutionContext::new(RuntimeConfig::default()))
+        .execute(&directive, ExecutionContext::new(RuntimeConfig::default()))
         .await
         .expect("template.render should succeed under unrestricted defaults");
     assert_eq!(result.as_str(), Some("ok"));
@@ -67,10 +67,10 @@ steps:
     params:
       template: "none-kind"
 "#;
-    let shortcut = Shortcut::from_yaml_str(yaml).unwrap();
+    let directive = Directive::from_yaml_str(yaml).unwrap();
     let pipeline = Pipeline::new(registry());
     let result = pipeline
-        .execute(&shortcut, ExecutionContext::new(RuntimeConfig::default()))
+        .execute(&directive, ExecutionContext::new(RuntimeConfig::default()))
         .await
         .expect("None-kind actions are allowed when any permission is declared");
     assert_eq!(result.as_str(), Some("none-kind"));
@@ -88,10 +88,10 @@ steps:
     params:
       command: "true"
 "#;
-    let shortcut = Shortcut::from_yaml_str(yaml).unwrap();
+    let directive = Directive::from_yaml_str(yaml).unwrap();
     let pipeline = Pipeline::new(registry());
     let err = pipeline
-        .execute(&shortcut, ExecutionContext::new(RuntimeConfig::default()))
+        .execute(&directive, ExecutionContext::new(RuntimeConfig::default()))
         .await
         .expect_err("shell must be denied when only network is declared");
     let msg = err.to_string();
@@ -116,10 +116,10 @@ steps:
     params:
       template: "survived"
 "#;
-    let shortcut = Shortcut::from_yaml_str(yaml).unwrap();
+    let directive = Directive::from_yaml_str(yaml).unwrap();
     let pipeline = Pipeline::new(registry());
     let result = pipeline
-        .execute(&shortcut, ExecutionContext::new(RuntimeConfig::default()))
+        .execute(&directive, ExecutionContext::new(RuntimeConfig::default()))
         .await
         .expect("continue should not abort the pipeline");
     assert_eq!(result.as_str(), Some("survived"));
@@ -140,13 +140,94 @@ steps:
     params:
       template: "after-skip"
 "#;
-    let shortcut = Shortcut::from_yaml_str(yaml).unwrap();
+    let directive = Directive::from_yaml_str(yaml).unwrap();
     let pipeline = Pipeline::new(registry());
     let result = pipeline
-        .execute(&shortcut, ExecutionContext::new(RuntimeConfig::default()))
+        .execute(&directive, ExecutionContext::new(RuntimeConfig::default()))
         .await
         .expect("skip should not abort the pipeline");
     assert_eq!(result.as_str(), Some("after-skip"));
+}
+
+#[tokio::test]
+async fn notifications_only_denies_keyring() {
+    let yaml = r#"
+name: perm-deny-keyring
+permissions:
+  notifications: true
+steps:
+  - id: k
+    action: keyring.get
+    params:
+      service: "corex-test"
+      user: "u"
+"#;
+    let directive = Directive::from_yaml_str(yaml).unwrap();
+    let pipeline = Pipeline::new(registry());
+    let err = pipeline
+        .execute(&directive, ExecutionContext::new(RuntimeConfig::default()))
+        .await
+        .expect_err("keyring.get must require secret");
+    let msg = err.to_string();
+    assert!(
+        msg.contains("权限") || msg.contains("未声明权限") || msg.contains("PermissionDenied"),
+        "expected permission error, got: {msg}"
+    );
+}
+
+#[tokio::test]
+async fn permission_denied_not_swallowed_by_on_error_continue() {
+    let yaml = r#"
+name: perm-no-swallow
+on_error: continue
+permissions:
+  notifications: true
+steps:
+  - id: sh
+    action: shell.run
+    params:
+      command: "true"
+  - id: after
+    action: template.render
+    params:
+      template: "should-not-run"
+"#;
+    let directive = Directive::from_yaml_str(yaml).unwrap();
+    let pipeline = Pipeline::new(registry());
+    let err = pipeline
+        .execute(&directive, ExecutionContext::new(RuntimeConfig::default()))
+        .await
+        .expect_err("PermissionDenied must abort even with on_error=continue");
+    let msg = err.to_string();
+    assert!(
+        msg.contains("权限") || msg.contains("未声明权限") || msg.contains("PermissionDenied"),
+        "expected permission error, got: {msg}"
+    );
+}
+
+#[tokio::test]
+async fn strict_permissions_denies_unrestricted_shortcut() {
+    let yaml = r#"
+name: strict-deny
+steps:
+  - id: t
+    action: template.render
+    params:
+      template: "ok"
+"#;
+    let directive = Directive::from_yaml_str(yaml).unwrap();
+    let pipeline = Pipeline::new(registry());
+    let mut cfg = RuntimeConfig::default();
+    cfg.strict_permissions = true;
+    let err = pipeline
+        .execute(&directive, ExecutionContext::new(cfg))
+        .await
+        .expect_err("unrestricted Directive must fail under strict_permissions");
+    let msg = err.to_string();
+    assert!(
+        msg.contains("strict_permissions") || msg.contains("permissions"),
+        "expected strict_permissions error, got: {msg}"
+    );
 }
 
 #[tokio::test]
@@ -161,12 +242,12 @@ steps:
       command: "sleep"
       args: ["5"]
 "#;
-    let shortcut = Shortcut::from_yaml_str(yaml).unwrap();
+    let directive = Directive::from_yaml_str(yaml).unwrap();
     let pipeline = Pipeline::new(registry());
     let mut cfg = RuntimeConfig::default();
     cfg.step_timeout_secs = 1;
     let err = pipeline
-        .execute(&shortcut, ExecutionContext::new(cfg))
+        .execute(&directive, ExecutionContext::new(cfg))
         .await
         .expect_err("sleep 5 with 1s timeout must fail");
     let msg = err.to_string();

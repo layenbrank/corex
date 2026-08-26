@@ -23,7 +23,7 @@ pub enum Request {
         #[serde(default)]
         auth_token: Option<String>,
     },
-    ListShortcuts {
+    ListDirectives {
         #[serde(default)]
         id: u64,
         #[serde(default)]
@@ -37,7 +37,7 @@ pub enum Request {
         #[serde(default)]
         auth_token: Option<String>,
     },
-    RunShortcut {
+    RunDirective {
         #[serde(default)]
         id: u64,
         #[serde(default)]
@@ -65,9 +65,9 @@ impl Request {
         match self {
             Request::Ping { id, .. }
             | Request::Shutdown { id, .. }
-            | Request::ListShortcuts { id, .. }
+            | Request::ListDirectives { id, .. }
             | Request::ListActions { id, .. }
-            | Request::RunShortcut { id, .. }
+            | Request::RunDirective { id, .. }
             | Request::Invoke { id, .. } => *id,
         }
     }
@@ -76,9 +76,9 @@ impl Request {
         match self {
             Request::Ping { auth_token, .. }
             | Request::Shutdown { auth_token, .. }
-            | Request::ListShortcuts { auth_token, .. }
+            | Request::ListDirectives { auth_token, .. }
             | Request::ListActions { auth_token, .. }
-            | Request::RunShortcut { auth_token, .. }
+            | Request::RunDirective { auth_token, .. }
             | Request::Invoke { auth_token, .. } => auth_token.as_deref(),
         }
     }
@@ -89,9 +89,9 @@ impl Request {
         match &mut self {
             Request::Ping { auth_token, .. }
             | Request::Shutdown { auth_token, .. }
-            | Request::ListShortcuts { auth_token, .. }
+            | Request::ListDirectives { auth_token, .. }
             | Request::ListActions { auth_token, .. }
-            | Request::RunShortcut { auth_token, .. }
+            | Request::RunDirective { auth_token, .. }
             | Request::Invoke { auth_token, .. } => *auth_token = t,
         }
         self

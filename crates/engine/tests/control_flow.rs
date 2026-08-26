@@ -1,7 +1,7 @@
 //! Control-flow tests: if / repeat / parallel.
 
 use corex_core::{ExecutionContext, RuntimeConfig};
-use corex_engine::{Pipeline, Shortcut};
+use corex_engine::{Pipeline, Directive};
 use corex_registry::ActionRegistry;
 use std::sync::Arc;
 
@@ -32,10 +32,10 @@ steps:
         params:
           template: "no"
 "#;
-    let shortcut = Shortcut::from_yaml_str(yaml).unwrap();
+    let directive = Directive::from_yaml_str(yaml).unwrap();
     let pipeline = Pipeline::new(registry());
     let result = pipeline
-        .execute(&shortcut, ExecutionContext::new(RuntimeConfig::default()))
+        .execute(&directive, ExecutionContext::new(RuntimeConfig::default()))
         .await
         .unwrap();
     assert_eq!(result.as_str(), Some("yes"));
@@ -62,10 +62,10 @@ steps:
         params:
           template: "no"
 "#;
-    let shortcut = Shortcut::from_yaml_str(yaml).unwrap();
+    let directive = Directive::from_yaml_str(yaml).unwrap();
     let pipeline = Pipeline::new(registry());
     let result = pipeline
-        .execute(&shortcut, ExecutionContext::new(RuntimeConfig::default()))
+        .execute(&directive, ExecutionContext::new(RuntimeConfig::default()))
         .await
         .unwrap();
     assert_eq!(result.as_str(), Some("no"));
@@ -94,16 +94,16 @@ steps:
 "#
     );
 
-    let shortcut = Shortcut::from_yaml_str(&yaml).unwrap();
+    let directive = Directive::from_yaml_str(&yaml).unwrap();
     // Debug: ensure as_var parsed
-    match &shortcut.steps[0] {
+    match &directive.steps[0] {
         corex_engine::Step::Repeat(r) => assert_eq!(r.repeat.as_var, "i"),
         other => panic!("expected repeat, got {other:?}"),
     }
 
     let pipeline = Pipeline::new(registry());
     pipeline
-        .execute(&shortcut, ExecutionContext::new(RuntimeConfig::default()))
+        .execute(&directive, ExecutionContext::new(RuntimeConfig::default()))
         .await
         .unwrap();
     let text = std::fs::read_to_string(&out).unwrap();
@@ -136,10 +136,10 @@ steps:
         va: "{{va}}"
         vb: "{{vb}}"
 "#;
-    let shortcut = Shortcut::from_yaml_str(yaml).unwrap();
+    let directive = Directive::from_yaml_str(yaml).unwrap();
     let pipeline = Pipeline::new(registry());
     let result = pipeline
-        .execute(&shortcut, ExecutionContext::new(RuntimeConfig::default()))
+        .execute(&directive, ExecutionContext::new(RuntimeConfig::default()))
         .await
         .unwrap();
     assert_eq!(result.as_str(), Some("A-B"));

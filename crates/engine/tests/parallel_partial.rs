@@ -1,7 +1,7 @@
 //! Parallel partial-failure behavior with on_error abort vs continue.
 
 use corex_core::{ExecutionContext, RuntimeConfig, Value};
-use corex_engine::{Pipeline, Shortcut};
+use corex_engine::{Pipeline, Directive};
 use corex_registry::ActionRegistry;
 use std::sync::Arc;
 
@@ -30,10 +30,10 @@ steps:
         params:
           command: "corex-definitely-missing-cmd-xyz"
 "#;
-    let shortcut = Shortcut::from_yaml_str(yaml).unwrap();
+    let directive = Directive::from_yaml_str(yaml).unwrap();
     let pipeline = Pipeline::new(registry());
     let err = pipeline
-        .execute(&shortcut, ExecutionContext::new(RuntimeConfig::default()))
+        .execute(&directive, ExecutionContext::new(RuntimeConfig::default()))
         .await
         .expect_err("abort must surface the failing branch");
     let msg = err.to_string();
@@ -41,6 +41,34 @@ steps:
         !msg.is_empty(),
         "expected non-empty error from failed shell branch"
     );
+}
+
+#[tokio::test]
+async fn parallel_abort_max1_same_as_concurrent() {
+    let yaml = r#"
+name: parallel-abort-max1
+on_error: abort
+steps:
+  - id: fanout
+    max_concurrency: 1
+    parallel:
+      - id: a
+        action: template.render
+        params:
+          template: "A"
+        save_to: a
+      - id: b
+        action: shell.run
+        params:
+          command: "corex-definitely-missing-cmd-xyz"
+"#;
+    let directive = Directive::from_yaml_str(yaml).unwrap();
+    let pipeline = Pipeline::new(registry());
+    let err = pipeline
+        .execute(&directive, ExecutionContext::new(RuntimeConfig::default()))
+        .await
+        .expect_err("max_concurrency=1 must also abort");
+    assert!(!err.to_string().is_empty());
 }
 
 #[tokio::test]
@@ -62,10 +90,10 @@ steps:
         params:
           command: "corex-definitely-missing-cmd-xyz"
 "#;
-    let shortcut = Shortcut::from_yaml_str(yaml).unwrap();
+    let directive = Directive::from_yaml_str(yaml).unwrap();
     let pipeline = Pipeline::new(registry());
     let result = pipeline
-        .execute(&shortcut, ExecutionContext::new(RuntimeConfig::default()))
+        .execute(&directive, ExecutionContext::new(RuntimeConfig::default()))
         .await
         .expect("continue should return Ok with partial results");
 

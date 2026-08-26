@@ -9,7 +9,7 @@ static VAR_RE: Lazy<Regex> = Lazy::new(|| {
     Regex::new(r"\{\{\s*([^}]+?)\s*\}\}").expect("valid regex")
 });
 
-/// Resolves `{{input.x}}`, `{{shortcut_input}}`, `{{step.id.path}}`,
+/// Resolves `{{input.x}}`, `{{directive_input}}`, `{{step.id.path}}`,
 /// `{{env.NAME}}`, and `{{variables.name}}` / bare `{{name}}`.
 pub struct Resolver;
 
@@ -96,8 +96,8 @@ impl Resolver {
                     .ok_or_else(|| EngineError::UndefinedVariable(format!("input.{name}")))?;
                 get_required_path(val, path, expr)
             }
-            "shortcut_input" => {
-                let val = ctx.shortcut_input.clone().unwrap_or(Value::Null);
+            "directive_input" => {
+                let val = ctx.directive_input.clone().unwrap_or(Value::Null);
                 get_required_path(val, rest, expr)
             }
             "step" | "steps" => {

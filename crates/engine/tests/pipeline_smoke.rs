@@ -1,7 +1,7 @@
 //! End-to-end smoke: resolver + template/file pipeline.
 
 use corex_core::{ExecutionContext, RuntimeConfig, Value};
-use corex_engine::{Pipeline, Resolver, Shortcut};
+use corex_engine::{Pipeline, Resolver, Directive};
 use corex_registry::ActionRegistry;
 use std::sync::Arc;
 
@@ -37,21 +37,28 @@ steps:
         path = path
     );
 
-    let shortcut = Shortcut::from_yaml_str(&yaml).expect("parse shortcut");
+    let directive = Directive::from_yaml_str(&yaml).expect("parse Directive");
     let mut registry = ActionRegistry::new();
     registry.register_builtins();
     let pipeline = Pipeline::new(Arc::new(registry));
 
     let ctx = ExecutionContext::new(RuntimeConfig::default());
-    let result = pipeline.execute(&shortcut, ctx).await.expect("execute");
+    let result = pipeline.execute(&directive, ctx).await.expect("execute");
 
     assert!(out.exists(), "output file should exist");
     let text = std::fs::read_to_string(&out).unwrap();
     assert_eq!(text, "Hi, corex!");
-    // last step returns File path
+    // last step returns write metadata map
     match result {
-        Value::File(p) => assert_eq!(p, out),
-        other => panic!("expected File, got {other}"),
+        Value::Map(m) => {
+            assert_eq!(m.get("changed").and_then(|v| v.as_bool()), Some(true));
+            assert_eq!(m.get("bytes_written").and_then(|v| v.as_i64()), Some(10));
+            match m.get("path") {
+                Some(Value::File(p)) => assert_eq!(p, &out),
+                other => panic!("expected path file value, got {other:?}"),
+            }
+        }
+        other => panic!("expected write result map, got {other}"),
     }
 }
 
