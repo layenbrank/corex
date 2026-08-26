@@ -108,17 +108,17 @@ pub struct RepeatSpec {
     /// Expression resolving to a list, e.g. `"{{items}}"`.
     #[serde(default)]
     pub each: Option<String>,
-    #[serde(default = "default_item_var", rename = "as")]
+    #[serde(default = "init_repeat_item", rename = "as")]
     pub as_var: String,
-    #[serde(default = "default_index_var", rename = "index")]
+    #[serde(default = "init_repeat_index", rename = "index")]
     pub index_var: String,
 }
 
-fn default_index_var() -> String {
+fn init_repeat_index() -> String {
     "index".into()
 }
 
-fn default_item_var() -> String {
+fn init_repeat_item() -> String {
     "item".into()
 }
 
