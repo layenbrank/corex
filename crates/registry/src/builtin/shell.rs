@@ -3,7 +3,7 @@
 use crate::builtin::process_launch::{
     launch, launch_spec_from_command_params, TargetKind,
 };
-use crate::builtin::util::{require_map, require_str};
+use crate::builtin::util::{confine_path, require_map, require_str};
 use crate::ActionRegistry;
 use async_trait::async_trait;
 use corex_core::{
@@ -30,7 +30,8 @@ impl Action for ShellRun {
             ParamSchema::new("args", SchemaType::List, false)
                 .with_description("参数列表")
                 .with_default(Value::List(vec![])),
-            ParamSchema::new("cwd", SchemaType::Str, false).with_description("工作目录"),
+            ParamSchema::new("cwd", SchemaType::Str, false)
+                .with_description("工作目录（受 filesystem_roots 约束）"),
             ParamSchema::new("host", SchemaType::Str, false)
                 .with_default("auto")
                 .with_description("none | cmd | powershell | pwsh | auto"),
@@ -51,15 +52,19 @@ impl Action for ShellRun {
     async fn execute(
         &self,
         params: Value,
-        _ctx: &mut ExecutionContext,
+        ctx: &mut ExecutionContext,
     ) -> Result<Value, ActionError> {
         let map = require_map(&params)?;
         let command = require_str(map, "command")?;
-        let spec = launch_spec_from_command_params(
+        // `command` is not path-confined (PATH lookup); only `cwd` is.
+        let mut spec = launch_spec_from_command_params(
             map,
             PathBuf::from(command),
             TargetKind::Command,
         )?;
+        if let Some(cwd) = spec.cwd.take() {
+            spec.cwd = Some(confine_path(ctx, &cwd)?);
+        }
         let result = launch(spec).await?;
         Ok(result.into_value())
     }
@@ -144,5 +149,45 @@ mod tests {
             .expect("host:cmd echo");
         let map = out.as_map().unwrap();
         assert_eq!(map.get("success"), Some(&Value::Bool(true)));
+    }
+
+    #[tokio::test]
+    async fn filesystem_roots_rejects_cwd_outside() {
+        use corex_core::RuntimeConfig;
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().join("allowed");
+        let outside = dir.path().join("denied");
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::create_dir_all(&outside).unwrap();
+
+        let mut cfg = RuntimeConfig::default();
+        cfg.filesystem_roots = vec![root];
+        let mut ctx = ExecutionContext::new(cfg);
+        let mut m = BTreeMap::new();
+        #[cfg(unix)]
+        {
+            m.insert("command".into(), Value::Str("true".into()));
+        }
+        #[cfg(windows)]
+        {
+            m.insert("command".into(), Value::Str("cmd".into()));
+            m.insert(
+                "args".into(),
+                Value::List(vec![Value::Str("/C".into()), Value::Str("echo ok".into())]),
+            );
+        }
+        m.insert(
+            "cwd".into(),
+            Value::Str(outside.to_string_lossy().into()),
+        );
+        let err = ShellRun
+            .execute(Value::Map(m), &mut ctx)
+            .await
+            .expect_err("outside cwd");
+        let msg = err.to_string();
+        assert!(
+            msg.contains("越界") || msg.contains("不在") || msg.contains("无法解析"),
+            "got: {msg}"
+        );
     }
 }

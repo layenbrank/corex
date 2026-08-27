@@ -10,9 +10,9 @@ pub mod resolver;
 pub mod scheduler;
 
 pub use audit::{AuditEntry, ExecutionAudit};
+pub use corex_core::{permission_kind_for, PermissionKind};
 pub use definition::{
-    permission_kind_for, validate_permissions, Condition, InputDecl, OnError, PermissionKind,
-    Permissions, Directive, Step, Trigger,
+    validate_permissions, Condition, InputDecl, OnError, Permissions, Directive, Step, Trigger,
 };
 pub use history::{ExecutionHistory, HistoryEntry};
 pub use inputs::{apply_input_defaults, is_input_unset};

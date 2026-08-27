@@ -27,8 +27,8 @@ This document covers **authorized desktop automation** using corex directives
 | Control | Setting |
 |---------|---------|
 | Deny unrestricted (runtime) | `[runtime].strict_permissions = true` |
-| Path confine | `[runtime].filesystem_roots = [...]` |
-| Disable UI/OCR/shell by default | `[plugins].disabled_actions` (enterprise.toml) |
+| Path confine | `[runtime].filesystem_roots = [...]` (includes `exec.run` script + launch `cwd`) |
+| Disable UI/OCR/shell/keyring/scan by default | `[plugins].disabled_actions` ([enterprise.toml](../config/enterprise.toml)) |
 | Validate coverage (static) | `corex validate --strict path.yaml` |
 | SIEM-friendly logs | `[logging].json = true` + `audit.jsonl` |
 

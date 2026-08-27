@@ -2,11 +2,11 @@
 
 use anyhow::{bail, Context, Result};
 use clap::Parser;
-use corex_core::{DaemonConfig, ExecutionContext, LoggingConfig, RuntimeConfig, Value, RUNTIME_CONFIG};
-use corex_engine::{
-    permission_kind_for, AuditEntry, ExecutionAudit, ExecutionHistory, PermissionKind, Pipeline,
-    Directive,
+use corex_core::{
+    check_runtime_allowed, DaemonConfig, ExecutionContext, LoggingConfig, RuntimeConfig, Value,
+    RUNTIME_CONFIG,
 };
+use corex_engine::{AuditEntry, ExecutionAudit, ExecutionHistory, Pipeline, Directive};
 use corex_ipc::protocol::{Request, Response, RpcError};
 use corex_ipc::{platform_data_dir, platform_endpoint, serve_platform};
 use corex_registry::ActionRegistry;
@@ -259,14 +259,10 @@ async fn invoke_action(state: &DaemonState, action_id: &str, params: Value) -> R
     Ok(outcome?)
 }
 
-/// Strict mode: Invoke has no Directive permissions context, so any action that
-/// requires a permission kind is denied. Disabled actions are already removed
-/// from the registry via `apply_runtime_config`.
+/// Strict mode + config disablement (shared with `corex ui` via [`check_runtime_allowed`]).
+/// Disabled actions are also removed from the registry via `apply_runtime_config`.
 fn check_invoke_allowed(config: &RuntimeConfig, action_id: &str) -> Result<()> {
-    if config.strict_permissions && permission_kind_for(action_id) != PermissionKind::None {
-        bail!("strict_permissions: Invoke 不允许执行需权限的动作 {action_id}");
-    }
-    Ok(())
+    check_runtime_allowed(config, action_id).map_err(|e| anyhow::anyhow!("{e}"))
 }
 
 /// Resolve a Directive by name: only `{name}.yaml` / `{name}.yml` under `dir`.
@@ -627,5 +623,13 @@ mod tests {
         cfg.strict_permissions = true;
         assert!(check_invoke_allowed(&cfg, "template.render").is_ok());
         assert!(check_invoke_allowed(&cfg, "generate.uuid").is_ok());
+    }
+
+    #[test]
+    fn invoke_denied_when_action_disabled() {
+        let mut cfg = RuntimeConfig::default();
+        cfg.plugins.disabled_actions = vec!["shell.run".into()];
+        assert!(check_invoke_allowed(&cfg, "shell.run").is_err());
+        assert!(check_invoke_allowed(&cfg, "template.render").is_ok());
     }
 }

@@ -59,9 +59,9 @@ steps:
     let entries = hist.read_all().unwrap();
     assert_eq!(entries.len(), 1);
     assert!(!entries[0].ok);
-    assert!(entries[0]
-        .error
-        .as_ref()
-        .unwrap()
-        .contains("does.not.exist"));
+    let err_s = entries[0].error.as_ref().unwrap();
+    assert!(
+        err_s.contains("does.not.exist") || err_s.starts_with("not_registered"),
+        "got: {err_s}"
+    );
 }

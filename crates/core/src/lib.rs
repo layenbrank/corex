@@ -4,6 +4,7 @@ pub mod action;
 pub mod context;
 pub mod error;
 pub mod path;
+pub mod permission;
 pub mod schema;
 pub mod value;
 
@@ -14,5 +15,6 @@ pub use context::{
     RUNTIME_CONFIG, UI_PROFILE,
 };
 pub use error::{ActionError, EngineError};
+pub use permission::{check_runtime_allowed, permission_kind_for, PermissionKind};
 pub use schema::SchemaType;
 pub use value::Value;
