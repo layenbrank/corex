@@ -16,28 +16,43 @@ pub enum CronCommands {
         #[arg(long)]
         dir: Option<PathBuf>,
     },
-    /// Show running cron jobs
+    /// List running cron jobs (use NAME column for commands)
     Ps,
-    /// Send control message: RUN_NOW | STATUS | STOP
+    /// Enter job: tail realtime log (Ctrl+C detach, does not stop supervisor)
+    Attach {
+        /// Directive name
+        name: String,
+    },
+    /// Tail supervisor log
+    Logs {
+        name: Option<String>,
+        #[arg(long, default_value_t = 50)]
+        lines: usize,
+        #[arg(short, long)]
+        follow: bool,
+    },
+    /// Send control message: run-now | status | stop
     Send {
-        id: String,
+        name: String,
         msg: String,
     },
     /// Stop a cron job
     Stop {
-        id: String,
+        name: String,
     },
     /// Restart a cron job
     Restart {
-        id: String,
+        name: String,
         #[arg(long)]
         dir: Option<PathBuf>,
     },
-    /// Run cron in foreground
+    /// Attach if running; else prompt to start (use --foreground for dev mode)
     Run {
         name: String,
         #[arg(long)]
         dir: Option<PathBuf>,
+        #[arg(long)]
+        foreground: bool,
         #[arg(long, hide = true)]
         supervised: bool,
         #[arg(long, hide = true)]
@@ -58,16 +73,20 @@ pub async fn run(cmd: CronCommands, global_dir: Option<&std::path::Path>) -> Res
             }
         }
         CronCommands::Ps => trigger_cmd::cmd_ps(JobKind::Cron),
-        CronCommands::Send { id, msg } => trigger_cmd::cmd_send(JobKind::Cron, &id, &msg),
-        CronCommands::Stop { id } => trigger_cmd::cmd_stop(JobKind::Cron, &id),
-        CronCommands::Restart { id, dir } => {
+        CronCommands::Attach { name } => trigger_cmd::cmd_attach(JobKind::Cron, &name).await,
+        CronCommands::Logs { name, lines, follow } => {
+            trigger_cmd::cmd_logs(JobKind::Cron, name.as_deref(), lines, follow).await
+        }
+        CronCommands::Send { name, msg } => trigger_cmd::cmd_send(JobKind::Cron, &name, &msg),
+        CronCommands::Stop { name } => trigger_cmd::cmd_stop(JobKind::Cron, &name),
+        CronCommands::Restart { name, dir } => {
             let dir = dir.as_deref().or(global_dir);
-            let _ = trigger_cmd::cmd_stop(JobKind::Cron, &id);
-            trigger_cmd::start_job(JobKind::Cron, &id, dir).await
+            trigger_cmd::cmd_restart(JobKind::Cron, &name, dir).await
         }
         CronCommands::Run {
             name,
             dir,
+            foreground,
             supervised,
             job_id,
         } => {
@@ -80,7 +99,7 @@ pub async fn run(cmd: CronCommands, global_dir: Option<&std::path::Path>) -> Res
                 )
                 .await
             } else {
-                trigger_cmd::cmd_run_foreground(JobKind::Cron, &name, dir).await
+                trigger_cmd::cmd_run_interactive(JobKind::Cron, &name, dir, foreground).await
             }
         }
     }

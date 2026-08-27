@@ -17,32 +17,49 @@ pub enum WatchCommands {
         #[arg(long)]
         dir: Option<PathBuf>,
     },
-    /// Show running watch jobs
+    /// List running watch jobs (use NAME column for commands)
     Ps,
-    /// Tail supervisor log (placeholder: shows status)
+    /// Enter job: tail realtime log (Ctrl+C detach, does not stop supervisor)
     Attach {
-        id: String,
+        /// Directive name (e.g. build-client)
+        name: String,
     },
-    /// Send control message: RUN_NOW | STATUS | STOP
+    /// Tail supervisor log
+    Logs {
+        /// Directive name; omit to list log paths
+        name: Option<String>,
+        #[arg(long, default_value_t = 50)]
+        lines: usize,
+        #[arg(short, long)]
+        follow: bool,
+    },
+    /// Send control message: run-now | status | stop
     Send {
-        id: String,
+        /// Directive name
+        name: String,
         msg: String,
     },
     /// Stop a watch job
     Stop {
-        id: String,
+        /// Directive name
+        name: String,
     },
     /// Restart a watch job
     Restart {
-        id: String,
-        #[arg(long)]
-        dir: Option<PathBuf>,
-    },
-    /// Run watch in foreground
-    Run {
+        /// Directive name
         name: String,
         #[arg(long)]
         dir: Option<PathBuf>,
+    },
+    /// Attach if running; else prompt to start (use --foreground for dev mode)
+    Run {
+        /// Directive name
+        name: String,
+        #[arg(long)]
+        dir: Option<PathBuf>,
+        /// Foreground dev mode (Ctrl+C stops supervisor)
+        #[arg(long)]
+        foreground: bool,
         #[arg(long, hide = true)]
         supervised: bool,
         #[arg(long, hide = true)]
@@ -63,20 +80,20 @@ pub async fn run(cmd: WatchCommands, global_dir: Option<&std::path::Path>) -> Re
             }
         }
         WatchCommands::Ps => trigger_cmd::cmd_ps(JobKind::Watch),
-        WatchCommands::Attach { id } => {
-            println!("attach `{id}` — 日志请查看 <data>/watch/{id}/");
-            Ok(())
+        WatchCommands::Attach { name } => trigger_cmd::cmd_attach(JobKind::Watch, &name).await,
+        WatchCommands::Logs { name, lines, follow } => {
+            trigger_cmd::cmd_logs(JobKind::Watch, name.as_deref(), lines, follow).await
         }
-        WatchCommands::Send { id, msg } => trigger_cmd::cmd_send(JobKind::Watch, &id, &msg),
-        WatchCommands::Stop { id } => trigger_cmd::cmd_stop(JobKind::Watch, &id),
-        WatchCommands::Restart { id, dir } => {
+        WatchCommands::Send { name, msg } => trigger_cmd::cmd_send(JobKind::Watch, &name, &msg),
+        WatchCommands::Stop { name } => trigger_cmd::cmd_stop(JobKind::Watch, &name),
+        WatchCommands::Restart { name, dir } => {
             let dir = dir.as_deref().or(global_dir);
-            let _ = trigger_cmd::cmd_stop(JobKind::Watch, &id);
-            trigger_cmd::start_job(JobKind::Watch, &id, dir).await
+            trigger_cmd::cmd_restart(JobKind::Watch, &name, dir).await
         }
         WatchCommands::Run {
             name,
             dir,
+            foreground,
             supervised,
             job_id,
         } => {
@@ -89,7 +106,7 @@ pub async fn run(cmd: WatchCommands, global_dir: Option<&std::path::Path>) -> Re
                 )
                 .await
             } else {
-                trigger_cmd::cmd_run_foreground(JobKind::Watch, &name, dir).await
+                trigger_cmd::cmd_run_interactive(JobKind::Watch, &name, dir, foreground).await
             }
         }
     }

@@ -8,8 +8,14 @@ use corex_engine::{
 };
 use corex_ipc::platform_data_dir;
 use corex_registry::ActionRegistry;
+use std::io::{self, IsTerminal, Write};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use tokio::io::{AsyncReadExt, AsyncSeekExt};
+
+const GREEN: &str = "\x1b[32m";
+const RED: &str = "\x1b[31m";
+const RESET: &str = "\x1b[0m";
 
 pub fn resolve_directive_path(target: &str, dir: Option<&Path>) -> Result<PathBuf> {
     let as_path = PathBuf::from(target);
@@ -53,6 +59,18 @@ pub fn load_runtime_config() -> RuntimeConfig {
     crate::load_runtime_config()
 }
 
+fn kind_sub(kind: JobKind) -> &'static str {
+    match kind {
+        JobKind::Watch => "watch",
+        JobKind::Cron => "cron",
+    }
+}
+
+fn resolve_job(kind: JobKind, name: &str) -> Result<JobMeta> {
+    let data = platform_data_dir()?;
+    JobMeta::resolve_by_name(&data, kind, name).map_err(|e| anyhow::anyhow!(e))
+}
+
 fn ensure_trigger_declared(kind: JobKind, directive: &Directive) -> Result<()> {
     match kind {
         JobKind::Watch => {
@@ -69,21 +87,8 @@ fn ensure_trigger_declared(kind: JobKind, directive: &Directive) -> Result<()> {
     Ok(())
 }
 
-fn ensure_directive_not_running(data: &Path, kind: JobKind, directive_name: &str) -> Result<()> {
-    let sub = match kind {
-        JobKind::Watch => "watch",
-        JobKind::Cron => "cron",
-    };
-    if let Some(existing) =
-        JobMeta::find_running_by_directive(data, kind, directive_name, is_pid_running)
-    {
-        bail!(
-            "指令 `{directive_name}` 已有 {sub} 守护运行中 (job `{}`, pid {})",
-            existing.id,
-            existing.pid
-        );
-    }
-    Ok(())
+fn find_running_job(data: &Path, kind: JobKind, directive_name: &str) -> Option<JobMeta> {
+    JobMeta::find_running_by_directive(data, kind, directive_name, is_pid_running)
 }
 
 pub async fn start_job(kind: JobKind, target: &str, dir: Option<&Path>) -> Result<()> {
@@ -91,13 +96,23 @@ pub async fn start_job(kind: JobKind, target: &str, dir: Option<&Path>) -> Resul
     let directive = Directive::from_yaml_file(&path).context("解析指令")?;
     ensure_trigger_declared(kind, &directive)?;
     let data = platform_data_dir()?;
-    ensure_directive_not_running(&data, kind, &directive.name)?;
+    if let Some(existing) = find_running_job(&data, kind, &directive.name) {
+        bail!(
+            "指令 `{}` 已有 {} 守护运行中 (pid {})。查看: corex {} attach {}",
+            directive.name,
+            kind_sub(kind),
+            existing.pid,
+            kind_sub(kind),
+            directive.name
+        );
+    }
     let id = directive.name.clone();
-    let sub = match kind {
-        JobKind::Watch => "watch",
-        JobKind::Cron => "cron",
-    };
+    let sub = kind_sub(kind);
+    let job_dir = JobMeta::job_dir(&data, kind, &id);
+    std::fs::create_dir_all(&job_dir)?;
+    let log_path = JobMeta::supervisor_log_path(&data, kind, &id);
     let exe = std::env::current_exe()?;
+    let dir_arg = directives_dir(dir)?.to_string_lossy().to_string();
     let pid = spawn_detached(
         &exe,
         &[
@@ -108,8 +123,9 @@ pub async fn start_job(kind: JobKind, target: &str, dir: Option<&Path>) -> Resul
             "--job-id",
             &id,
             "--dir",
-            &directives_dir(dir)?.to_string_lossy(),
+            &dir_arg,
         ],
+        Some(&log_path),
     )?;
     let meta = JobMeta {
         id: id.clone(),
@@ -122,49 +138,189 @@ pub async fn start_job(kind: JobKind, target: &str, dir: Option<&Path>) -> Resul
     };
     meta.write(&data)?;
     println!("已启动 {sub} `{id}` (pid {pid})");
+    println!("查看: corex {sub} attach {id}");
     Ok(())
 }
 
 pub fn cmd_ps(kind: JobKind) -> Result<()> {
     let data = platform_data_dir()?;
-    let sub = match kind {
-        JobKind::Watch => "watch",
-        JobKind::Cron => "cron",
-    };
+    let sub = kind_sub(kind);
     let jobs = JobMeta::scan(&data, kind);
     if jobs.is_empty() {
         println!("(无 {sub} job)");
         return Ok(());
     }
+    let color = io::stdout().is_terminal();
+    println!("{:<20} {:<10} {:<8} {}", "NAME", "STATUS", "PID", "DIRECTIVE");
     for j in jobs {
-        let status = if is_pid_running(j.pid) {
-            "online"
+        let online = is_pid_running(j.pid);
+        let status = if online { "online" } else { "stopped" };
+        if color {
+            let styled = if online {
+                format!("{GREEN}{status}{RESET}")
+            } else {
+                format!("{RED}{status}{RESET}")
+            };
+            println!(
+                "{:<20} {:<19} {:<8} {}",
+                j.directive_name,
+                styled,
+                j.pid,
+                j.directive_path.display()
+            );
         } else {
-            "stopped"
-        };
-        println!(
-            "{:<20} {:<8} pid={:<8} {}",
-            j.id, status, j.pid, j.directive_path.display()
-        );
+            println!(
+                "{:<20} {:<10} {:<8} {}",
+                j.directive_name,
+                status,
+                j.pid,
+                j.directive_path.display()
+            );
+        }
+    }
+    if color {
+        eprintln!("提示: 操作请使用 NAME 列指令名，非 PID");
     }
     Ok(())
 }
 
-pub fn cmd_stop(kind: JobKind, id: &str) -> Result<()> {
+pub fn cmd_stop(kind: JobKind, name: &str) -> Result<()> {
     let data = platform_data_dir()?;
-    let job_dir = JobMeta::job_dir(&data, kind, id);
+    let meta = resolve_job(kind, name)?;
+    let job_dir = JobMeta::job_dir(&data, kind, &meta.id);
     send_control(&job_dir, ControlMsg::Stop)?;
-    println!("已发送 STOP → {id}");
+    println!("已发送 STOP → {}", meta.directive_name);
     Ok(())
 }
 
-pub fn cmd_send(kind: JobKind, id: &str, msg: &str) -> Result<()> {
+pub fn cmd_send(kind: JobKind, name: &str, msg: &str) -> Result<()> {
     let data = platform_data_dir()?;
-    let job_dir = JobMeta::job_dir(&data, kind, id);
+    let meta = resolve_job(kind, name)?;
+    let job_dir = JobMeta::job_dir(&data, kind, &meta.id);
     let control = msg.parse::<ControlMsg>().map_err(|e| anyhow::anyhow!(e))?;
     send_control(&job_dir, control)?;
-    println!("已发送 {control} → {id}");
+    println!("已发送 {control} → {}", meta.directive_name);
     Ok(())
+}
+
+pub async fn cmd_attach(kind: JobKind, name: &str) -> Result<()> {
+    let data = platform_data_dir()?;
+    let meta = resolve_job(kind, name)?;
+    let log_path = JobMeta::supervisor_log_path(&data, kind, &meta.id);
+    let status = if is_pid_running(meta.pid) {
+        "online"
+    } else {
+        "stopped"
+    };
+    println!(
+        "=== {} {} | status={} pid={} ===",
+        kind_sub(kind),
+        meta.directive_name,
+        status,
+        meta.pid
+    );
+    println!("日志: {}", log_path.display());
+    if !log_path.exists() {
+        println!("(尚无日志，等待 supervisor 输出…)");
+    }
+    tail_log(&log_path, true, 50).await?;
+    if is_pid_running(meta.pid) {
+        println!(
+            "已退出查看，`{}` 仍在运行 (pid {})",
+            meta.directive_name, meta.pid
+        );
+    } else {
+        println!("已退出查看，`{}` 已停止", meta.directive_name);
+    }
+    Ok(())
+}
+
+pub async fn cmd_logs(kind: JobKind, name: Option<&str>, lines: usize, follow: bool) -> Result<()> {
+    let data = platform_data_dir()?;
+    if let Some(n) = name {
+        let meta = resolve_job(kind, n)?;
+        let log_path = JobMeta::supervisor_log_path(&data, kind, &meta.id);
+        tail_log(&log_path, follow, lines).await?;
+        Ok(())
+    } else {
+        let jobs = JobMeta::scan(&data, kind);
+        if jobs.is_empty() {
+            println!("(无 {} job)", kind_sub(kind));
+            return Ok(());
+        }
+        for j in jobs {
+            let log = JobMeta::supervisor_log_path(&data, kind, &j.id);
+            println!("{}  {}", j.directive_name, log.display());
+        }
+        Ok(())
+    }
+}
+
+async fn tail_log(path: &Path, follow: bool, lines: usize) -> Result<()> {
+    if path.exists() {
+        print_last_lines(path, lines)?;
+    } else if follow {
+        std::fs::File::create(path)?;
+    }
+    if !follow {
+        return Ok(());
+    }
+    let mut file = tokio::fs::OpenOptions::new()
+        .read(true)
+        .open(path)
+        .await?;
+    file.seek(std::io::SeekFrom::End(0)).await?;
+    let mut buf = vec![0u8; 4096];
+    loop {
+        tokio::select! {
+            res = tokio::signal::ctrl_c() => {
+                res?;
+                break;
+            }
+            n = file.read(&mut buf) => {
+                let n = n?;
+                if n == 0 {
+                    tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+                    continue;
+                }
+                io::stdout().write_all(&buf[..n])?;
+                io::stdout().flush()?;
+            }
+        }
+    }
+    Ok(())
+}
+
+fn print_last_lines(path: &Path, lines: usize) -> Result<()> {
+    let text = std::fs::read_to_string(path).unwrap_or_default();
+    if text.is_empty() {
+        return Ok(());
+    }
+    let all: Vec<&str> = text.lines().collect();
+    let start = all.len().saturating_sub(lines);
+    for line in &all[start..] {
+        println!("{line}");
+    }
+    Ok(())
+}
+
+pub async fn cmd_run_interactive(
+    kind: JobKind,
+    name: &str,
+    dir: Option<&Path>,
+    foreground: bool,
+) -> Result<()> {
+    let data = platform_data_dir()?;
+    if !foreground {
+        if find_running_job(&data, kind, name).is_some() {
+            return cmd_attach(kind, name).await;
+        }
+        bail!(
+            "请先 corex {} start {name}，或使用 --foreground 前台开发模式",
+            kind_sub(kind)
+        );
+    }
+    cmd_run_foreground(kind, name, dir).await
 }
 
 pub async fn cmd_run_supervised(
@@ -174,6 +330,7 @@ pub async fn cmd_run_supervised(
 ) -> Result<()> {
     let data = platform_data_dir()?;
     let meta = JobMeta::read(&data, kind, job_id).context("读取 job meta")?;
+    let _dir = dir;
     let store = build_store();
     let runtime = load_runtime_config();
     match kind {
@@ -192,9 +349,18 @@ pub async fn cmd_run_foreground(kind: JobKind, target: &str, dir: Option<&Path>)
     let directive = Directive::from_yaml_file(&path)?;
     ensure_trigger_declared(kind, &directive)?;
     let data = platform_data_dir()?;
-    ensure_directive_not_running(&data, kind, &directive.name)?;
+    if find_running_job(&data, kind, &directive.name).is_some() {
+        bail!(
+            "指令 `{}` 已有 {} 守护运行中，请用 attach 查看",
+            directive.name,
+            kind_sub(kind)
+        );
+    }
+    let id = directive.name.clone();
+    let job_dir = JobMeta::job_dir(&data, kind, &id);
+    std::fs::create_dir_all(&job_dir)?;
     let meta = JobMeta {
-        id: directive.name.clone(),
+        id: id.clone(),
         kind,
         directive_name: directive.name.clone(),
         directive_path: path,
@@ -202,17 +368,29 @@ pub async fn cmd_run_foreground(kind: JobKind, target: &str, dir: Option<&Path>)
         expr: None,
         paths: Vec::new(),
     };
+    meta.write(&data)?;
     let store = build_store();
     let runtime = load_runtime_config();
-    match kind {
-        JobKind::Watch => supervise_watch_job(&meta, store, runtime, &data)
-            .await
-            .map_err(|e| anyhow::anyhow!("{e}"))?,
-        JobKind::Cron => supervise_cron_job(&meta, store, runtime, &data)
-            .await
-            .map_err(|e| anyhow::anyhow!("{e}"))?,
+    tokio::select! {
+        res = async {
+            match kind {
+                JobKind::Watch => supervise_watch_job(&meta, store, runtime, &data).await,
+                JobKind::Cron => supervise_cron_job(&meta, store, runtime, &data).await,
+            }
+        } => res.map_err(|e| anyhow::anyhow!("{e}"))?,
+        _ = tokio::signal::ctrl_c() => {
+            let job_dir = JobMeta::job_dir(&data, kind, &id);
+            let _ = send_control(&job_dir, ControlMsg::Stop);
+            println!("已停止前台 {} `{id}`", kind_sub(kind));
+        }
     }
     Ok(())
+}
+
+pub async fn cmd_restart(kind: JobKind, name: &str, dir: Option<&Path>) -> Result<()> {
+    let _ = cmd_stop(kind, name);
+    tokio::time::sleep(std::time::Duration::from_millis(800)).await;
+    start_job(kind, name, dir).await
 }
 
 pub async fn start_all(kind: JobKind, dir: Option<&Path>) -> Result<()> {
