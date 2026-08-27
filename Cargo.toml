@@ -90,6 +90,22 @@ sevenz-rust2 = { version = "0.22.2", default-features = false, features = [
 rand = "0.10.2"
 lopdf = "0.44.0"
 
+# Windows API (target-gated consumers use `[target.'cfg(windows)'.dependencies]`)
+windows = { version = "0.62.2", features = [
+  "Graphics_Imaging",
+  "Media_Ocr",
+  "Storage",
+  "Storage_Streams",
+  "Foundation",
+  "Win32_Foundation",
+  "Win32_Graphics_Gdi",
+  "Win32_System_Console",
+  "Win32_System_LibraryLoader",
+  "Win32_UI_WindowsAndMessaging",
+  "Win32_UI_Input_KeyboardAndMouse",
+  "Win32_System_Diagnostics_ToolHelp",
+] }
+
 # WASM plugins (optional; enabled via corex-registry `wasm` feature)
 wasmtime = { version = "48.0.1", default-features = false, features = [
   "component-model",

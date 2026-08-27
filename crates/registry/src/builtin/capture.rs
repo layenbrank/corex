@@ -241,28 +241,28 @@ mod win {
         let path_str = path.to_string_lossy();
         let file = StorageFile::GetFileFromPathAsync(&HSTRING::from(path_str.as_ref()))
             .map_err(|e| ActionError::execution(format!("打开文件失败: {e}")))?
-            .get()
+            .join()
             .map_err(|e| ActionError::execution(format!("GetFileFromPathAsync 失败: {e}")))?;
         let stream = file
             .OpenAsync(FileAccessMode::Read)
             .map_err(|e| ActionError::execution(format!("OpenAsync 失败: {e}")))?
-            .get()
+            .join()
             .map_err(|e| ActionError::execution(format!("OpenAsync 等待失败: {e}")))?;
         let decoder = BitmapDecoder::CreateAsync(&stream)
             .map_err(|e| ActionError::execution(format!("BitmapDecoder 失败: {e}")))?
-            .get()
+            .join()
             .map_err(|e| ActionError::execution(format!("BitmapDecoder 等待失败: {e}")))?;
         let software = decoder
             .GetSoftwareBitmapAsync()
             .map_err(|e| ActionError::execution(format!("GetSoftwareBitmap 失败: {e}")))?
-            .get()
+            .join()
             .map_err(|e| ActionError::execution(format!("GetSoftwareBitmap 等待失败: {e}")))?;
         let engine = OcrEngine::TryCreateFromUserProfileLanguages()
             .map_err(|e| ActionError::execution(format!("OcrEngine 失败: {e}")))?;
         let result = engine
             .RecognizeAsync(&software)
             .map_err(|e| ActionError::execution(format!("RecognizeAsync 失败: {e}")))?
-            .get()
+            .join()
             .map_err(|e| ActionError::execution(format!("OCR 识别失败: {e}")))?;
         let text = result
             .Text()
