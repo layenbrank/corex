@@ -8,6 +8,7 @@ pub async fn supervise_watch_job(
     data_dir: &std::path::Path,
 ) -> Result<(), corex_core::EngineError> {
     use crate::definition::Directive;
+    use crate::supervisor::resolve::resolve_watch_config;
     use crate::supervisor::{poll_control, ControlMsg, JobKind, JobMeta};
     use crate::trigger::find_watch_trigger;
     use crate::watch::{WatchEngine, WatchJobSpec};
@@ -15,13 +16,14 @@ pub async fn supervise_watch_job(
     use tracing::info;
 
     let directive = Directive::from_yaml_file(&meta.directive_path)?;
-    let engine = WatchEngine::new(data_dir.to_path_buf(), store, runtime);
-    let watch = find_watch_trigger(&directive.triggers)?.ok_or_else(|| {
+    let engine = WatchEngine::new(data_dir.to_path_buf(), store, runtime.clone());
+    let watch_raw = find_watch_trigger(&directive.triggers)?.ok_or_else(|| {
         corex_core::EngineError::other(format!(
             "指令 {} 未声明 watch 触发器",
             meta.directive_name
         ))
     })?;
+    let watch = resolve_watch_config(&directive, runtime, watch_raw)?;
     engine
         .register(WatchJobSpec {
             id: meta.id.clone(),
@@ -62,6 +64,7 @@ pub async fn supervise_cron_job(
 ) -> Result<(), corex_core::EngineError> {
     use crate::cron::{bind_cron_engine, CronEngine, CronJobSpec};
     use crate::definition::Directive;
+    use crate::supervisor::resolve::resolve_cron_expr;
     use crate::supervisor::{poll_control, ControlMsg, JobKind, JobMeta};
     use crate::trigger::find_cron_trigger;
     use std::sync::Arc;
@@ -69,7 +72,7 @@ pub async fn supervise_cron_job(
     use tracing::info;
 
     let directive = Directive::from_yaml_file(&meta.directive_path)?;
-    let engine = CronEngine::new(data_dir.to_path_buf(), store, runtime).await?;
+    let engine = CronEngine::new(data_dir.to_path_buf(), store, runtime.clone()).await?;
     bind_cron_engine(Arc::clone(&engine));
     let cron = find_cron_trigger(&directive.triggers)?.ok_or_else(|| {
         corex_core::EngineError::other(format!(
@@ -77,10 +80,11 @@ pub async fn supervise_cron_job(
             meta.directive_name
         ))
     })?;
+    let expr = resolve_cron_expr(&directive, runtime, &cron.expr)?;
     engine
         .register(CronJobSpec {
             id: meta.id.clone(),
-            expr: cron.expr,
+            expr,
             directive_path: meta.directive_path.clone(),
             directive_name: meta.directive_name.clone(),
         })

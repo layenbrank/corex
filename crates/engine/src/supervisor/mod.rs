@@ -3,6 +3,7 @@
 pub mod control;
 pub mod job;
 pub mod process;
+pub mod resolve;
 pub mod run;
 
 pub use control::{poll_control, send_control, ControlMsg};
