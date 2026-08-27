@@ -226,6 +226,7 @@ mod win {
         let map = require_map(&params)?;
         let file = require_path(map, "file")?;
         let lang = opt_str(map, "language");
+        // WinRT OCR types are typically !Send; keep COM work on one blocking thread.
         tokio::task::spawn_blocking(move || ocr_file(&file, lang.as_deref()))
             .await
             .map_err(|e| ActionError::execution(format!("OCR 任务失败: {e}")))?

@@ -1,19 +1,15 @@
 # Progress Log
 
-## Session: Code Review 修复
+## Session: windows feature 拆分收尾
 
 ### Done
-- [x] 门禁：`plugins.disabled` + `strict_permissions` + 独立 action_id
-- [x] Win11 desktop WorkerW / SHELLDLL_DefView fallback
-- [x] pick scope 外 stderr 提示；`element get --class`；tree bounds；redact automation_id
-- [x] enterprise.toml / docs / Windows scope 测试去 ignore
-- [x] 单测扩展
+- [x] `windows` workspace：`default-features = false`，按 act-* 启用
+- [x] 共享 bundle：`win32-base` / `win32-process` / `winrt-ocr`
+- [x] OCR 保持 `spawn_blocking` + `.join()`（WinRT !Send）
+- [x] daemon：`Write` 仅 unix 导入（修 CI warning）
+- [x] 交叉编译验证：`act-ui` / `act-capture` / `act-shell+act-exec`
 
-### Validate
-```bash
-cargo test --workspace
-```
-
-### Deferred
-- pick USERDATA 生命周期重构
-- Windows 实机：desktop icons / pick 非终端区域
+### Skip
+- windows-sys 双轨
+- OCR 跨线程 await
+- forepaw / windows-registry（无现成消费方）

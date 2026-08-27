@@ -2,6 +2,16 @@
 
 Action IDs registered by `corex-registry` builtins (`crates/registry/src/builtin/`). Feature gates are `act-*` (enabled via `full` in default daemon/CLI builds).
 
+On Windows, `windows` crate features are enabled **per gate** (not globally):
+
+| Bundle / gate | Pulls |
+|---------------|--------|
+| `win32-base` | Win32 messaging (`act-ui` / process helpers) |
+| `win32-process` | + ToolHelp (`act-shell` / `act-exec`) |
+| `winrt-ocr` | WinRT Imaging/OCR/Storage (`act-capture`) |
+
+`windows` is `optional` + `default-features = false` in the workspace; only enabled gates compile those APIs.
+
 Invoke via Directive YAML (`action: <id>`) or IPC `{"type":"invoke","action":"<id>","params":{...}}`.
 
 ## Catalog
