@@ -25,11 +25,12 @@ impl FromStr for ControlMsg {
     type Err = String;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s.trim().to_ascii_uppercase().as_str() {
-            "RUN_NOW" => Ok(Self::RunNow),
-            "STATUS" => Ok(Self::Status),
-            "STOP" => Ok(Self::Stop),
-            other => Err(format!("未知 control 消息: {other}")),
+        let normalized = s.trim().to_ascii_lowercase().replace('-', "_");
+        match normalized.as_str() {
+            "run_now" => Ok(Self::RunNow),
+            "status" => Ok(Self::Status),
+            "stop" => Ok(Self::Stop),
+            other => Err(format!("未知 control 消息: {other}（支持 run-now、status、stop）")),
         }
     }
 }
@@ -45,4 +46,16 @@ pub fn poll_control(job_dir: &std::path::Path) -> Option<ControlMsg> {
     let text = std::fs::read_to_string(&path).ok()?;
     let _ = std::fs::remove_file(&path);
     ControlMsg::from_str(&text).ok()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parse_lowercase_aliases() {
+        assert_eq!(ControlMsg::from_str("run-now").unwrap(), ControlMsg::RunNow);
+        assert_eq!(ControlMsg::from_str("status").unwrap(), ControlMsg::Status);
+        assert_eq!(ControlMsg::from_str("stop").unwrap(), ControlMsg::Stop);
+    }
 }

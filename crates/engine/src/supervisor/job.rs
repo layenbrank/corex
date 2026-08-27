@@ -34,6 +34,48 @@ impl JobMeta {
         data_dir.join(sub).join(id)
     }
 
+    /// Path to the supervisor process log file.
+    pub fn supervisor_log_path(data_dir: &Path, kind: JobKind, id: &str) -> PathBuf {
+        Self::job_dir(data_dir, kind, id).join("supervisor.log")
+    }
+
+    fn kind_label(kind: JobKind) -> &'static str {
+        match kind {
+            JobKind::Watch => "watch",
+            JobKind::Cron => "cron",
+        }
+    }
+
+    /// Resolve a job by directive name (not OS pid).
+    pub fn resolve_by_name(data_dir: &Path, kind: JobKind, name: &str) -> Result<Self, String> {
+        let trimmed = name.trim();
+        if trimmed.is_empty() {
+            return Err("指令名不能为空".into());
+        }
+        if trimmed.chars().all(|c| c.is_ascii_digit()) {
+            return Err(format!(
+                "请使用指令名，非 pid。可用 corex {} ps 查看 NAME 列",
+                Self::kind_label(kind)
+            ));
+        }
+        Self::read(data_dir, kind, trimmed).map_err(|_| {
+            let scanned = Self::scan(data_dir, kind);
+            let names: Vec<String> = scanned.iter().map(|j| j.directive_name.clone()).collect();
+            if names.is_empty() {
+                format!(
+                    "未找到 {} job `{trimmed}`（当前无运行中的 job）",
+                    Self::kind_label(kind)
+                )
+            } else {
+                format!(
+                    "未找到 {} job `{trimmed}`。可用: {}",
+                    Self::kind_label(kind),
+                    names.join(", ")
+                )
+            }
+        })
+    }
+
     pub fn write(&self, data_dir: &Path) -> std::io::Result<()> {
         let dir = Self::job_dir(data_dir, self.kind, &self.id);
         std::fs::create_dir_all(&dir)?;
@@ -45,7 +87,8 @@ impl JobMeta {
     pub fn read(data_dir: &Path, kind: JobKind, id: &str) -> std::io::Result<Self> {
         let path = Self::job_dir(data_dir, kind, id).join("meta.json");
         let text = std::fs::read_to_string(path)?;
-        serde_json::from_str(&text).map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))
+        serde_json::from_str(&text)
+            .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))
     }
 
     pub fn scan(data_dir: &Path, kind: JobKind) -> Vec<Self> {

@@ -1,5 +1,6 @@
 //! Process helpers for supervised jobs.
 
+use std::fs::OpenOptions;
 use std::path::Path;
 use std::process::{Command, Stdio};
 
@@ -33,12 +34,16 @@ pub fn is_pid_running(pid: u32) -> bool {
 }
 
 /// Spawn a detached child process for a supervisor run loop.
-pub fn spawn_detached(exe: &Path, args: &[&str]) -> std::io::Result<u32> {
+pub fn spawn_detached(exe: &Path, args: &[&str], log_path: Option<&Path>) -> std::io::Result<u32> {
     let mut cmd = Command::new(exe);
-    cmd.args(args)
-        .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null());
+    cmd.args(args).stdin(Stdio::null());
+    if let Some(log) = log_path {
+        let file = OpenOptions::new().create(true).append(true).open(log)?;
+        let stderr = file.try_clone()?;
+        cmd.stdout(Stdio::from(file)).stderr(Stdio::from(stderr));
+    } else {
+        cmd.stdout(Stdio::null()).stderr(Stdio::null());
+    }
     #[cfg(windows)]
     {
         use std::os::windows::process::CommandExt;
