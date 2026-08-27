@@ -6,8 +6,8 @@ mod windows {
     use corex_registry::ui_probe::{self, TreeFormat};
     use std::collections::BTreeMap;
 
+    /// Pure gate check — no desktop session required.
     #[tokio::test]
-    #[ignore = "requires Windows desktop session"]
     async fn probe_scope_required_without_hwnd() {
         let ctx = ui_probe::probe_context(Default::default());
         let err = ui_probe::probe_element_tree(&ctx, BTreeMap::new(), TreeFormat::Flat)

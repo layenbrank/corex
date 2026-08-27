@@ -36,9 +36,10 @@ json = true
 ```
 
 `strict_permissions` rejects directives with no permission flags (unrestricted).  
+It also denies `corex ui` probe commands and daemon Invoke for any action that requires a permission kind (including all `ui.*`).  
 `corex validate --strict` additionally checks that declared flags cover every step’s action kind.
 
-Enable high-privilege actions only when required, by removing IDs from `disabled_actions` and declaring matching `permissions` in each directive.
+Enable high-privilege actions only when required, by removing IDs from `disabled_actions` (and/or clearing `plugins.disabled`) and declaring matching `permissions` in each directive.
 
 Validate before deploy:
 

@@ -1111,11 +1111,84 @@ pub(crate) mod win {
     }
 
     fn find_desktop_hwnd() -> Option<HWND> {
-        use windows::Win32::UI::WindowsAndMessaging::FindWindowW;
+        use windows::Win32::Foundation::{BOOL, LPARAM, WPARAM};
+        use windows::Win32::UI::WindowsAndMessaging::{
+            EnumWindows, FindWindowExW, FindWindowW, GetClassNameW, SendMessageTimeoutW,
+            SMTO_NORMAL,
+        };
+
+        struct EnumState {
+            found: Option<HWND>,
+        }
+
+        unsafe extern "system" fn enum_workerw(hwnd: HWND, lparam: LPARAM) -> BOOL {
+            let state = unsafe { &mut *(lparam.0 as *mut EnumState) };
+            let mut buf = [0u16; 64];
+            let n = unsafe { GetClassNameW(hwnd, &mut buf) };
+            if n <= 0 {
+                return BOOL(1);
+            }
+            let class = String::from_utf16_lossy(&buf[..n as usize]);
+            if class != "WorkerW" {
+                return BOOL(1);
+            }
+            let defview = unsafe {
+                FindWindowExW(
+                    Some(hwnd),
+                    None,
+                    windows::core::w!("SHELLDLL_DefView"),
+                    None,
+                )
+            };
+            if defview.is_ok() {
+                state.found = Some(hwnd);
+                return BOOL(0); // stop
+            }
+            BOOL(1)
+        }
+
         unsafe {
-            let progman = FindWindowW(windows::core::w!("Progman"), None).ok()?;
-            if IsWindow(progman).as_bool() {
-                return Some(progman);
+            let progman = FindWindowW(windows::core::w!("Progman"), None).ok();
+            if let Some(progman) = progman {
+                if IsWindow(progman).as_bool() {
+                    // Prefer Progman when it hosts SHELLDLL_DefView (classic layout).
+                    if FindWindowExW(
+                        Some(progman),
+                        None,
+                        windows::core::w!("SHELLDLL_DefView"),
+                        None,
+                    )
+                    .is_ok()
+                    {
+                        return Some(progman);
+                    }
+                    // Win10/11: ask Progman to spawn WorkerW that hosts the desktop.
+                    let _ = SendMessageTimeoutW(
+                        progman,
+                        0x052C,
+                        WPARAM(0),
+                        LPARAM(0),
+                        SMTO_NORMAL,
+                        1000,
+                        None,
+                    );
+                }
+            }
+
+            let mut state = EnumState { found: None };
+            let _ = EnumWindows(
+                Some(enum_workerw),
+                LPARAM(&mut state as *mut EnumState as isize),
+            );
+            if let Some(hwnd) = state.found {
+                return Some(hwnd);
+            }
+
+            // Last resort: Progman itself (may still expose ListItem via UIA).
+            if let Some(progman) = progman {
+                if IsWindow(progman).as_bool() {
+                    return Some(progman);
+                }
             }
             None
         }

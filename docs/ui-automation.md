@@ -43,14 +43,16 @@ corex ui window desktop
 corex ui element tree --title "无标题 - Notepad" --depth 4
 corex ui element tree --title "无标题 - Notepad" --format tree
 corex ui element get --title "无标题 - Notepad" --control-type document
+corex ui element get --title "记事本" --class Edit
 corex ui element point --x 640 --y 480
 corex ui element pick --copy-yaml
 ```
 
 - `element tree` / `element get` **必须** `--hwnd` 或 `--title`（否则 `ui_scope_required`）
-- `element pick` 使用全局左键确认（FlaUI 四边框高亮 + `GetAsyncKeyState`），不依赖 overlay 焦点
-- 输出含 `ancestors[]`、`selectors_yaml`；可选 `--redact` 打码 `name`
-- 尊重 `[plugins].disabled_actions`；probe 事件写入 `audit.jsonl`（`ui.probe`）
+- `element pick` 使用全局左键确认（FlaUI 四边框高亮 + `GetAsyncKeyState`），不依赖 overlay 焦点；scope 外点击会 stderr 提示
+- 输出含 `ancestors[]`、`selectors_yaml`；可选 `--redact` 打码 `name` / `automation_id`（含 ancestors）
+- 企业门禁与 daemon 对齐：`plugins.disabled`、`disabled_actions`、`[runtime].strict_permissions`；probe 事件写入 `audit.jsonl`（`ui.probe`）
+- 审计 / 门禁 action id：`ui.window.list` / `ui.window.desktop` / `ui.element.list` / `ui.element.find` / `ui.element.point` / `ui.element.pick`
 
 Workflow：window list → element tree/get → 粘贴 YAML → `corex run ui-smoke-notepad` 验证。
 

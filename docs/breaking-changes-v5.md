@@ -32,12 +32,26 @@ Use `ui.window.*` for top-level windows; use `ui.element.*` for in-app controls 
 
 ## Enterprise controls
 
-- `[runtime].strict_permissions` — deny unrestricted directives
+- `[runtime].strict_permissions` — deny unrestricted directives; also blocks `corex ui` probe (ui.*) and daemon Invoke of permissioned actions
 - `[runtime].filesystem_roots` — confine `file.*` via `confine_under`
 - `corex validate --strict` — require declared permissions covering all steps
 - Step audit: `<data>/audit.jsonl` (`action_id`, `duration_ms`, redacted; no OCR/HTTP body)
 - Preset: [`config/enterprise.toml`](../config/enterprise.toml)
 - Compliance: [`docs/compliance.md`](./compliance.md)
+
+## Interactive UI CLI (`corex ui`)
+
+Nested commands (no aliases for removed flat names):
+
+| Removed | Replacement |
+|---------|-------------|
+| `corex ui windows` / `ui list` | `corex ui window list` |
+| (desktop icons via silent list fallback) | `corex ui window desktop` |
+| `corex ui find` / `ui at` | `corex ui element get` / `element point` |
+| pick under old path | `corex ui element pick` |
+
+Probe gate/audit ids: `ui.window.list`, `ui.window.desktop`, `ui.element.list`, `ui.element.find`, `ui.element.point`, `ui.element.pick`.
+Also honors `[plugins].disabled = ["ui"]`.
 
 ## Process launch (`shell.run` / `exec.run`)
 
