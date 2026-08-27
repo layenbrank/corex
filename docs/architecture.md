@@ -78,7 +78,9 @@ Value 结果  +  可选 history.jsonl
 | `[plugins]` | `plugin_dir`、`disabled`、`disabled_actions` |
 | `[history]` | JSONL 执行历史开关与文件名 |
 | `[logging]` | 级别 / JSON 日志 |
-| `[runtime]` | `max_parallel`（parallel 默认并发）、`step_timeout_secs` |
+| `[runtime]` | `max_parallel`、`step_timeout_secs`、`strict_permissions`、`filesystem_roots`、`ui_profile` / `ui_max_selector_chain` / `ui_max_settle_ms` |
+
+企业锁定预设见 [`config/enterprise.toml`](../config/enterprise.toml) 与 [enterprise-deploy.md](./enterprise-deploy.md)。威胁边界见 [threat-model.md](./threat-model.md)。
 
 ## 构建
 
@@ -86,6 +88,8 @@ Value 结果  +  可选 history.jsonl
 cargo build -p corex -p corex-daemon --release
 cargo test --workspace
 ```
+
+默认启用 `full`（全部 `act-*`）。最小企业构建见 [enterprise-deploy.md](./enterprise-deploy.md#minimal-enterprise-build)。
 
 发布 ZIP（Windows CI）包含 `corex` + `corex-daemon`（+ `pdfium.dll` 若仍捆绑）。
 
@@ -96,6 +100,9 @@ cargo test --workspace
 | [ipc-protocol.md](./ipc-protocol.md) | NDJSON 协议、token、端点 |
 | [directive-yaml.md](./directive-yaml.md) | Directive DSL 与占位符 |
 | [actions.md](./actions.md) | 内置 Action ID 表 |
+| [enterprise-deploy.md](./enterprise-deploy.md) | 企业部署、preset、最小构建、CLI 信任边界 |
+| [threat-model.md](./threat-model.md) | 威胁模型与高风险 Action |
+| [compliance.md](./compliance.md) | 合规原则与控制项 |
 | [cross-platform-backends.md](./cross-platform-backends.md) | Capture/OCR/UI 跨平台后端规划 |
 | [breaking-changes-v4.md](./breaking-changes-v4.md) | v4 破坏性变更 |
 | [breaking-changes-v5.md](./breaking-changes-v5.md) | v5 Directive 重命名 |

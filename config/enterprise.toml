@@ -4,7 +4,7 @@
 
 [runtime]
 strict_permissions = true
-# Confine file/copy/codec/… path I/O under these roots (use absolute paths in deploy)
+# Confine file/copy/codec/exec script/cwd … path I/O under these roots (use absolute paths in deploy)
 filesystem_roots = ["C:/ProgramData/corex/data"]
 ui_max_settle_ms = 500
 
@@ -31,6 +31,10 @@ disabled_actions = [
   "ui.key",
   "capture.ocr",
   "capture.screenshot",
+  "capture.monitors",
+  "keyring.get",
+  "keyring.set",
+  "scan.os",
 ]
 
 [logging]

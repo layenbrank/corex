@@ -14,9 +14,10 @@
 
 | Action | Risk | Mitigation |
 |--------|------|------------|
-| `shell.run` / `exec.run` | Arbitrary process / scripts | `permissions.shell`; per-Action `disabled_actions`; prefer explicit `host` for audit |
+| `shell.run` / `exec.run` | Arbitrary process / scripts | `permissions.shell`; per-Action `disabled_actions`; prefer explicit `host` for audit; `filesystem_roots` confines `exec.run` **script** and both Actions' **cwd** (`shell.run` **command** is not path-confined — PATH lookup) |
 | `ui.*` | Input injection, app control | `permissions.ui`; enterprise default off |
-| `capture.screenshot` / `capture.ocr` | PII / secrets on screen | `permissions.capture`; no OCR text in history |
+| `capture.screenshot` / `capture.ocr` / `capture.monitors` | PII / secrets on screen; monitor layout | `permissions.capture`; enterprise preset disables; no OCR text in history |
+| `keyring.*` / `scan.os` | Secrets / host inventory | `permissions.secret` (keyring); enterprise `disabled_actions` |
 | `file.write` (`regex` mode) | ReDoS | Pattern length + output byte limits |
 | `clipboard.set` (`image`) | Data exfil via clip | `permissions.clipboard` |
 | `corex ui` probe CLI | Enumerate windows/elements; PII in stdout | Same `plugins.disabled` / `disabled_actions` / `strict_permissions` as daemon; audit as `ui.probe`; `--redact` |
@@ -40,6 +41,7 @@ Directive → Pipeline → ActionStore → builtin / WASM
 | Data | Logged? |
 |------|---------|
 | `action_id`, `step_id`, `duration_ms`, `ok` | Yes (`audit.jsonl`) |
+| Directive history `error` | Short class + truncated / path-redacted text (`history.jsonl`) |
 | HTTP body, OCR text, clipboard payload | **No** |
 | Sensitive action params | **Not logged** (no values, no key dumps) |
 
@@ -47,3 +49,4 @@ Directive → Pipeline → ActionStore → builtin / WASM
 
 - UI automation examples (e.g. WeChat) are **experimental**; see [compliance.md](./compliance.md).
 - Enable `strict_permissions` + `filesystem_roots` in enterprise deployments.
+- Local `corex run` bypasses daemon IPC; see [enterprise-deploy.md](./enterprise-deploy.md#cli-trust-boundary).

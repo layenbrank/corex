@@ -33,7 +33,7 @@ Use `ui.window.*` for top-level windows; use `ui.element.*` for in-app controls 
 ## Enterprise controls
 
 - `[runtime].strict_permissions` — deny unrestricted directives; also blocks `corex ui` probe (ui.*) and daemon Invoke of permissioned actions
-- `[runtime].filesystem_roots` — confine `file.*` via `confine_under`
+- `[runtime].filesystem_roots` — confine `file.*` / `copy.*` / `codec.*` / … via `confine_under`; also confines `exec.run` **script** and `shell.run`/`exec.run` **cwd** (`shell.run` **command** is not path-confined)
 - `corex validate --strict` — require declared permissions covering all steps
 - Step audit: `<data>/audit.jsonl` (`action_id`, `duration_ms`, redacted; no OCR/HTTP body)
 - Preset: [`config/enterprise.toml`](../config/enterprise.toml)

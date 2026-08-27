@@ -198,17 +198,17 @@ impl Permissions {
         if self.is_unrestricted() {
             return Ok(());
         }
-        let need = permission_kind_for(action_id);
+        let need = corex_core::permission_kind_for(action_id);
         let ok = match need {
-            PermissionKind::None => true,
-            PermissionKind::Network => self.network,
-            PermissionKind::Filesystem => self.filesystem,
-            PermissionKind::Shell => self.shell,
-            PermissionKind::Clipboard => self.clipboard,
-            PermissionKind::Notifications => self.notifications,
-            PermissionKind::Ui => self.ui,
-            PermissionKind::Capture => self.capture,
-            PermissionKind::Secret => self.secret,
+            corex_core::PermissionKind::None => true,
+            corex_core::PermissionKind::Network => self.network,
+            corex_core::PermissionKind::Filesystem => self.filesystem,
+            corex_core::PermissionKind::Shell => self.shell,
+            corex_core::PermissionKind::Clipboard => self.clipboard,
+            corex_core::PermissionKind::Notifications => self.notifications,
+            corex_core::PermissionKind::Ui => self.ui,
+            corex_core::PermissionKind::Capture => self.capture,
+            corex_core::PermissionKind::Secret => self.secret,
         };
         if ok {
             Ok(())
@@ -217,49 +217,6 @@ impl Permissions {
                 "指令未声明权限以执行 {action_id}"
             )))
         }
-    }
-}
-
-/// Permission category required by an action id.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum PermissionKind {
-    None,
-    Network,
-    Filesystem,
-    Shell,
-    Clipboard,
-    Notifications,
-    Ui,
-    Capture,
-    Secret,
-}
-
-/// Map action id → required permission kind.
-pub fn permission_kind_for(action_id: &str) -> PermissionKind {
-    match action_id {
-        "shell.run" | "exec.run" | "bootstrap.env" | "bootstrap.inspect" | "bootstrap.force" => {
-            PermissionKind::Shell
-        }
-        "http.request" => PermissionKind::Network,
-        "clipboard.get" | "clipboard.set" => PermissionKind::Clipboard,
-        "notify.send" => PermissionKind::Notifications,
-        id if id.starts_with("ui.") => PermissionKind::Ui,
-        "capture.screenshot" | "capture.monitors" | "capture.ocr" => PermissionKind::Capture,
-        id if id.starts_with("keyring.") => PermissionKind::Secret,
-        "codec.json.parse" => PermissionKind::None,
-        id if id.starts_with("file.")
-            || id.starts_with("copy.")
-            || id.starts_with("scrub.")
-            || id.starts_with("shade.")
-            || id.starts_with("compression.")
-            || id.starts_with("morph.")
-            || id.starts_with("generate.path")
-            || id.starts_with("codec.")
-            || id == "capture.crop" =>
-        {
-            PermissionKind::Filesystem
-        }
-        _ => PermissionKind::None,
     }
 }
 

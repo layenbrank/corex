@@ -1,7 +1,6 @@
 //! Interactive UI probe API for `corex ui` CLI (Windows UIAutomation).
 
 use corex_core::{ActionError, ExecutionContext, RuntimeConfig, Value};
-use crate::builtin::ui_kernel::{probe_action_denied, probe_plugin_disabled};
 #[cfg(windows)]
 use crate::builtin::ui_kernel::{elements_flat_to_tree, probe_scope_explicit};
 use std::collections::BTreeMap;
@@ -14,23 +13,7 @@ fn unavailable() -> ActionError {
 /// Gate CLI/`ui_probe` the same way registry + daemon Invoke do:
 /// `plugins.disabled`, `plugins.disabled_actions`, and `strict_permissions`.
 pub fn check_probe_allowed(config: &RuntimeConfig, action_id: &str) -> Result<(), ActionError> {
-    if probe_plugin_disabled(&config.plugins, action_id) {
-        return Err(ActionError::execution(format!(
-            "probe_denied: 插件/动作 {action_id} 已被 plugins.disabled 禁用"
-        )));
-    }
-    if probe_action_denied(&config.plugins, action_id) {
-        return Err(ActionError::execution(format!(
-            "probe_denied: 动作 {action_id} 已被 disabled_actions 禁用"
-        )));
-    }
-    // Match daemon Invoke: under strict_permissions, any ui.* (PermissionKind::Ui) is denied.
-    if config.strict_permissions && action_id.starts_with("ui.") {
-        return Err(ActionError::execution(format!(
-            "probe_denied: strict_permissions 不允许执行需权限的动作 {action_id}"
-        )));
-    }
-    Ok(())
+    corex_core::check_runtime_allowed(config, action_id)
 }
 
 /// List visible top-level windows.

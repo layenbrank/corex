@@ -40,7 +40,7 @@ impl HistoryEntry {
             .as_millis() as u64;
         let (ok, error) = match result {
             Ok(()) => (true, None),
-            Err(e) => (false, Some(e)),
+            Err(e) => (false, Some(sanitize_history_error(&e))),
         };
         Self {
             directive: directive.into(),
@@ -51,6 +51,78 @@ impl HistoryEntry {
             duration_ms,
         }
     }
+}
+
+/// Max length of history error text (after path redaction).
+const HISTORY_ERROR_MAX: usize = 200;
+
+/// Classify + redact paths + truncate for directive-level history.
+/// Full detail remains in `audit.jsonl` / process logs.
+pub fn sanitize_history_error(msg: &str) -> String {
+    let kind = classify_history_error(msg);
+    let redacted = redact_path_like(msg);
+    let body = truncate_chars(&redacted, HISTORY_ERROR_MAX);
+    if body.is_empty() {
+        kind
+    } else {
+        format!("{kind}: {body}")
+    }
+}
+
+fn classify_history_error(msg: &str) -> String {
+    let lower = msg.to_lowercase();
+    if lower.contains("permission") || msg.contains("权限") || lower.contains("runtime_denied") {
+        "permission_denied".into()
+    } else if lower.contains("timeout") || msg.contains("超时") {
+        "timeout".into()
+    } else if lower.contains("notregistered")
+        || lower.contains("not registered")
+        || msg.contains("未注册")
+        || msg.contains("ActionNotRegistered")
+    {
+        "not_registered".into()
+    } else {
+        "execution".into()
+    }
+}
+
+fn redact_path_like(msg: &str) -> String {
+    let mut out = String::with_capacity(msg.len());
+    for token in msg.split_whitespace() {
+        if looks_like_path(token) {
+            if !out.is_empty() {
+                out.push(' ');
+            }
+            out.push_str("<path>");
+        } else {
+            if !out.is_empty() {
+                out.push(' ');
+            }
+            out.push_str(token);
+        }
+    }
+    out
+}
+
+fn looks_like_path(token: &str) -> bool {
+    let t = token.trim_matches(|c: char| c == '"' || c == '\'' || c == '`' || c == ',' || c == ';');
+    if t.len() < 3 {
+        return false;
+    }
+    // Unix absolute or Windows drive / UNC-ish
+    t.starts_with('/')
+        || t.starts_with('\\')
+        || (t.len() >= 3
+            && t.as_bytes()[1] == b':'
+            && (t.as_bytes()[2] == b'\\' || t.as_bytes()[2] == b'/'))
+}
+
+fn truncate_chars(s: &str, max: usize) -> String {
+    if s.chars().count() <= max {
+        return s.to_string();
+    }
+    let truncated: String = s.chars().take(max).collect();
+    format!("{truncated}…")
 }
 
 fn system_time_ms(t: SystemTime) -> u64 {
@@ -169,7 +241,19 @@ mod tests {
         assert!(all[0].ok);
         assert_eq!(all[0].directive, "hello");
         assert!(!all[1].ok);
-        assert_eq!(all[1].error.as_deref(), Some("boom"));
+        assert_eq!(all[1].error.as_deref(), Some("execution: boom"));
         assert_eq!(all[0].duration_ms, 12);
+    }
+
+    #[test]
+    fn sanitize_redacts_paths_and_classifies() {
+        let msg = "failed reading /tmp/secret.txt under root";
+        let s = sanitize_history_error(msg);
+        assert!(s.starts_with("execution:"), "{s}");
+        assert!(s.contains("<path>"), "{s}");
+        assert!(!s.contains("/tmp/secret.txt"), "{s}");
+
+        let perm = sanitize_history_error("runtime_denied: strict_permissions");
+        assert!(perm.starts_with("permission_denied:"), "{perm}");
     }
 }
