@@ -253,7 +253,19 @@ fn node_key(map: &BTreeMap<String, Value>) -> String {
         .get("control_type")
         .and_then(|v| v.as_str())
         .unwrap_or("");
-    format!("{ct}:{aid}:{name}")
+    // Include bounds so same-name siblings are not merged into one TreeNode.
+    let bounds = map
+        .get("bounds")
+        .and_then(|v| v.as_map())
+        .map(|b| {
+            let x = b.get("x").and_then(|v| v.as_i64()).unwrap_or(0);
+            let y = b.get("y").and_then(|v| v.as_i64()).unwrap_or(0);
+            let w = b.get("width").and_then(|v| v.as_i64()).unwrap_or(0);
+            let h = b.get("height").and_then(|v| v.as_i64()).unwrap_or(0);
+            format!("{x}:{y}:{w}:{h}")
+        })
+        .unwrap_or_default();
+    format!("{ct}:{aid}:{name}:{bounds}")
 }
 
 /// Build nested tree JSON from flat element maps that include `ancestors`.
@@ -345,6 +357,15 @@ pub fn selector_chain_to_yaml(chain: &[ElementSelector]) -> String {
         }
     }
     lines.join("\n")
+}
+
+/// Whether an action id is blocked by `[plugins].disabled` (plugin name or full id).
+pub fn probe_plugin_disabled(plugins: &corex_core::PluginConfig, action_id: &str) -> bool {
+    let plugin = action_id.split('.').next().unwrap_or(action_id);
+    plugins
+        .disabled
+        .iter()
+        .any(|d| d == plugin || d == action_id)
 }
 
 /// Whether an action id is blocked by `[plugins].disabled_actions`.
@@ -441,5 +462,70 @@ mod tests {
         let tree = elements_flat_to_tree(&[child]);
         let json = tree.to_json();
         assert!(json.get("children").is_some() || json.get("name").is_some());
+    }
+
+    #[test]
+    fn flat_to_tree_keeps_same_name_siblings_with_bounds() {
+        let mut parent = BTreeMap::new();
+        parent.insert("name".into(), Value::Str("Pane".into()));
+        parent.insert("control_type".into(), Value::Str("pane".into()));
+
+        let mut a = BTreeMap::new();
+        a.insert("name".into(), Value::Str("Item".into()));
+        a.insert("control_type".into(), Value::Str("listitem".into()));
+        a.insert(
+            "bounds".into(),
+            Value::Map(BTreeMap::from([
+                ("x".into(), Value::Int(0)),
+                ("y".into(), Value::Int(0)),
+                ("width".into(), Value::Int(10)),
+                ("height".into(), Value::Int(10)),
+            ])),
+        );
+        a.insert(
+            "ancestors".into(),
+            Value::List(vec![Value::Map(parent.clone())]),
+        );
+
+        let mut b = BTreeMap::new();
+        b.insert("name".into(), Value::Str("Item".into()));
+        b.insert("control_type".into(), Value::Str("listitem".into()));
+        b.insert(
+            "bounds".into(),
+            Value::Map(BTreeMap::from([
+                ("x".into(), Value::Int(20)),
+                ("y".into(), Value::Int(0)),
+                ("width".into(), Value::Int(10)),
+                ("height".into(), Value::Int(10)),
+            ])),
+        );
+        b.insert(
+            "ancestors".into(),
+            Value::List(vec![Value::Map(parent)]),
+        );
+
+        let tree = elements_flat_to_tree(&[a, b]);
+        let json = tree.to_json();
+        let kids = json
+            .get("children")
+            .and_then(|c| c.as_array())
+            .expect("siblings under parent");
+        assert_eq!(kids.len(), 2);
+    }
+
+    #[test]
+    fn probe_plugin_disabled_matches_plugin_or_id() {
+        let plugins = corex_core::PluginConfig {
+            disabled: vec!["ui".into()],
+            ..Default::default()
+        };
+        assert!(probe_plugin_disabled(&plugins, "ui.element.list"));
+        assert!(probe_plugin_disabled(&plugins, "ui.window.desktop"));
+        let plugins2 = corex_core::PluginConfig {
+            disabled: vec!["ui.element.pick".into()],
+            ..Default::default()
+        };
+        assert!(probe_plugin_disabled(&plugins2, "ui.element.pick"));
+        assert!(!probe_plugin_disabled(&plugins2, "ui.element.point"));
     }
 }

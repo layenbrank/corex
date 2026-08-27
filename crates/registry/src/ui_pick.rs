@@ -301,9 +301,14 @@ impl PickSession {
         let lbutton_down =
             unsafe { GetAsyncKeyState(VK_LBUTTON.0 as i32) as u16 & 0x8000 != 0 };
         if lbutton_down && !self.prev_lbutton_down && !self.done {
-            if self.select_at_cursor().is_ok() {
-                unsafe {
+            match self.select_at_cursor() {
+                Ok(()) => unsafe {
                     PostQuitMessage(0);
+                },
+                Err(e) => {
+                    eprintln!(
+                        "corex ui element pick: 未选中（{e}）— 请在目标窗口内点击，或按 Esc 取消"
+                    );
                 }
             }
         }
@@ -389,6 +394,7 @@ fn run_pick_blocking(scope_hwnd: Option<i64>) -> Result<BTreeMap<String, Value>,
         result: None,
     };
 
+    // USERDATA holds PickSession for the timer lifetime only; cleared before destroy.
     unsafe {
         SetWindowLongPtrW(
             session.ui.msg_hwnd,

@@ -1,13 +1,17 @@
 //! `corex ui` — interactive element probe commands.
 
-use anyhow::{bail, Context, Result};
+use anyhow::{bail, Result};
+#[cfg(windows)]
+use anyhow::Context;
 use clap::{Subcommand, ValueEnum};
 use corex_core::{RuntimeConfig, Value, RUNTIME_CONFIG};
 use corex_engine::{AuditEntry, ExecutionAudit};
 use corex_registry::ui_probe::{self, TreeFormat};
 use std::collections::BTreeMap;
+#[cfg(windows)]
 use std::io::Write;
 use std::path::{Path, PathBuf};
+#[cfg(windows)]
 use std::process::{Command, Stdio};
 use std::time::Instant;
 
@@ -64,6 +68,8 @@ pub enum ElementCmd {
         automation_id: Option<String>,
         #[arg(long)]
         control_type: Option<String>,
+        #[arg(long, help = "Win32 / UIA class name")]
+        class: Option<String>,
         #[arg(long, default_value = "3000")]
         timeout_ms: i64,
         #[arg(long)]
@@ -120,6 +126,8 @@ struct RuntimeSectionFields {
     ui_max_selector_chain: Option<usize>,
     #[serde(default)]
     ui_max_settle_ms: Option<u64>,
+    #[serde(default)]
+    strict_permissions: Option<bool>,
 }
 
 fn load_runtime_config(data_dir: &Path) -> RuntimeConfig {
@@ -160,6 +168,9 @@ impl RuntimeConfigWrapper {
                     cfg.ui_max_settle_ms = ms;
                 }
             }
+            if let Some(s) = r.strict_permissions {
+                cfg.strict_permissions = s;
+            }
         }
         cfg
     }
@@ -181,6 +192,9 @@ fn redact_value(v: &mut Value) {
         Value::Map(m) => {
             if let Some(Value::Str(_)) = m.get_mut("name") {
                 m.insert("name".into(), Value::Str("***".into()));
+            }
+            if let Some(Value::Str(_)) = m.get_mut("automation_id") {
+                m.insert("automation_id".into(), Value::Str("***".into()));
             }
             for val in m.values_mut() {
                 redact_value(val);
@@ -205,6 +219,7 @@ fn print_value(v: &Value, redact: bool) -> Result<()> {
     Ok(())
 }
 
+#[cfg(windows)]
 fn copy_yaml_to_clipboard(yaml: &str) -> Result<()> {
     let mut child = Command::new("clip")
         .stdin(Stdio::piped())
@@ -242,8 +257,7 @@ async fn run_probe<F>(
 where
     F: std::future::Future<Output = Result<Value, corex_core::ActionError>>,
 {
-    ui_probe::check_probe_allowed(&config.plugins, action_id)
-        .map_err(|e| anyhow::anyhow!("{e}"))?;
+    ui_probe::check_probe_allowed(config, action_id).map_err(|e| anyhow::anyhow!("{e}"))?;
     let t0 = Instant::now();
     let result = f.await;
     let duration_ms = t0.elapsed().as_millis() as u64;
@@ -270,7 +284,7 @@ pub async fn run(command: UiCommands, data_dir: &Path) -> Result<()> {
                 print_value(&v, false)?;
             }
             WindowCmd::Desktop => {
-                let v = run_probe(data_dir, &config, "ui.window.list", async {
+                let v = run_probe(data_dir, &config, "ui.window.desktop", async {
                     ui_probe::probe_desktop_icons().await
                 })
                 .await?;
@@ -303,6 +317,7 @@ pub async fn run(command: UiCommands, data_dir: &Path) -> Result<()> {
                 name_contains,
                 automation_id,
                 control_type,
+                class,
                 timeout_ms,
                 redact,
             } => {
@@ -319,6 +334,9 @@ pub async fn run(command: UiCommands, data_dir: &Path) -> Result<()> {
                 if let Some(c) = control_type {
                     params.insert("control_type".into(), Value::Str(c));
                 }
+                if let Some(c) = class {
+                    params.insert("class".into(), Value::Str(c));
+                }
                 params.insert("timeout_ms".into(), Value::Int(timeout_ms));
                 let v = run_probe(data_dir, &config, "ui.element.find", async {
                     ui_probe::probe_element_get(&ctx, params).await
@@ -327,7 +345,7 @@ pub async fn run(command: UiCommands, data_dir: &Path) -> Result<()> {
                 print_value(&v, redact)?;
             }
             ElementCmd::Point { x, y, redact } => {
-                let v = run_probe(data_dir, &config, "ui.element.find", async {
+                let v = run_probe(data_dir, &config, "ui.element.point", async {
                     ui_probe::probe_element_point(x, y).await
                 })
                 .await?;
@@ -340,7 +358,7 @@ pub async fn run(command: UiCommands, data_dir: &Path) -> Result<()> {
             } => {
                 #[cfg(windows)]
                 {
-                    let v = run_probe(data_dir, &config, "ui.element.find", async {
+                    let v = run_probe(data_dir, &config, "ui.element.pick", async {
                         corex_registry::ui_pick::probe_pick(scope_hwnd).await
                     })
                     .await?;
@@ -369,9 +387,10 @@ mod tests {
     use super::*;
 
     #[test]
-    fn redact_masks_names() {
+    fn redact_masks_names_and_automation_ids() {
         let mut m = BTreeMap::new();
         m.insert("name".into(), Value::Str("secret".into()));
+        m.insert("automation_id".into(), Value::Str("btnSecret".into()));
         m.insert(
             "children".into(),
             Value::List(vec![Value::Map(BTreeMap::from([(
@@ -383,6 +402,10 @@ mod tests {
         redact_value(&mut v);
         if let Value::Map(m) = v {
             assert_eq!(m.get("name").and_then(|v| v.as_str()), Some("***"));
+            assert_eq!(
+                m.get("automation_id").and_then(|v| v.as_str()),
+                Some("***")
+            );
         }
     }
 }

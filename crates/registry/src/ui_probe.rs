@@ -1,9 +1,9 @@
 //! Interactive UI probe API for `corex ui` CLI (Windows UIAutomation).
 
-use corex_core::{ActionError, ExecutionContext, PluginConfig, RuntimeConfig, Value};
-use crate::builtin::ui_kernel::{probe_action_denied, probe_scope_explicit};
+use corex_core::{ActionError, ExecutionContext, RuntimeConfig, Value};
+use crate::builtin::ui_kernel::{probe_action_denied, probe_plugin_disabled};
 #[cfg(windows)]
-use crate::builtin::ui_kernel::elements_flat_to_tree;
+use crate::builtin::ui_kernel::{elements_flat_to_tree, probe_scope_explicit};
 use std::collections::BTreeMap;
 
 #[cfg(not(windows))]
@@ -11,11 +11,23 @@ fn unavailable() -> ActionError {
     ActionError::execution("ui probe 在当前平台不可用（需要 Windows）")
 }
 
-/// Returns error if action is listed in `[plugins].disabled_actions`.
-pub fn check_probe_allowed(plugins: &PluginConfig, action_id: &str) -> Result<(), ActionError> {
-    if probe_action_denied(plugins, action_id) {
+/// Gate CLI/`ui_probe` the same way registry + daemon Invoke do:
+/// `plugins.disabled`, `plugins.disabled_actions`, and `strict_permissions`.
+pub fn check_probe_allowed(config: &RuntimeConfig, action_id: &str) -> Result<(), ActionError> {
+    if probe_plugin_disabled(&config.plugins, action_id) {
+        return Err(ActionError::execution(format!(
+            "probe_denied: 插件/动作 {action_id} 已被 plugins.disabled 禁用"
+        )));
+    }
+    if probe_action_denied(&config.plugins, action_id) {
         return Err(ActionError::execution(format!(
             "probe_denied: 动作 {action_id} 已被 disabled_actions 禁用"
+        )));
+    }
+    // Match daemon Invoke: under strict_permissions, any ui.* (PermissionKind::Ui) is denied.
+    if config.strict_permissions && action_id.starts_with("ui.") {
+        return Err(ActionError::execution(format!(
+            "probe_denied: strict_permissions 不允许执行需权限的动作 {action_id}"
         )));
     }
     Ok(())
@@ -149,11 +161,31 @@ mod tests {
 
     #[test]
     fn probe_denied_when_action_disabled() {
-        let plugins = PluginConfig {
+        let mut cfg = RuntimeConfig::default();
+        cfg.plugins = PluginConfig {
             disabled_actions: vec!["ui.element.list".into()],
             ..Default::default()
         };
-        assert!(check_probe_allowed(&plugins, "ui.element.list").is_err());
-        assert!(check_probe_allowed(&plugins, "ui.window.list").is_ok());
+        assert!(check_probe_allowed(&cfg, "ui.element.list").is_err());
+        assert!(check_probe_allowed(&cfg, "ui.window.list").is_ok());
+    }
+
+    #[test]
+    fn probe_denied_when_plugin_disabled() {
+        let mut cfg = RuntimeConfig::default();
+        cfg.plugins = PluginConfig {
+            disabled: vec!["ui".into()],
+            ..Default::default()
+        };
+        assert!(check_probe_allowed(&cfg, "ui.window.desktop").is_err());
+        assert!(check_probe_allowed(&cfg, "ui.element.pick").is_err());
+    }
+
+    #[test]
+    fn probe_denied_under_strict_permissions() {
+        let mut cfg = RuntimeConfig::default();
+        cfg.strict_permissions = true;
+        assert!(check_probe_allowed(&cfg, "ui.element.point").is_err());
+        assert!(check_probe_allowed(&cfg, "ui.window.list").is_err());
     }
 }
