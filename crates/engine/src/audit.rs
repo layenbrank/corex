@@ -130,7 +130,7 @@ fn classify_error(msg: &str) -> String {
 pub fn is_sensitive_action(action_id: &str) -> bool {
     matches!(
         action_id,
-        "http.request" | "capture.ocr" | "clipboard.get" | "clipboard.set"
+        "http.send" | "capture.ocr" | "clipboard.get" | "clipboard.set"
     ) || action_id.starts_with("capture.")
 }
 
@@ -242,7 +242,7 @@ mod tests {
 
     #[test]
     fn redact_sensitive_actions() {
-        assert!(is_sensitive_action("http.request"));
+        assert!(is_sensitive_action("http.send"));
         assert!(is_sensitive_action("capture.ocr"));
         assert!(!is_sensitive_action("template.render"));
     }

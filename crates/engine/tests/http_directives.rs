@@ -47,7 +47,7 @@ permissions:
   filesystem: true
 steps:
   - id: fetch
-    action: http.request
+    action: http.send
     params:
       url: "{url}"
       method: GET
@@ -78,7 +78,7 @@ permissions:
   network: true
 steps:
   - id: fetch
-    action: http.request
+    action: http.send
     params:
       url: "{url}"
     save_to: response

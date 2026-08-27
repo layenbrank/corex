@@ -1,8 +1,13 @@
-# 等价于已移除的 suggest.bing（参数与行为对齐）
-# 运行: corex run bing-suggest --input qry=rust
-#       corex run bing-suggest --input qry=hello --input pt=page.home --input cp=5
+# Bing 搜索建议 — 等价于已移除的 suggest.bing
+#
+# 运行:
+#   corex run bing-suggest -i qry=rust
+#   corex run bing-suggest -i qry=hello -i pt=page.home -i cp=5
+#
+# 链路: generate.cvid → template 拼 URL → http.send → codec.json.parse
+# 输出 variables.suggest_json 为解析后的 JSON
 name: bing-suggest
-description: Bing 搜索建议（原 suggest.bing，基于 http.request）
+description: Bing 搜索建议（原 suggest.bing，基于 http.send）
 version: "1.0"
 
 inputs:
@@ -50,7 +55,7 @@ steps:
     save_to: request_url
 
   - id: bing
-    action: http.request
+    action: http.send
     params:
       url: "{{request_url}}"
       method: GET

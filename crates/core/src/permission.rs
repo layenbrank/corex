@@ -23,7 +23,7 @@ pub fn permission_kind_for(action_id: &str) -> PermissionKind {
         "shell.run" | "exec.run" | "bootstrap.env" | "bootstrap.inspect" | "bootstrap.force" => {
             PermissionKind::Shell
         }
-        "http.request" => PermissionKind::Network,
+        "http.send" => PermissionKind::Network,
         "clipboard.get" | "clipboard.set" => PermissionKind::Clipboard,
         "notify.send" => PermissionKind::Notifications,
         id if id.starts_with("ui.") => PermissionKind::Ui,

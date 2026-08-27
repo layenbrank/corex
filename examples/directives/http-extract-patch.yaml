@@ -1,39 +1,66 @@
-# 场景 2+3：HTTP → JSON 解析 → marker 局部写入
+# HTTP 登录 → JSON 提取 → file.write regex 补丁
+#
+# 场景: POST 登录 API，从响应 JSON 取 token，用 regex 更新前端 JS 中的 initToken
+#
+# 运行（需可访问内网 API 且 target 文件存在）:
+#   corex run http-extract-patch
+#   corex run http-extract-patch -i username=dba -i password='secret'
+#   corex run http-extract-patch -i target="C:/path/to/request.js"
+#
+# 链路: http.send → codec.json.parse → file.write(mode=regex, backup=true)
+# JSON 路径: parsed.data.token.tokenValue
 name: http-extract-patch
-description: 拉取 JSON API 并 patch 到本地文件 marker 区域
-version: "1.0"
+description: POST 登录 goview，提取 token 并写入 request.js 的 initToken
+version: "1.2"
 
 inputs:
   - name: url
-    required: true
-  - name: target
-    required: true
-  - name: pointer
+    description: 登录 API
     required: false
-    default: "origin"
+    default: "http://172.16.0.8:9001/go/api/goview/sys/login"
+  - name: username
+    description: 登录用户名
+    required: false
+    default: "dba"
+  - name: password
+    description: 登录密码
+    required: false
+    default: "iwell@123"
+  - name: target
+    description: 待更新 initToken 的前端 request.js
+    required: false
+    default: "{{env.USERPROFILE}}\\Documents\\source code of business\\iwellnew\\src\\api\\request.js"
 
 permissions:
   network: true
   filesystem: true
 
 steps:
-  - id: fetch
-    action: http.request
+  - id: login
+    action: http.send
     params:
-      url: "{{url}}"
+      url: "{{input.url}}"
+      method: POST
+      headers:
+        Accept: application/json
+        Content-Type: application/json
+      json:
+        username: "{{input.username}}"
+        password: "{{input.password}}"
+      timeout_ms: 30000
     save_to: raw
 
-  - id: parse
+  - id: parsed
     action: codec.json.parse
     params:
       text: "{{raw.body}}"
     save_to: parsed
 
-  - id: patch
+  - id: patch_token
     action: file.write
     params:
-      path: "{{target}}"
-      mode: replace_between
-      start: "<!-- COREX:START -->"
-      end: "<!-- COREX:END -->"
-      content: "{{parsed}}"
+      path: "{{input.target}}"
+      mode: regex
+      pattern: "(?s)const initToken\\s*=\\s*\\n\\s*'[^']*'"
+      replacement: "const initToken =\n  '{{parsed.data.token.tokenValue}}'"
+      backup: true

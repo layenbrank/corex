@@ -1,0 +1,57 @@
+# HTTP POST JSON — http.send + codec.json.parse + 模板摘要
+#
+# 运行:
+#   corex run http-post-json
+#   corex run http-post-json -i name=corex -i role=automation
+#
+# 使用 httpbin.org/post 回显请求体，无需 API Key
+name: http-post-json
+description: POST JSON 请求、解析响应并生成摘要
+version: "1.0"
+
+inputs:
+  - name: url
+    description: POST 目标 URL
+    required: false
+    default: "https://httpbin.org/post"
+  - name: name
+    description: JSON 字段 name
+    required: false
+    default: "corex"
+  - name: role
+    description: JSON 字段 role
+    required: false
+    default: "directive-demo"
+
+permissions:
+  network: true
+
+steps:
+  - id: post
+    action: http.send
+    params:
+      url: "{{input.url}}"
+      method: POST
+      headers:
+        Content-Type: application/json
+        Accept: application/json
+        User-Agent: corex/http-post-json
+      json:
+        name: "{{input.name}}"
+        role: "{{input.role}}"
+        source: corex-directive
+      timeout_ms: 30000
+    save_to: response
+
+  - id: parse
+    action: codec.json.parse
+    params:
+      text: "{{response.body}}"
+    save_to: parsed
+
+  - id: summary
+    action: template.render
+    params:
+      template: >-
+        status={{ response.status }} echoed_name={{ parsed.json.name }} url={{ parsed.url }}
+    save_to: summary

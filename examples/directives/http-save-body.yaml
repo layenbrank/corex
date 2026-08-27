@@ -1,13 +1,33 @@
-# 场景 1：HTTP 响应写入文件
-# 运行: corex run http-save-body --input url=https://httpbin.org/get
+# 场景 1：http.send GET — query / headers / token，响应 body 写入文件
+#
+# 运行示例:
+#   corex run http-save-body --input url=https://httpbin.org/get
+#   corex run http-save-body --input url=https://httpbin.org/get --input q=corex --input page=1
+#   corex run http-save-body --input url=https://httpbin.org/bearer --input token=secret
+#
+# 响应 save_to 结构: { status, ok, url, headers, body }
 name: http-save-body
-description: HTTP GET 并将 body 写入文件
-version: "1.0"
+description: HTTP GET（含 query/headers/token）并将 body 写入文件
+version: "1.1"
 
 inputs:
   - name: url
+    description: 请求 URL（httpbin 可回显 query/headers，便于调试）
     required: true
+  - name: q
+    description: 查询参数 q
+    required: false
+    default: ""
+  - name: page
+    description: 查询参数 page
+    required: false
+    default: "1"
+  - name: token
+    description: Bearer Token（非空时发送 Authorization 头；可配合 httpbin.org/bearer 验证）
+    required: false
+    default: ""
   - name: out
+    description: 输出文件路径
     required: false
     default: "./http-body.txt"
 
@@ -17,10 +37,20 @@ permissions:
 
 steps:
   - id: fetch
-    action: http.request
+    action: http.send
     params:
       url: "{{url}}"
       method: GET
+      params:
+        q: "{{q}}"
+        page: "{{page}}"
+        source: corex
+      headers:
+        Accept: application/json
+        User-Agent: corex/http-save-body
+      token: "{{token}}"
+      timeout_ms: 30000
+      follow_redirects: true
     save_to: response
 
   - id: save
