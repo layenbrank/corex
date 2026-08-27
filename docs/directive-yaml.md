@@ -211,12 +211,22 @@ YAML `triggers` 规则：
 - 同一指令 **可同时** 声明 **1 个** `watch` **和** **1 个** `cron`（互不排斥）
 - 同一指令 **不可** 声明多个 `watch` 或多个 `cron`
 - 运行时：每种类型 **最多一个** 守护进程（`corex watch start` 与 `corex cron start` 可同时对同一指令各启一个）
+- `paths` / `expr` 支持 `{{variables.*}}`、`{{env.*}}` 等占位符（supervisor 启动时解析，与 steps 相同）
 
-- **`corex run <name>`** — 手动执行（默认，无需在 triggers 声明）
+- **`corex run <name>`** — 手动执行（无需在 triggers 声明）
 - **`corex schedule`** — 列出可用指令
-- **`corex watch start|ps|send|stop|restart|run`** — 文件/目录监听守护
-- **`corex cron start|ps|send|stop|restart|run`** — cron 守护；与 YAML `triggers.cron` 共用 `CronEngine`
-- **`cron.schedule` Action** — 步骤内动态注册（需 `corex cron start` 守护进程运行）
+- **`corex watch start|ps|attach|logs|send|stop|restart`** — 文件监听守护（**操作用指令名，非 pid**）
+- **`corex cron start|ps|attach|logs|send|stop|restart`** — cron 守护（同上）
+
+常用 watch/cron 流程：
+
+```text
+corex watch start build-client    # 后台启动
+corex watch attach build-client   # 进入实时日志；Ctrl+C 退出查看，不停止守护
+corex watch ps                    # NAME 列为指令名
+corex watch send build-client run-now
+corex watch stop build-client
+```
 
 ## Examples
 
