@@ -430,7 +430,8 @@ fn process_running_windows(want_exe: &str) -> bool {
 fn window_probe_matches(probe: &IfRunningWindow) -> bool {
     use std::ffi::OsString;
     use std::os::windows::ffi::OsStringExt;
-    use windows::Win32::Foundation::{BOOL, HWND, LPARAM, RECT};
+    use windows::core::BOOL;
+    use windows::Win32::Foundation::{HWND, LPARAM, RECT};
     use windows::Win32::UI::WindowsAndMessaging::{
         EnumWindows, GetWindowRect, GetWindowTextLengthW, GetWindowTextW, IsWindowVisible,
     };

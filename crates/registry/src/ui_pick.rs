@@ -117,7 +117,7 @@ impl PickUi {
                     BORDER_SIZE,
                     None,
                     None,
-                    HINSTANCE(instance.0),
+                    Some(HINSTANCE(instance.0)),
                     None,
                 )
                 .map_err(|e| ActionError::execution(format!("CreateWindowExW border: {e}")))?;
@@ -134,7 +134,7 @@ impl PickUi {
                 24,
                 None,
                 None,
-                HINSTANCE(instance.0),
+                Some(HINSTANCE(instance.0)),
                 None,
             )
             .map_err(|e| ActionError::execution(format!("CreateWindowExW tooltip: {e}")))?;
@@ -150,7 +150,7 @@ impl PickUi {
                 1,
                 None,
                 None,
-                HINSTANCE(instance.0),
+                Some(HINSTANCE(instance.0)),
                 None,
             )
             .map_err(|e| ActionError::execution(format!("CreateWindowExW msg: {e}")))?;
@@ -206,7 +206,7 @@ impl PickUi {
             for (i, (x, y, w, h)) in borders.iter().enumerate() {
                 let _ = SetWindowPos(
                     self.borders[i],
-                    HWND_TOPMOST,
+                    Some(HWND_TOPMOST),
                     *x,
                     *y,
                     *w,
@@ -218,7 +218,7 @@ impl PickUi {
             let tip_y = (top - 28).max(0);
             let _ = SetWindowPos(
                 self.tooltip,
-                HWND_TOPMOST,
+                Some(HWND_TOPMOST),
                 left,
                 tip_y,
                 480,
@@ -370,7 +370,7 @@ fn push_console_to_back() {
         if !console.is_invalid() {
             let _ = SetWindowPos(
                 console,
-                HWND_BOTTOM,
+                Some(HWND_BOTTOM),
                 0,
                 0,
                 0,
@@ -402,7 +402,7 @@ fn run_pick_blocking(scope_hwnd: Option<i64>) -> Result<BTreeMap<String, Value>,
             &mut session as *mut _ as isize,
         );
         let _ = windows::Win32::UI::WindowsAndMessaging::SetTimer(
-            session.ui.msg_hwnd,
+            Some(session.ui.msg_hwnd),
             PICK_TIMER_ID,
             POLL_MS,
             None,
@@ -425,7 +425,7 @@ fn run_pick_blocking(scope_hwnd: Option<i64>) -> Result<BTreeMap<String, Value>,
     }
 
     unsafe {
-        let _ = KillTimer(session.ui.msg_hwnd, PICK_TIMER_ID);
+        let _ = KillTimer(Some(session.ui.msg_hwnd), PICK_TIMER_ID);
         SetWindowLongPtrW(session.ui.msg_hwnd, GWLP_USERDATA, 0);
     }
     session.ui.hide_highlight();

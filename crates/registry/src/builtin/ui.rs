@@ -294,7 +294,8 @@ pub(crate) mod win {
     use super::*;
     use std::ffi::OsString;
     use std::os::windows::ffi::OsStringExt;
-    use windows::Win32::Foundation::{BOOL, HWND, LPARAM, RECT};
+    use windows::core::BOOL;
+    use windows::Win32::Foundation::{HWND, LPARAM, RECT};
     use windows::Win32::UI::Input::KeyboardAndMouse::{
         SendInput, INPUT, INPUT_0, INPUT_KEYBOARD, INPUT_MOUSE, KEYBDINPUT, KEYEVENTF_KEYUP,
         KEYEVENTF_UNICODE, KEYBD_EVENT_FLAGS, MOUSEEVENTF_LEFTDOWN, MOUSEEVENTF_LEFTUP, MOUSEINPUT,
@@ -410,7 +411,7 @@ pub(crate) mod win {
     fn find_window(query: &WindowQuery) -> Option<HWND> {
         if let Some(id) = query.hwnd {
             let hwnd = hwnd_from_i64(id);
-            if !unsafe { IsWindow(hwnd).as_bool() } {
+            if !unsafe { IsWindow(Some(hwnd)).as_bool() } {
                 return None;
             }
             if unsafe { IsWindowVisible(hwnd).as_bool() } || !query.visible_only {
@@ -1113,8 +1114,8 @@ pub(crate) mod win {
     fn hosts_shell_defview(parent: HWND) -> bool {
         unsafe {
             FindWindowExW(
-                parent,
-                HWND::default(),
+                Some(parent),
+                None,
                 windows::core::w!("SHELLDLL_DefView"),
                 None,
             )
@@ -1124,7 +1125,8 @@ pub(crate) mod win {
 
     /// Resolve the UIA root for desktop ListItem icons (Progman or WorkerW + DefView).
     fn find_desktop_hwnd() -> Option<HWND> {
-        use windows::Win32::Foundation::{BOOL, LPARAM, WPARAM};
+        use windows::core::BOOL;
+        use windows::Win32::Foundation::{LPARAM, WPARAM};
         use windows::Win32::UI::WindowsAndMessaging::{
             EnumWindows, FindWindowW, SendMessageTimeoutW, SMTO_NORMAL,
         };
@@ -1144,7 +1146,7 @@ pub(crate) mod win {
 
         unsafe {
             let progman = FindWindowW(windows::core::w!("Progman"), None).ok()?;
-            if !IsWindow(progman).as_bool() {
+            if !IsWindow(Some(progman)).as_bool() {
                 return None;
             }
             if hosts_shell_defview(progman) {
