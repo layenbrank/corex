@@ -76,6 +76,24 @@ pub fn confine_in_roots(roots: &[PathBuf], path: &Path) -> Result<PathBuf, PathC
     }))
 }
 
+/// Strip Windows verbatim (`\\?\`) prefixes so paths work with `cmd` / PowerShell.
+///
+/// `canonicalize` often yields `\\?\C:\...`, which `cmd.exe` rejects as "path not found".
+/// No-op on non-Windows and when the prefix is absent.
+pub fn for_external_process(path: PathBuf) -> PathBuf {
+    #[cfg(windows)]
+    {
+        let s = path.to_string_lossy();
+        if let Some(rest) = s.strip_prefix(r"\\?\UNC\") {
+            return PathBuf::from(format!(r"\\{rest}"));
+        }
+        if let Some(rest) = s.strip_prefix(r"\\?\") {
+            return PathBuf::from(rest);
+        }
+    }
+    path
+}
+
 /// Confine a possibly non-existent path under `root`.
 fn confine_missing(root: &Path, path: &Path) -> Result<PathBuf, PathConfineError> {
     let root_canon = root.canonicalize().map_err(|e| {
@@ -168,5 +186,27 @@ mod tests {
             "got: {}",
             err.0
         );
+    }
+
+    #[test]
+    fn for_external_process_strips_verbatim_prefix() {
+        #[cfg(windows)]
+        {
+            let p = PathBuf::from(r"\\?\C:\ProgramData\corex\data\t.bat");
+            assert_eq!(
+                for_external_process(p),
+                PathBuf::from(r"C:\ProgramData\corex\data\t.bat")
+            );
+            let unc = PathBuf::from(r"\\?\UNC\server\share\a.bat");
+            assert_eq!(
+                for_external_process(unc),
+                PathBuf::from(r"\\server\share\a.bat")
+            );
+        }
+        #[cfg(not(windows))]
+        {
+            let p = PathBuf::from("/tmp/x.sh");
+            assert_eq!(for_external_process(p.clone()), p);
+        }
     }
 }

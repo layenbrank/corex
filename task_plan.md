@@ -56,4 +56,4 @@ Phase 5
 ## Errors Encountered
 | Error | Attempt | Resolution |
 |-------|---------|------------|
-|       |         |            |
+| Windows CI: exec roots-inside bat → cmd “path not found” | 1 | `canonicalize` 产生 `\\?\`；`for_external_process` 剥离后交给 launch |

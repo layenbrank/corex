@@ -263,6 +263,13 @@ fn build_command(spec: &LaunchSpec, host: Host) -> Result<Command, ActionError> 
 
 /// Launch process and map to a uniform result. Applies `allow_nonzero`.
 pub async fn launch(spec: LaunchSpec) -> Result<LaunchResult, ActionError> {
+    // Canonicalized `\\?\` paths break cmd.exe / some shells on Windows.
+    let mut spec = LaunchSpec {
+        program: corex_core::path::for_external_process(spec.program),
+        cwd: spec.cwd.map(corex_core::path::for_external_process),
+        ..spec
+    };
+
     if let Some(reason) = should_skip_launch(&spec)? {
         return Ok(LaunchResult {
             stdout: String::new(),
