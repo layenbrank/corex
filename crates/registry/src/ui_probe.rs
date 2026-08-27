@@ -67,7 +67,7 @@ pub async fn probe_element_tree(
     {
         let _ = ctx;
         probe_scope_explicit(&params)?;
-        let v = crate::builtin::ui::win::ui_element_list_probe_impl(params).await?;
+        let mut v = crate::builtin::ui::win::ui_element_list_probe_impl(params).await?;
         match format {
             TreeFormat::Flat => Ok(v),
             TreeFormat::Tree => {
