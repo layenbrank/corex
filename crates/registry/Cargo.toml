@@ -31,7 +31,28 @@ full = [
   "act-ui",
   "wasm",
 ]
-act-shell = []
+
+# Shared Windows feature bundles (enabled via act-*; keep windows optional + default-features=false).
+win32-base = [
+  "dep:windows",
+  "windows/Win32_Foundation",
+  "windows/Win32_UI_WindowsAndMessaging",
+]
+win32-process = [
+  "win32-base",
+  "windows/Win32_System_Diagnostics_ToolHelp",
+]
+winrt-ocr = [
+  "dep:windows",
+  "windows/std",
+  "windows/Foundation",
+  "windows/Graphics_Imaging",
+  "windows/Media_Ocr",
+  "windows/Storage",
+  "windows/Storage_Streams",
+]
+
+act-shell = ["win32-process"]
 act-http = ["dep:reqwest"]
 act-clipboard = ["dep:arboard", "dep:image"]
 act-notify = ["dep:notify-rust"]
@@ -50,13 +71,20 @@ act-compression = [
   "dep:glob",
 ]
 act-generate = ["dep:uuid", "dep:rand", "dep:walkdir", "dep:glob", "dep:chrono"]
-act-exec = []
+act-exec = ["win32-process"]
 act-bootstrap = []
 act-codec = ["dep:base64", "dep:md-5"]
 act-scan = ["dep:sysinfo"]
-act-capture = ["dep:image", "dep:base64", "dep:screenshots"]
+act-capture = ["dep:image", "dep:base64", "dep:screenshots", "winrt-ocr"]
 act-morph = ["dep:lopdf", "dep:base64"]
-act-ui = ["dep:uiautomation"]
+act-ui = [
+  "win32-base",
+  "dep:uiautomation",
+  "windows/Win32_Graphics_Gdi",
+  "windows/Win32_System_Console",
+  "windows/Win32_System_LibraryLoader",
+  "windows/Win32_UI_Input_KeyboardAndMouse",
+]
 wasm = ["dep:wasmtime", "dep:wasmtime-wasi"]
 
 [dependencies]
@@ -91,7 +119,7 @@ screenshots   = { version = "0.8", optional = true }
 
 [target.'cfg(windows)'.dependencies]
 uiautomation = { version = "0.25", optional = true }
-windows = { workspace = true }
+windows = { workspace = true, optional = true }
 
 [dev-dependencies]
 tempfile  = { workspace = true }
