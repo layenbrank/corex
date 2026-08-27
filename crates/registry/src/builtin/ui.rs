@@ -301,7 +301,7 @@ pub(crate) mod win {
         VIRTUAL_KEY,
     };
     use windows::Win32::UI::WindowsAndMessaging::{
-        EnumWindows, GetClassNameW, GetWindowRect, GetWindowTextLengthW,
+        EnumWindows, FindWindowExW, GetClassNameW, GetWindowRect, GetWindowTextLengthW,
         GetWindowTextW, GetWindowThreadProcessId, IsWindow, IsWindowVisible, SetCursorPos,
         SetForegroundWindow,
     };
@@ -1110,11 +1110,23 @@ pub(crate) mod win {
         .map_err(|e| ActionError::execution(format!("ui.element.find 失败: {e}")))?
     }
 
+    fn hosts_shell_defview(parent: HWND) -> bool {
+        unsafe {
+            FindWindowExW(
+                parent,
+                HWND::default(),
+                windows::core::w!("SHELLDLL_DefView"),
+                None,
+            )
+            .is_ok()
+        }
+    }
+
+    /// Resolve the UIA root for desktop ListItem icons (Progman or WorkerW + DefView).
     fn find_desktop_hwnd() -> Option<HWND> {
         use windows::Win32::Foundation::{BOOL, LPARAM, WPARAM};
         use windows::Win32::UI::WindowsAndMessaging::{
-            EnumWindows, FindWindowExW, FindWindowW, GetClassNameW, SendMessageTimeoutW,
-            SMTO_NORMAL,
+            EnumWindows, FindWindowW, SendMessageTimeoutW, SMTO_NORMAL,
         };
 
         struct EnumState {
@@ -1123,74 +1135,37 @@ pub(crate) mod win {
 
         unsafe extern "system" fn enum_workerw(hwnd: HWND, lparam: LPARAM) -> BOOL {
             let state = unsafe { &mut *(lparam.0 as *mut EnumState) };
-            let mut buf = [0u16; 64];
-            let n = unsafe { GetClassNameW(hwnd, &mut buf) };
-            if n <= 0 {
+            if window_class(hwnd) != "WorkerW" || !hosts_shell_defview(hwnd) {
                 return BOOL(1);
             }
-            let class = String::from_utf16_lossy(&buf[..n as usize]);
-            if class != "WorkerW" {
-                return BOOL(1);
-            }
-            let defview = unsafe {
-                FindWindowExW(
-                    Some(hwnd),
-                    None,
-                    windows::core::w!("SHELLDLL_DefView"),
-                    None,
-                )
-            };
-            if defview.is_ok() {
-                state.found = Some(hwnd);
-                return BOOL(0); // stop
-            }
-            BOOL(1)
+            state.found = Some(hwnd);
+            BOOL(0)
         }
 
         unsafe {
-            let progman = FindWindowW(windows::core::w!("Progman"), None).ok();
-            if let Some(progman) = progman {
-                if IsWindow(progman).as_bool() {
-                    // Prefer Progman when it hosts SHELLDLL_DefView (classic layout).
-                    if FindWindowExW(
-                        Some(progman),
-                        None,
-                        windows::core::w!("SHELLDLL_DefView"),
-                        None,
-                    )
-                    .is_ok()
-                    {
-                        return Some(progman);
-                    }
-                    // Win10/11: ask Progman to spawn WorkerW that hosts the desktop.
-                    let _ = SendMessageTimeoutW(
-                        progman,
-                        0x052C,
-                        WPARAM(0),
-                        LPARAM(0),
-                        SMTO_NORMAL,
-                        1000,
-                        None,
-                    );
-                }
+            let progman = FindWindowW(windows::core::w!("Progman"), None).ok()?;
+            if !IsWindow(progman).as_bool() {
+                return None;
             }
-
+            if hosts_shell_defview(progman) {
+                return Some(progman);
+            }
+            // Win10/11: spawn WorkerW sibling that hosts SHELLDLL_DefView.
+            let _ = SendMessageTimeoutW(
+                progman,
+                0x052C,
+                WPARAM(0),
+                LPARAM(0),
+                SMTO_NORMAL,
+                1000,
+                None,
+            );
             let mut state = EnumState { found: None };
             let _ = EnumWindows(
                 Some(enum_workerw),
                 LPARAM(&mut state as *mut EnumState as isize),
             );
-            if let Some(hwnd) = state.found {
-                return Some(hwnd);
-            }
-
-            // Last resort: Progman itself (may still expose ListItem via UIA).
-            if let Some(progman) = progman {
-                if IsWindow(progman).as_bool() {
-                    return Some(progman);
-                }
-            }
-            None
+            state.found.or(Some(progman))
         }
     }
 
