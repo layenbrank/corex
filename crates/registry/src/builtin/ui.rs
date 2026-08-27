@@ -301,7 +301,7 @@ pub(crate) mod win {
         VIRTUAL_KEY,
     };
     use windows::Win32::UI::WindowsAndMessaging::{
-        EnumWindows, FindWindowW, GetClassNameW, GetWindowRect, GetWindowTextLengthW,
+        EnumWindows, GetClassNameW, GetWindowRect, GetWindowTextLengthW,
         GetWindowTextW, GetWindowThreadProcessId, IsWindow, IsWindowVisible, SetCursorPos,
         SetForegroundWindow,
     };

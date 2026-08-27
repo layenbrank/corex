@@ -53,12 +53,13 @@ pub async fn probe_element_tree(
 ) -> Result<Value, ActionError> {
     #[cfg(windows)]
     {
+        let _ = ctx;
         probe_scope_explicit(&params)?;
         let v = crate::builtin::ui::win::ui_element_list_probe_impl(params).await?;
         match format {
             TreeFormat::Flat => Ok(v),
             TreeFormat::Tree => {
-                if let Value::Map(mut m) = v {
+                if let Value::Map(ref mut m) = v {
                     if let Some(Value::List(list)) = m.remove("elements") {
                         let maps: Vec<BTreeMap<String, Value>> = list
                             .into_iter()
