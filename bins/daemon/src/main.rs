@@ -559,13 +559,18 @@ impl ConfigFile {
 fn init_tracing(logging: &LoggingConfig) {
     let filter = tracing_subscriber::EnvFilter::try_from_default_env()
         .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new(&logging.level));
+    let timer = tracing_subscriber::fmt::time::ChronoLocal::new(
+        "%Y-%m-%d %H:%M:%S%.3f".to_string(),
+    );
     if logging.json {
         let _ = tracing_subscriber::fmt()
             .json()
+            .with_timer(timer)
             .with_env_filter(filter)
             .try_init();
     } else {
         let _ = tracing_subscriber::fmt()
+            .with_timer(timer)
             .with_env_filter(filter)
             .try_init();
     }

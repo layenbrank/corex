@@ -12,7 +12,7 @@ path = "src/main.rs"
 
 [dependencies]
 corex-core     = { workspace = true }
-corex-engine   = { workspace = true }
+corex-engine   = { workspace = true, features = ["triggers"] }
 corex-registry = { workspace = true }
 corex-ipc      = { workspace = true }
 anyhow         = { workspace = true }

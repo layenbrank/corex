@@ -30,7 +30,7 @@ pub async fn run(dir: Option<PathBuf>) -> Result<()> {
             "help" | "?" => print_help(),
             "quit" | "exit" | "q" => break,
             "actions" => crate::cmd_actions()?,
-            "list" => crate::cmd_list(dir.as_deref())?,
+            "schedule" => crate::cmd_schedule(dir.as_deref())?,
             "run" => {
                 let name = parts.next();
                 match name {
@@ -65,7 +65,7 @@ fn print_help() {
         "Commands:
   help              Show this help
   actions           List registered actions
-  list              List available directives
+  schedule          List available directives
   edit <name>       Open Directive YAML in your editor
   run <name> [...]  Run a Directive (optional KEY=VALUE inputs)
   quit              Exit the REPL"

@@ -1,10 +1,10 @@
 [package]
-name        = "corex-registry"
-version     = { workspace = true }
-edition     = { workspace = true }
+name = "corex-registry"
+version = { workspace = true }
+edition = { workspace = true }
 description = "Action registry and builtin actions"
-authors     = { workspace = true }
-license     = { workspace = true }
+authors = { workspace = true }
+license = { workspace = true }
 
 [features]
 default = ["full"]
@@ -38,10 +38,7 @@ win32-base = [
   "windows/Win32_Foundation",
   "windows/Win32_UI_WindowsAndMessaging",
 ]
-win32-process = [
-  "win32-base",
-  "windows/Win32_System_Diagnostics_ToolHelp",
-]
+win32-process = ["win32-base", "windows/Win32_System_Diagnostics_ToolHelp"]
 winrt-ocr = [
   "dep:windows",
   "windows/std",
@@ -58,7 +55,7 @@ act-clipboard = ["dep:arboard", "dep:image"]
 act-notify = ["dep:notify-rust"]
 act-file = ["dep:regex", "dep:uuid"]
 act-template = ["dep:minijinja"]
-act-cron = []
+act-cron = ["dep:corex-engine", "dep:corex-ipc", "dep:uuid"]
 act-keyring = ["dep:keyring"]
 act-copy = ["dep:walkdir", "dep:glob"]
 act-scrub = ["dep:walkdir"]
@@ -88,40 +85,42 @@ act-ui = [
 wasm = ["dep:wasmtime", "dep:wasmtime-wasi"]
 
 [dependencies]
-corex-core    = { workspace = true }
-async-trait   = { workspace = true }
-serde         = { workspace = true }
-serde_json    = { workspace = true }
-tokio         = { workspace = true }
-tracing       = { workspace = true }
-reqwest       = { workspace = true, optional = true }
-arboard       = { workspace = true, optional = true }
-notify-rust   = { workspace = true, optional = true }
-minijinja     = { workspace = true, optional = true }
-keyring       = { workspace = true, optional = true }
-wasmtime      = { workspace = true, optional = true }
+corex-core = { workspace = true }
+corex-engine = { workspace = true, optional = true, features = ["cron"] }
+corex-ipc = { workspace = true, optional = true }
+async-trait = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }
+reqwest = { workspace = true, optional = true }
+arboard = { workspace = true, optional = true }
+notify-rust = { workspace = true, optional = true }
+minijinja = { workspace = true, optional = true }
+keyring = { workspace = true, optional = true }
+wasmtime = { workspace = true, optional = true }
 wasmtime-wasi = { workspace = true, optional = true }
-walkdir       = { workspace = true, optional = true }
-glob          = { workspace = true, optional = true }
-base64        = { workspace = true, optional = true }
-md-5          = { workspace = true, optional = true }
-sysinfo       = { workspace = true, optional = true }
-image         = { workspace = true, optional = true }
-zip           = { workspace = true, optional = true }
-flate2        = { workspace = true, optional = true }
-tar           = { workspace = true, optional = true }
-rand          = { workspace = true, optional = true }
-regex         = { workspace = true, optional = true }
-uuid          = { workspace = true, optional = true }
-chrono        = { workspace = true, optional = true }
-lopdf         = { workspace = true, optional = true }
-screenshots   = { version = "0.8", optional = true }
+walkdir = { workspace = true, optional = true }
+glob = { workspace = true, optional = true }
+base64 = { workspace = true, optional = true }
+md-5 = { workspace = true, optional = true }
+sysinfo = { workspace = true, optional = true }
+image = { workspace = true, optional = true }
+zip = { workspace = true, optional = true }
+flate2 = { workspace = true, optional = true }
+tar = { workspace = true, optional = true }
+rand = { workspace = true, optional = true }
+regex = { workspace = true, optional = true }
+uuid = { workspace = true, optional = true }
+chrono = { workspace = true, optional = true }
+lopdf = { workspace = true, optional = true }
+screenshots = { version = "0.8", optional = true }
 
 [target.'cfg(windows)'.dependencies]
 uiautomation = { version = "0.25", optional = true }
 windows = { workspace = true, optional = true }
 
 [dev-dependencies]
-tempfile  = { workspace = true }
-tokio     = { workspace = true, features = ["rt-multi-thread", "macros"] }
+tempfile = { workspace = true }
+tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }
 proptest = { workspace = true }

@@ -1,8 +1,11 @@
 //! Corex CLI entrypoint.
 
+mod cron_cmd;
 mod editor;
 mod repl;
+mod trigger_cmd;
 mod ui_cmd;
+mod watch_cmd;
 
 use anyhow::{bail, Context, Result};
 use clap::{Parser, Subcommand};
@@ -41,8 +44,8 @@ enum Commands {
         #[arg(short, long = "input", value_name = "KEY=VALUE")]
         inputs: Vec<String>,
     },
-    /// List available directives
-    List {
+    /// List available directive names
+    Schedule {
         #[arg(long)]
         dir: Option<PathBuf>,
     },
@@ -74,6 +77,16 @@ enum Commands {
         #[command(subcommand)]
         command: DaemonCmd,
     },
+    /// File watch supervisor (PM2-style)
+    Watch {
+        #[command(subcommand)]
+        command: watch_cmd::WatchCommands,
+    },
+    /// Cron scheduler supervisor
+    Cron {
+        #[command(subcommand)]
+        command: cron_cmd::CronCommands,
+    },
     /// UI element probe (Windows UIAutomation)
     Ui {
         #[command(subcommand)]
@@ -100,12 +113,14 @@ async fn main() -> Result<()> {
 
     match cli.command {
         Commands::Run { target, inputs } => cmd_run(&target, &inputs, cli.dir.as_deref()).await,
-        Commands::List { dir } => cmd_list(dir.or(cli.dir).as_deref()),
+        Commands::Schedule { dir } => cmd_schedule(dir.or(cli.dir).as_deref()),
         Commands::Actions => cmd_actions(),
         Commands::Create { name, dir } => cmd_create(&name, dir.or(cli.dir).as_deref()),
         Commands::Edit { name, dir } => cmd_edit(&name, dir.or(cli.dir).as_deref()),
         Commands::Validate { path, strict } => cmd_validate(&path, strict),
         Commands::Repl => repl::run(cli.dir).await,
+        Commands::Watch { command } => watch_cmd::run(command, cli.dir.as_deref()).await,
+        Commands::Cron { command } => cron_cmd::run(command, cli.dir.as_deref()).await,
         Commands::Daemon { command } => cmd_daemon(command).await,
         Commands::Ui { command } => {
             let data = platform_data_dir()?;
@@ -120,7 +135,11 @@ fn init_tracing(verbose: u8) {
         1 => "debug",
         _ => "trace",
     };
+    let timer = tracing_subscriber::fmt::time::ChronoLocal::new(
+        "%Y-%m-%d %H:%M:%S%.3f".to_string(),
+    );
     let _ = tracing_subscriber::fmt()
+        .with_timer(timer)
         .with_env_filter(
             tracing_subscriber::EnvFilter::try_from_default_env()
                 .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new(level)),
@@ -188,7 +207,7 @@ fn build_registry() -> ActionRegistry {
     reg
 }
 
-fn load_runtime_config() -> RuntimeConfig {
+pub(crate) fn load_runtime_config() -> RuntimeConfig {
     let candidates = [
         PathBuf::from(RUNTIME_CONFIG),
         platform_data_dir()
@@ -347,7 +366,7 @@ pub(crate) async fn cmd_run(target: &str, inputs: &[String], dir: Option<&Path>)
     Ok(())
 }
 
-pub(crate) fn cmd_list(dir: Option<&Path>) -> Result<()> {
+pub(crate) fn cmd_schedule(dir: Option<&Path>) -> Result<()> {
     let base = directives_dir(dir)?;
     let mut names = Vec::new();
     if base.exists() {

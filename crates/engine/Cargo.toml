@@ -18,6 +18,7 @@ serde_yml    = { workspace = true }
 thiserror    = { workspace = true }
 tokio        = { workspace = true }
 tracing      = { workspace = true }
+uuid         = { workspace = true, optional = true }
 
 [dev-dependencies]
 tempfile       = { workspace = true }
@@ -27,8 +28,22 @@ proptest      = { workspace = true }
 
 [features]
 default = []
-cron = ["dep:tokio-cron-scheduler"]
+cron = ["dep:tokio-cron-scheduler", "dep:uuid"]
+watch = ["dep:notify", "dep:notify-debouncer-full", "dep:glob"]
+triggers = ["cron", "watch"]
 
 [dependencies.tokio-cron-scheduler]
+workspace = true
+optional = true
+
+[dependencies.notify]
+workspace = true
+optional = true
+
+[dependencies.notify-debouncer-full]
+workspace = true
+optional = true
+
+[dependencies.glob]
 workspace = true
 optional = true

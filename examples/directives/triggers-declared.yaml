@@ -1,0 +1,30 @@
+# triggers 字段声明示例
+#
+# 说明:
+#   - triggers.watch → corex watch start <name>
+#   - triggers.cron → corex cron start <name>
+#   - 手动执行: corex run <name>（无需在 triggers 中声明）
+#
+# 运行:
+#   corex run triggers-declared
+#   corex watch start triggers-declared
+#   corex cron start triggers-declared
+name: triggers-declared
+description: 展示 triggers 声明形状（cron + watch 可并存，各仅一条）
+version: "1.0"
+
+triggers:
+  - type: cron
+    expr: "0 9 * * 1-5"
+  - type: watch
+    paths: ["./src"]
+    debounce_ms: 500
+    cooldown_ms: 1200
+
+steps:
+  - id: doc
+    action: template.render
+    params:
+      template: >-
+        Declares cron and watch triggers. Run manually with corex run triggers-declared
+    save_to: note

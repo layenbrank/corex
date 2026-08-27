@@ -262,7 +262,7 @@ mod tests {
         let p = Permissions::default();
         assert!(p.is_unrestricted());
         assert!(p.allows_action("shell.run").is_ok());
-        assert!(p.allows_action("http.request").is_ok());
+        assert!(p.allows_action("http.send").is_ok());
         assert!(p.allows_action("template.render").is_ok());
     }
 
@@ -276,7 +276,7 @@ mod tests {
         assert!(p.allows_action("file.write").is_ok());
         assert!(p.allows_action("template.render").is_ok()); // None kind
         assert!(p.allows_action("shell.run").is_err());
-        assert!(p.allows_action("http.request").is_err());
+        assert!(p.allows_action("http.send").is_err());
     }
 
     #[test]
@@ -286,7 +286,7 @@ mod tests {
             ..Permissions::default()
         };
         assert!(p.allows_action("shell.run").is_ok());
-        assert!(p.allows_action("http.request").is_err());
+        assert!(p.allows_action("http.send").is_err());
     }
 
     #[test]
@@ -304,16 +304,12 @@ steps:
     }
 }
 
-/// Directive trigger definitions.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(tag = "type", rename_all = "snake_case")]
+/// Directive trigger definitions (automated sources only; manual run via `corex run`).
+#[derive(Debug, Clone)]
 pub enum Trigger {
-    Manual,
     Cron { expr: String },
-    FileWatch {
-        path: String,
-        #[serde(default)]
-        debounce_ms: Option<u64>,
-    },
-    Hotkey { keys: String },
+    Watch(WatchTrigger),
 }
+
+/// Watch trigger fields (`type: watch`).
+pub type WatchTrigger = crate::trigger::WatchConfig;
