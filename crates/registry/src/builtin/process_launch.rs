@@ -2,7 +2,10 @@
 
 use corex_core::{ActionError, Value};
 use std::collections::BTreeMap;
+use std::io::Write;
 use std::path::{Path, PathBuf};
+use std::process::Stdio;
+use tokio::io::{AsyncRead, AsyncReadExt};
 use tokio::process::Command;
 
 /// Explicit execution host. `Auto` resolves from script extension / command mode.
@@ -310,14 +313,24 @@ pub async fn launch(spec: LaunchSpec) -> Result<LaunchResult, ActionError> {
         });
     }
 
-    let output = cmd
-        .output()
-        .await
+    cmd.stdout(Stdio::piped()).stderr(Stdio::piped());
+    let mut child = cmd
+        .spawn()
         .map_err(|e| ActionError::execution(format!("启动进程失败: {e}")))?;
-    let exit_code = output.status.code().unwrap_or(-1) as i64;
-    let success = output.status.success();
-    let stdout = String::from_utf8_lossy(&output.stdout).into_owned();
-    let stderr = String::from_utf8_lossy(&output.stderr).into_owned();
+    let stdout_pipe = child.stdout.take();
+    let stderr_pipe = child.stderr.take();
+    let stdout_task =
+        tokio::spawn(async move { pump_process_stream(stdout_pipe, ProcessStream::Stdout).await });
+    let stderr_task =
+        tokio::spawn(async move { pump_process_stream(stderr_pipe, ProcessStream::Stderr).await });
+    let status = child
+        .wait()
+        .await
+        .map_err(|e| ActionError::execution(format!("等待进程失败: {e}")))?;
+    let stdout = stdout_task.await.unwrap_or_default();
+    let stderr = stderr_task.await.unwrap_or_default();
+    let exit_code = status.code().unwrap_or(-1) as i64;
+    let success = status.success();
     let result = LaunchResult {
         stdout,
         stderr: stderr.clone(),
@@ -334,6 +347,46 @@ pub async fn launch(spec: LaunchSpec) -> Result<LaunchResult, ActionError> {
         )));
     }
     Ok(result)
+}
+
+#[derive(Debug, Clone, Copy)]
+enum ProcessStream {
+    Stdout,
+    Stderr,
+}
+
+/// Read process output in chunks, echo to the terminal, and collect for the action result.
+async fn pump_process_stream<R>(reader: Option<R>, stream: ProcessStream) -> String
+where
+    R: AsyncRead + Unpin,
+{
+    let Some(mut reader) = reader else {
+        return String::new();
+    };
+    let mut collected = Vec::new();
+    let mut buf = [0u8; 8192];
+    loop {
+        let n = match reader.read(&mut buf).await {
+            Ok(0) => break,
+            Ok(n) => n,
+            Err(_) => break,
+        };
+        let chunk = &buf[..n];
+        collected.extend_from_slice(chunk);
+        match stream {
+            ProcessStream::Stdout => {
+                let mut out = std::io::stdout().lock();
+                let _ = out.write_all(chunk);
+                let _ = out.flush();
+            }
+            ProcessStream::Stderr => {
+                let mut err = std::io::stderr().lock();
+                let _ = err.write_all(chunk);
+                let _ = err.flush();
+            }
+        }
+    }
+    String::from_utf8_lossy(&collected).into_owned()
 }
 
 fn should_skip_launch(spec: &LaunchSpec) -> Result<Option<String>, ActionError> {
@@ -404,7 +457,7 @@ fn process_running_windows(want_exe: &str) -> bool {
     use std::os::windows::ffi::OsStringExt;
     use windows::Win32::Foundation::CloseHandle;
     use windows::Win32::System::Diagnostics::ToolHelp::{
-        CreateToolhelp32Snapshot, Process32FirstW, Process32NextW, PROCESSENTRY32W,
+        CreateToolhelp32Snapshot, PROCESSENTRY32W, Process32FirstW, Process32NextW,
         TH32CS_SNAPPROCESS,
     };
 
@@ -437,11 +490,11 @@ fn process_running_windows(want_exe: &str) -> bool {
 fn window_probe_matches(probe: &IfRunningWindow) -> bool {
     use std::ffi::OsString;
     use std::os::windows::ffi::OsStringExt;
-    use windows::core::BOOL;
     use windows::Win32::Foundation::{HWND, LPARAM, RECT};
     use windows::Win32::UI::WindowsAndMessaging::{
         EnumWindows, GetWindowRect, GetWindowTextLengthW, GetWindowTextW, IsWindowVisible,
     };
+    use windows::core::BOOL;
 
     fn title_of(hwnd: HWND) -> String {
         let len = unsafe { GetWindowTextLengthW(hwnd) };
@@ -557,9 +610,9 @@ pub fn if_running_window_from_params(
     let Some(v) = map.get("if_running_window") else {
         return Ok(None);
     };
-    let m = v.as_map().ok_or_else(|| {
-        ActionError::InvalidParams("if_running_window 必须为 map".into())
-    })?;
+    let m = v
+        .as_map()
+        .ok_or_else(|| ActionError::InvalidParams("if_running_window 必须为 map".into()))?;
     let title_contains = m
         .get("title_contains")
         .and_then(|v| v.as_str())
@@ -616,9 +669,7 @@ mod tests {
     #[cfg(windows)]
     #[tokio::test]
     async fn detach_does_not_block() {
-        use crate::builtin::process_launch::{
-            launch, LaunchSpec, LaunchWait, TargetKind,
-        };
+        use crate::builtin::process_launch::{LaunchSpec, LaunchWait, TargetKind, launch};
         use std::path::PathBuf;
         let spec = LaunchSpec {
             program: PathBuf::from("cmd"),
@@ -664,10 +715,7 @@ mod tests {
     #[test]
     fn auto_bat_is_cmd() {
         let p = PathBuf::from("deploy.bat");
-        assert_eq!(
-            resolve_host(Host::Auto, &p, TargetKind::Script),
-            Host::Cmd
-        );
+        assert_eq!(resolve_host(Host::Auto, &p, TargetKind::Script), Host::Cmd);
     }
 
     #[test]
@@ -680,9 +728,6 @@ mod tests {
     #[test]
     fn explicit_host_overrides_auto() {
         let p = PathBuf::from("build.ps1");
-        assert_eq!(
-            resolve_host(Host::Cmd, &p, TargetKind::Script),
-            Host::Cmd
-        );
+        assert_eq!(resolve_host(Host::Cmd, &p, TargetKind::Script), Host::Cmd);
     }
 }
