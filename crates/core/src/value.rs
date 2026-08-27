@@ -73,7 +73,7 @@ impl Value {
     pub fn into_string(self) -> Option<String> {
         match self {
             Value::Str(s) => Some(s),
-            Value::File(p) => Some(p.display().to_string()),
+            Value::File(p) => Some(crate::path::display_path(&p)),
             Value::Bool(b) => Some(b.to_string()),
             Value::Int(i) => Some(i.to_string()),
             Value::Float(f) => Some(f.to_string()),
@@ -208,7 +208,7 @@ impl Value {
                     .map(|(k, v)| (k.clone(), v.to_json()))
                     .collect(),
             ),
-            Value::File(p) => serde_json::Value::String(p.display().to_string()),
+            Value::File(p) => serde_json::Value::String(crate::path::display_path(&p)),
             Value::Bytes(b) => {
                 serde_json::Value::Array(b.iter().map(|x| serde_json::json!(*x)).collect())
             }
@@ -244,7 +244,7 @@ impl fmt::Display for Value {
                 }
                 write!(f, "}}")
             }
-            Value::File(p) => write!(f, "{}", p.display()),
+            Value::File(p) => write!(f, "{}", crate::path::display_path(&p)),
             Value::Bytes(b) => write!(f, "<{} bytes>", b.len()),
         }
     }

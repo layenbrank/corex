@@ -40,7 +40,7 @@ pub fn confine_under(root: &Path, path: &Path) -> Result<PathBuf, PathConfineErr
             root_canon.display()
         )));
     }
-    Ok(cand_canon)
+    Ok(normalize_separators(cand_canon))
 }
 
 /// Ensure `path` is under at least one of `roots`.
@@ -49,31 +49,52 @@ pub fn confine_under(root: &Path, path: &Path) -> Result<PathBuf, PathConfineErr
 /// Missing files are checked lexically against each root.
 pub fn confine_in_roots(roots: &[PathBuf], path: &Path) -> Result<PathBuf, PathConfineError> {
     if roots.is_empty() {
-        return Ok(path.to_path_buf());
+        return Ok(normalize_separators(path.to_path_buf()));
     }
     if path_has_traversal(path) {
         return Err(PathConfineError(format!(
             "路径不允许包含 ..: {}",
-            path.display()
+            display_path(path)
         )));
     }
     let mut last_err = None;
     for root in roots {
         match confine_under(root, path) {
-            Ok(p) => return Ok(p),
+            Ok(p) => return Ok(normalize_separators(p)),
             Err(e) => last_err = Some(e),
         }
-        // File may not exist yet (writes): check under root lexically.
         if let Ok(p) = confine_missing(root, path) {
-            return Ok(p);
+            return Ok(normalize_separators(p));
         }
     }
     Err(last_err.unwrap_or_else(|| {
         PathConfineError(format!(
             "路径不在 filesystem_roots 内: {}",
-            path.display()
+            display_path(path)
         ))
     }))
+}
+
+/// Normalize path separators for display and JSON (`\` on Windows).
+pub fn normalize_separators(path: PathBuf) -> PathBuf {
+    #[cfg(windows)]
+    {
+        let s = path.to_string_lossy();
+        if s.starts_with(r"\\?\") || s.starts_with("//") {
+            return path;
+        }
+        if s.contains('/') {
+            return PathBuf::from(s.replace('/', "\\"));
+        }
+    }
+    path
+}
+
+/// Display path with platform-native separators.
+pub fn display_path(path: &Path) -> String {
+    normalize_separators(path.to_path_buf())
+        .display()
+        .to_string()
 }
 
 /// Strip Windows verbatim (`\\?\`) prefixes so paths work with `cmd` / PowerShell.
@@ -131,7 +152,7 @@ fn confine_missing(root: &Path, path: &Path) -> Result<PathBuf, PathConfineError
             root_canon.display()
         )));
     }
-    Ok(resolved)
+    Ok(normalize_separators(resolved))
 }
 
 #[cfg(test)]
@@ -186,6 +207,18 @@ mod tests {
             "got: {}",
             err.0
         );
+    }
+
+    #[test]
+    fn normalize_mixed_separators_on_windows() {
+        #[cfg(windows)]
+        {
+            let mixed = PathBuf::from(r"C:\Users\iwell/Documents/foo/bar");
+            assert_eq!(
+                normalize_separators(mixed),
+                PathBuf::from(r"C:\Users\iwell\Documents\foo\bar")
+            );
+        }
     }
 
     #[test]
