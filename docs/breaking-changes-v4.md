@@ -65,17 +65,19 @@ steps:
 
 ## Actions 已迁移
 
-旧业务 module（copy / scrub / shade / compression / generate / exec / bootstrap / codec / scan / capture / morph 等）已以 **builtin Action** 形式进入 `crates/registry`。完整 ID 表见 [actions.md](./actions.md)。Bing 建议请用 `http.request`（已移除专用 `suggest.bing`）。
+旧业务 module（copy / scrub / shade / compression / generate / exec / bootstrap / codec / scan / capture / morph 等）已以 **builtin Action** 形式进入 `crates/registry`。完整 ID 表见 [actions.md](./actions.md)。Bing 建议请用 `http.send`（已移除专用 `suggest.bing`）。
 
 不再提供 `corex copy` / `corex pipeline` / `corex morph` 等旧 CLI 子命令树——通过 Directive YAML 或 `invoke` 使用对应 Action ID。
 
-## CLI 表面
+## CLI 表面（v4）
+
+> **v5 更新：** `list` → `schedule`；新增 `watch` / `cron` 守护命令。见 [breaking-changes-v5.md](./breaking-changes-v5.md#cli-and-triggers-v50).
 
 ```text
 corex run | list | actions | create | validate | repl | daemon
 ```
 
-- **`corex repl`**：交互 `help` / `actions` / `list` / `run` / `quit`。
+- **`corex repl`**：交互 `help` / `actions` / `list` / `run` / `quit`（v5 REPL 使用 `schedule`）。
 - **`corex daemon`**：`start` / `stop` / `status` / `run`（拉起 `corex-daemon`）。
 
 ## 鉴权与路径
@@ -99,4 +101,4 @@ corex run | list | actions | create | validate | repl | daemon
 | Removed | Replacement |
 |---------|-------------|
 | `capture.clipboard` | `clipboard.get` / `clipboard.set` with `format: text` or `format: image` |
-| `suggest.bing` | `http.request` + optional `codec.json.parse` (see `bing-suggest.yaml`) |
+| `suggest.bing` | `http.send` + optional `codec.json.parse` (see `bing-suggest.yaml`) |

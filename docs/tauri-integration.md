@@ -1,5 +1,7 @@
 # Tauri × Corex 集成指南（v4）
 
+> **推荐新版中文文档：** [integration/Tauri接入指南.md](./integration/Tauri接入指南.md) · [文档中心](./README.md)
+
 在 Tauri 2 中通过 sidecar **`corex-daemon`** 调用 Corex。Tauri **不要**链接业务 crate；只发 NDJSON IPC。
 
 相关：

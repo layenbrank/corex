@@ -1,0 +1,40 @@
+# shell.run — host / wait / allow_nonzero
+#
+# 运行:
+#   corex run shell-host-demo
+#   corex run shell-host-demo -i host=cmd
+#
+# 演示通过 host=powershell 执行脚本并同步等待（wait=sync）
+name: shell-host-demo
+description: shell.run 的 host、wait、allow_nonzero 参数
+version: "1.0"
+
+inputs:
+  - name: host
+    description: none | cmd | powershell | pwsh
+    required: false
+    default: "powershell"
+  - name: name
+    description: 传给脚本的名称
+    required: false
+    default: "corex"
+
+permissions:
+  shell: true
+
+steps:
+  - id: run_ps
+    action: shell.run
+    params:
+      host: "{{input.host}}"
+      command: "Write-Output \"hello {{input.name}} from $PSVersionTable.PSVersion\""
+      wait: sync
+      allow_nonzero: false
+    save_to: ps_out
+
+  - id: summary
+    action: template.render
+    params:
+      template: >-
+        host={{ input.host }} exit={{ ps_out.exit_code }} stdout={{ ps_out.stdout }}
+    save_to: summary

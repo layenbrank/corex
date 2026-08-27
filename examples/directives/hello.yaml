@@ -1,15 +1,30 @@
+# 最小可运行指令 — 展示 inputs / variables / save_to / file.write
+#
+# 运行:
+#   corex run hello
+#   corex run hello -i who=corex
+#   corex run hello -i who=Alice -i out="{{env.TEMP}}/greet.txt"
+#
+# 输出: 终端打印 JSON；文件写入 out 路径
 name: hello
-description: Sample Directive — render a greeting and write it to a file
-version: "1.0"
+description: 渲染问候语并写入文件（入门示例）
+version: "1.1"
 
 inputs:
   - name: who
-    description: Who to greet
+    description: 问候对象
     required: false
     default: "world"
+  - name: out
+    description: 输出文件路径（默认写到系统临时目录）
+    required: false
+    default: "{{env.TEMP}}/corex-hello.txt"
 
 variables:
   greeting_prefix: "Hello"
+
+permissions:
+  filesystem: true
 
 steps:
   - id: greet
@@ -24,6 +39,7 @@ steps:
   - id: write
     action: file.write
     params:
-      path: "/tmp/corex-hello.txt"
+      path: "{{input.out}}"
       content: "{{message}}"
+      mode: overwrite
       create_dirs: true

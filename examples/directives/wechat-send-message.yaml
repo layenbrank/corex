@@ -8,9 +8,12 @@
 # 运行（必填 contact + message）：
 #   corex run wechat-send-message -i contact=文件传输助手 -i message=你好
 # 同步 data_dir 副本：%LOCALAPPDATA%\corex\directives\wechat-send-message.yaml
+#
+# 注意：搜索确认后微信会自动聚焦消息输入框，无需额外点击。
+# 勿用 Esc（会关窗）、勿按 Down（会跳过默认选中的联系人）、勿在会话内再按 Ctrl+F（会弹出「搜索聊天记录」）。
 name: wechat-send-message
 description: 打开微信并向联系人发送消息（Windows UI 自动化示例）
-version: '0.5'
+version: '0.9'
 
 inputs:
   - name: contact
@@ -31,6 +34,18 @@ inputs:
     description: 点击「进入微信」后等待手机确认的最长时间（毫秒）
     required: false
     default: 120000
+  - name: search_settle_ms
+    description: Ctrl+F 打开全局搜索后等待 UI 就绪（毫秒）
+    required: false
+    default: 400
+  - name: contact_settle_ms
+    description: 输入联系人后、按 Enter 前等待搜索结果（毫秒）
+    required: false
+    default: 800
+  - name: chat_settle_ms
+    description: 打开会话后等待消息输入框获得焦点（毫秒）
+    required: false
+    default: 500
 
 permissions:
   shell: true
@@ -91,6 +106,7 @@ steps:
   - id: focus_main
     action: ui.window.focus
     params:
+      title_contains: '微信'
       prefer_largest: true
 
   - id: search_key
@@ -98,15 +114,32 @@ steps:
     params:
       keys: 'Ctrl+F'
 
+  - id: wait_search_open
+    action: ui.wait
+    params:
+      ms: '{{input.search_settle_ms}}'
+
   - id: type_contact
     action: ui.type
     params:
       text: '{{input.contact}}'
 
+  - id: wait_contact_results
+    action: ui.wait
+    params:
+      ms: '{{input.contact_settle_ms}}'
+
+  # 搜索结果默认已高亮第一项（匹配的联系人/会话），直接 Enter 即可。
+  # 勿按 Down：会跳到第二项（常为「搜索网络结果」等），导致选错或打开错误面板。
   - id: open_chat
     action: ui.key
     params:
       keys: 'Enter'
+
+  - id: wait_chat_ready
+    action: ui.wait
+    params:
+      ms: '{{input.chat_settle_ms}}'
 
   - id: type_msg
     action: ui.type

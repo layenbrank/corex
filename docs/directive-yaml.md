@@ -1,5 +1,7 @@
 # Directive YAML (v5)
 
+> **简体中文指南（推荐新手阅读）：** [guide/指令与输入配置.md](./guide/指令与输入配置.md) · [文档中心](./README.md)
+
 directives are single YAML documents executed by `corex-engine`.
 
 Source of truth: [`crates/engine/src/definition.rs`](../crates/engine/src/definition.rs), resolver [`crates/engine/src/resolver.rs`](../crates/engine/src/resolver.rs).
@@ -12,7 +14,7 @@ description: "..."          # optional
 version: "1.0"              # optional
 inputs: []                  # optional InputDecl list
 variables: {}               # optional map → seeded into context
-triggers: []                # optional (manual / cron / file_watch / hotkey)
+triggers: []                # optional (cron / watch); manual run via corex run
 permissions: {}             # optional — omit = allow-all (see below)
 steps: []                   # required
 on_error: abort             # abort | continue | skip (default abort)
@@ -165,7 +167,7 @@ permissions:
 | **All flags omitted / false** | **Allow-all** (unrestricted) — simple directives like `hello.yaml` need no declarations |
 | **Any flag `true`** | Only declared categories are allowed; others → permission denied |
 
-Category mapping (summary): `shell.run` / `exec.run` / bootstrap → shell; `http.request` → network; `clipboard.*` → clipboard; `notify.send` → notifications; `ui.*` → ui; `capture.screenshot` / `capture.monitors` / `capture.ocr` → capture; `keyring.*` → secret; file/copy/scrub/shade/compression/morph/generate.path/codec (except `codec.json.parse`)/capture.crop → filesystem.
+Category mapping (summary): `shell.run` / `exec.run` / bootstrap → shell; `http.send` → network; `clipboard.*` → clipboard; `notify.send` → notifications; `ui.*` → ui; `capture.screenshot` / `capture.monitors` / `capture.ocr` → capture; `keyring.*` → secret; file/copy/scrub/shade/compression/morph/generate.path/codec (except `codec.json.parse`)/capture.crop → filesystem.
 
 Set `[runtime].strict_permissions = true` in config to **deny** directives that omit all permission flags (enterprise mode).
 
@@ -173,29 +175,48 @@ Set `[runtime].strict_permissions = true` in config to **deny** directives that 
 
 | Goal | Example Directive |
 |------|------------------|
-| HTTP → file | [`http-save-body.yaml`](../examples/directives/http-save-body.yaml) |
+| Index / catalog | [`examples/directives/README.md`](../examples/directives/README.md) |
+| Hello / inputs | [`hello.yaml`](../examples/directives/hello.yaml) |
+| Placeholder resolver | [`resolver-demo.yaml`](../examples/directives/resolver-demo.yaml) |
+| Control flow | [`control-flow.yaml`](../examples/directives/control-flow.yaml), [`control-flow-advanced.yaml`](../examples/directives/control-flow-advanced.yaml) |
+| HTTP GET → file | [`http-save-body.yaml`](../examples/directives/http-save-body.yaml) |
+| HTTP POST JSON | [`http-post-json.yaml`](../examples/directives/http-post-json.yaml) |
 | HTTP → JSON → patch | [`http-extract-patch.yaml`](../examples/directives/http-extract-patch.yaml) |
+| Codec pipeline | [`codec-pipeline.yaml`](../examples/directives/codec-pipeline.yaml) |
+| file.write modes | [`file-write-modes.yaml`](../examples/directives/file-write-modes.yaml) |
 | Timestamp → JSON/JS | [`inject-build-time.yaml`](../examples/directives/inject-build-time.yaml) |
 | Bing suggest + parse | [`bing-suggest.yaml`](../examples/directives/bing-suggest.yaml) |
+| Clipboard + notify | [`clipboard-notify.yaml`](../examples/directives/clipboard-notify.yaml) |
+| shell.run host | [`shell-host-demo.yaml`](../examples/directives/shell-host-demo.yaml) |
 | UI automation (fragile) | [`wechat-send-message.yaml`](../examples/directives/wechat-send-message.yaml) |
 
-Typical chain: `http.request` → `codec.json.parse` → use `{{parsed.field}}` in `file.write` (no separate query action).
+Typical chain: `http.send` → `codec.json.parse` → use `{{parsed.field}}` in `file.write` (no separate query action).
 
-## Triggers (declared; scheduling separate)
+## Triggers
 
 ```yaml
 triggers:
-  - type: manual
   - type: cron
-    expr: "0 * * * *"
-  - type: file_watch
-    path: ./src
+    expr: "0 * * * *"          # 5 或 6 字段；启动: corex cron start <name>
+  - type: watch
+    paths: ["./src"]
+    includes: []
+    excludes: ["**/node_modules/**"]
     debounce_ms: 300
-  - type: hotkey
-    keys: "Ctrl+Shift+S"
+    cooldown_ms: 1200          # 启动: corex watch start <name>
 ```
 
-Builtin `cron.schedule` Action currently **errors** (not implemented). Prefer an external scheduler calling `corex run` until a real scheduler lands.
+YAML `triggers` 规则：
+
+- 同一指令 **可同时** 声明 **1 个** `watch` **和** **1 个** `cron`（互不排斥）
+- 同一指令 **不可** 声明多个 `watch` 或多个 `cron`
+- 运行时：每种类型 **最多一个** 守护进程（`corex watch start` 与 `corex cron start` 可同时对同一指令各启一个）
+
+- **`corex run <name>`** — 手动执行（默认，无需在 triggers 声明）
+- **`corex schedule`** — 列出可用指令
+- **`corex watch start|ps|send|stop|restart|run`** — 文件/目录监听守护
+- **`corex cron start|ps|send|stop|restart|run`** — cron 守护；与 YAML `triggers.cron` 共用 `CronEngine`
+- **`cron.schedule` Action** — 步骤内动态注册（需 `corex cron start` 守护进程运行）
 
 ## Examples
 

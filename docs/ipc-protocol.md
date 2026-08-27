@@ -1,5 +1,7 @@
 # Corex IPC Protocol (v4)
 
+> **简体中文：** [integration/IPC接入指南.md](./integration/IPC接入指南.md)
+
 Newline-delimited JSON (NDJSON) between clients (`corex` CLI, Tauri, etc.) and **`corex-daemon`**.
 
 Source of truth: [`crates/ipc/src/protocol.rs`](../crates/ipc/src/protocol.rs).

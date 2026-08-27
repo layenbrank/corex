@@ -1,0 +1,51 @@
+# 编解码管道 — base64 / md5 / json.parse
+#
+# 运行:
+#   corex run codec-pipeline
+#   corex run codec-pipeline -i payload="Hello, 世界"
+#
+name: codec-pipeline
+description: Base64 编解码、MD5 摘要、JSON 解析链式示例
+version: "1.0"
+
+inputs:
+  - name: payload
+    description: 原始文本
+    required: false
+    default: "corex codec demo"
+  - name: json_text
+    description: 待解析 JSON 字符串
+    required: false
+    default: '{"ok":true,"items":[1,2,3]}'
+
+steps:
+  - id: b64_encode
+    action: codec.base64.encode
+    params:
+      input: "{{input.payload}}"
+    save_to: encoded
+
+  - id: b64_decode
+    action: codec.base64.decode
+    params:
+      input: "{{encoded.text}}"
+    save_to: decoded
+
+  - id: md5
+    action: codec.hash.md5
+    params:
+      input: "{{input.payload}}"
+    save_to: digest
+
+  - id: parse_json
+    action: codec.json.parse
+    params:
+      text: "{{input.json_text}}"
+    save_to: parsed
+
+  - id: report
+    action: template.render
+    params:
+      template: >-
+        payload={{ input.payload }} | b64={{ encoded.text }} | md5={{ digest.text }} | items={{ parsed.items }}
+    save_to: report

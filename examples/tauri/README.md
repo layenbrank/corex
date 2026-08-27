@@ -1,10 +1,9 @@
-# Tauri × corex 集成示例（v4）
+# Tauri × corex 集成示例（v5）
 
-将重依赖隔离在 **`corex-daemon`** 中，Tauri 仅通过 NDJSON IPC 调用（Unix socket 或 Windows `\\.\pipe\corex`）。
+将重依赖隔离在 **`corex-daemon`** 中，Tauri 仅通过 NDJSON IPC 调用。
 
-> **完整文档：** [docs/tauri-integration.md](../../docs/tauri-integration.md)  
-> **架构：** [docs/architecture.md](../../docs/architecture.md)  
-> **IPC 协议：** [docs/ipc-protocol.md](../../docs/ipc-protocol.md)
+> **中文接入指南：** [docs/integration/Tauri接入指南.md](../../docs/integration/Tauri接入指南.md)  
+> **文档中心：** [docs/README.md](../../docs/README.md)
 
 ## 文件清单
 

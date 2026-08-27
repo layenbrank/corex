@@ -1,0 +1,50 @@
+# 剪贴板 + 桌面通知
+#
+# 运行:
+#   corex run clipboard-notify -i text="Hello from corex"
+#   corex run clipboard-notify -i text=你好 -i notify=false
+#
+# notify=false 时仅演示 clipboard，不弹通知
+name: clipboard-notify
+description: clipboard.set / clipboard.get 与 notify.send
+version: "1.0"
+
+inputs:
+  - name: text
+    description: 写入剪贴板的文本
+    required: false
+    default: "corex clipboard demo"
+  - name: notify
+    description: 是否发送桌面通知
+    required: false
+    default: true
+
+permissions:
+  clipboard: true
+  notifications: true
+
+steps:
+  - id: set_clip
+    action: clipboard.set
+    params:
+      format: text
+      text: "{{input.text}}"
+
+  - id: get_clip
+    action: clipboard.get
+    params:
+      format: text
+    save_to: from_clipboard
+
+  - id: ping
+    action: notify.send
+    when: "{{input.notify}}"
+    params:
+      summary: "corex clipboard-notify"
+      body: "剪贴板内容: {{from_clipboard}}"
+
+  - id: done
+    action: template.render
+    params:
+      template: "clipboard={{from_clipboard}}"
+    save_to: result

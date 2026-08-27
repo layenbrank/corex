@@ -62,7 +62,7 @@ Always declare minimal flags:
 
 ```yaml
 permissions:
-  network: true    # http.request
+  network: true    # http.send
   filesystem: true # file.write, file.read, codec.*, copy.*, …
   shell: true      # shell.run / exec.run
   clipboard: true  # clipboard.get/set

@@ -1,0 +1,81 @@
+# file.write 四种 mode — overwrite / replace_between / json_set / regex
+#
+# 运行:
+#   corex run file-write-modes
+#
+# 产物目录: {{env.TEMP}}/corex-file-modes/
+# 可在输出 JSON 中查看各 step 结果
+name: file-write-modes
+description: 演示 file.write 的 overwrite、replace_between、json_set、regex
+version: "1.0"
+
+inputs:
+  - name: base_dir
+    description: 示例文件输出目录
+    required: false
+    default: "{{env.TEMP}}/corex-file-modes"
+
+permissions:
+  filesystem: true
+
+variables:
+  marker_start: "/* START */"
+  marker_end: "/* END */"
+
+steps:
+  - id: seed_text
+    action: file.write
+    params:
+      path: "{{input.base_dir}}/note.txt"
+      content: |
+        line1
+        {{marker_start}}
+        OLD
+        {{marker_end}}
+        line2
+      mode: overwrite
+      create_dirs: true
+
+  - id: seed_json
+    action: file.write
+    params:
+      path: "{{input.base_dir}}/meta.json"
+      content: '{"name":"corex","version":1}'
+      mode: overwrite
+
+  - id: patch_between
+    action: file.write
+    params:
+      path: "{{input.base_dir}}/note.txt"
+      mode: replace_between
+      start: "{{marker_start}}"
+      end: "{{marker_end}}"
+      content: "NEW-BUILD"
+
+  - id: patch_json
+    action: file.write
+    params:
+      path: "{{input.base_dir}}/meta.json"
+      mode: json_set
+      pointer: "version"
+      value: 2
+
+  - id: patch_regex
+    action: file.write
+    params:
+      path: "{{input.base_dir}}/note.txt"
+      mode: regex
+      pattern: "^line1"
+      replacement: "line1-patched"
+
+  - id: read_back
+    action: file.read
+    params:
+      path: "{{input.base_dir}}/note.txt"
+    save_to: note_final
+
+  - id: read_json
+    action: file.read
+    params:
+      path: "{{input.base_dir}}/meta.json"
+    save_to: json_final

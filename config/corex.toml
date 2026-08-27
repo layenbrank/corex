@@ -1,4 +1,5 @@
 # Corex runtime configuration
+# 中文说明见 docs/guide/运行时配置.md
 
 [daemon]
 # Paths below that are not absolute are resolved under the platform data dir

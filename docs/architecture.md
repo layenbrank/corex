@@ -1,5 +1,7 @@
 # Corex 架构（v5）
 
+> **文档导航：** [文档中心](./README.md) · [快速开始](./guide/快速开始.md) · [接入总览](./integration/接入总览.md)
+
 Corex 是可组合的 **指令（Directive）/ Action** 运行时：YAML 定义流水线，内置与 WASM 插件提供动作，CLI 与 Daemon 共用同一套引擎。
 
 ## Workspace 布局
@@ -31,7 +33,7 @@ examples/
 | `corex-registry` | 内置动作 +（可选）`WasmPluginHost` 发现/加载 |
 | `corex-ipc` | `Request` / `Response`；Unix socket / Windows Named Pipe |
 | `corex-plugin-sdk` | WIT world `corex-action` |
-| `corex` | CLI：`run` / `list` / `actions` / `create` / `validate` / `repl` / `daemon` |
+| `corex` | CLI：`run` / `schedule` / `watch` / `cron` / `actions` / `create` / `validate` / `repl` / `daemon` |
 | `corex-daemon` | 长驻：注册动作、发现插件、执行 Directive、IPC |
 
 ## 执行模型
@@ -60,7 +62,7 @@ Value 结果  +  可选 history.jsonl
 |------|------|------|
 | CLI | `corex run <name\|path>` | 进程内加载 registry + Pipeline |
 | Daemon | `corex-daemon` / `corex daemon run` | Unix：`<data-dir>/corex.sock`；Windows：`\\.\pipe\corex` |
-| REPL | `corex repl` | `help` / `actions` / `list` / `run` / `quit` |
+| REPL | `corex repl` | `help` / `actions` / `schedule` / `run` / `quit` |
 
 数据目录默认由 `directories` 解析为平台 project data（fallback `.corex/`）。IPC 需 `auth_token`（见 [ipc-protocol.md](./ipc-protocol.md)）。
 

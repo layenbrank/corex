@@ -1,5 +1,7 @@
 # Builtin Actions (v5)
 
+> **文档导航：** [文档中心](./README.md) · [指令与输入配置（中文）](./guide/指令与输入配置.md)
+
 Action IDs registered by `corex-registry` builtins (`crates/registry/src/builtin/`). Feature gates are `act-*` (enabled via `full` in default daemon/CLI builds).
 
 On Windows, `windows` crate features are enabled **per gate** (not globally):
@@ -19,7 +21,7 @@ Invoke via Directive YAML (`action: <id>`) or IPC `{"type":"invoke","action":"<i
 | Action ID | Feature | Required / common params | Notes |
 |-----------|---------|--------------------------|--------|
 | `shell.run` | `act-shell` | `command` (str); `args?`, `cwd?`, `host?`, `allow_nonzero?` | Process launcher (facade); always returns `{stdout,stderr,exit_code,success}` |
-| `http.request` | `act-http` | `url`; `method?` (GET), `headers?`, `body?`, `json?` | HTTP client |
+| `http.send` | `act-http` | `url`; `method?` (GET), `params?`/`query?`, `headers?`, `token?`, `auth?`, `body?`, `json?`, `form?`, `timeout_ms?`, `follow_redirects?` | HTTP client（curl/fetch 风格） |
 | `clipboard.get` | `act-clipboard` | `format?` (`text` \| `image`) | Read clipboard |
 | `clipboard.set` | `act-clipboard` | `format?`; `text?`; `file?` (image) | Write clipboard |
 | `notify.send` | `act-notify` | `summary`; `body?`, `appname?` (corex) | Desktop notification |
@@ -28,7 +30,7 @@ Invoke via Directive YAML (`action: <id>`) or IPC `{"type":"invoke","action":"<i
 | `file.copy` | `act-file` | `from`, `to` | Copy file |
 | `file.delete` | `act-file` | `path` | Delete file |
 | `template.render` | `act-template` | `template`; `context?` (map) | MiniJinja render |
-| `cron.schedule` | `act-cron` | `expr`; `Directive?` | **Not implemented** — `execute` returns an error asking for an external scheduler |
+| `cron.schedule` | `act-cron` | `expr`; `directive?` | Register cron job on active `corex cron` supervisor |
 | `keyring.get` | `act-keyring` | `service`, `user` | OS keyring read |
 | `keyring.set` | `act-keyring` | `service`, `user`, `password` | OS keyring write |
 | `copy.run` | `act-copy` | `from`, `to`; `empty?`, `includes?`, `excludes?` | Tree / filtered copy |
@@ -108,7 +110,7 @@ Enterprise: set an explicit `host` for auditability; disable either Action via `
 
 ## Notable caveats
 
-1. **`cron.schedule`** — Registered for schema/discovery completeness; calling it **errors** (`尚未实现`). Schedule externally (`systemd`, Task Scheduler, or call `corex run`).
+1. **`cron.schedule`** — Requires an active `corex cron start` supervisor; registers jobs on the shared `CronEngine`.
 2. **`compression.*` + `7z`** — Format is recognized but **not enabled** in the current build; use `zip` or `tar.gz`.
 3. **Platform Actions** — `capture.*` (screenshot/monitors), `bootstrap.*` (env/force), and some `morph.*` paths may error when native backends / pdfium are unavailable.
 4. **Runtime disable** — `[plugins].disabled` / `disabled_actions` in config can hide Actions after registration.

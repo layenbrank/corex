@@ -1,0 +1,77 @@
+# 占位符解析 — 展示 input / env / variables / step 输出引用
+#
+# 运行:
+#   corex run resolver-demo
+#   corex run resolver-demo -i name=corex -i tag=demo
+#
+# 查看输出 JSON 中 variables.summary 与 step.greet / step.env_line
+name: resolver-demo
+description: 演示 {{input}} / {{env}} / {{variables}} / {{step.id}} 占位符
+version: "1.0"
+
+inputs:
+  - name: name
+    description: 写入摘要的用户名
+    required: false
+    default: "world"
+  - name: tag
+    description: 附加标签
+    required: false
+    default: "resolver"
+
+variables:
+  project: "corex"
+  items:
+    - alpha
+    - beta
+    - gamma
+
+permissions:
+  filesystem: true
+
+steps:
+  - id: greet
+    action: template.render
+    params:
+      template: "Hello, {{ input.name }} from {{ project }}"
+      context:
+        project: "{{project}}"
+    save_to: greeting
+
+  - id: env_line
+    action: template.render
+    params:
+      template: "temp_dir={{ env.TEMP }} | user={{ env.USERNAME }}"
+    save_to: env_line
+
+  - id: step_ref
+    action: template.render
+    params:
+      template: "prior step greet={{ step.greet }}"
+    save_to: step_line
+
+  - id: list_each
+    repeat:
+      each: "{{items}}"
+      as: item
+      index: i
+    steps:
+      - id: line
+        action: template.render
+        params:
+          template: "[{{i}}] {{item}}"
+        save_to: last_item
+
+  - id: summary
+    action: template.render
+    params:
+      template: >-
+        {{ greeting }} | tag={{ input.tag }} | {{ env_line }} | {{ step_line }} | last={{ last_item }}
+    save_to: summary
+
+  - id: write_report
+    action: file.write
+    params:
+      path: "{{env.TEMP}}/corex-resolver-demo.txt"
+      content: "{{summary}}"
+      mode: overwrite

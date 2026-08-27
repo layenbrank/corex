@@ -7,7 +7,7 @@
 | Directive YAML author | Semi-trusted | Can declare steps + permissions |
 | corex-daemon | Trusted | Holds IPC token, runs actions |
 | Builtin actions | Trusted code | Feature-gated at compile time |
-| External HTTP targets | Untrusted | `http.request` |
+| External HTTP targets | Untrusted | `http.send` |
 | Local filesystem | Sensitive | `file.write` patch modes |
 
 ## High-risk actions

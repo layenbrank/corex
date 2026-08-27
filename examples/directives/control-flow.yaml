@@ -1,10 +1,18 @@
+# 控制流基础 — if / else / repeat.count
+#
+# 运行:
+#   corex run control-flow
+#   corex run control-flow -i mode=prod
+#   corex run control-flow -i mode=staging
+#
+# 最终变量 last 可在输出 JSON 的 variables 中查看
 name: control-flow
-description: Simple if + repeat using template.render only
-version: "1.0"
+description: if 分支与固定次数 repeat（仅 template.render）
+version: "1.1"
 
 inputs:
   - name: mode
-    description: Branch selector (prod | other)
+    description: 分支选择器（prod 走 then，其它走 else）
     required: false
     default: "dev"
 

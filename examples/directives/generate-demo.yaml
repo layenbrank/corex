@@ -1,0 +1,43 @@
+# generate.* — UUID / 时间戳 / CVID
+#
+# 运行:
+#   corex run generate-demo
+#   corex run generate-demo -i uuid_count=3 -i ts_format="%Y-%m-%d"
+#
+name: generate-demo
+description: 演示 generate.uuid、generate.timestamp、generate.cvid
+version: "1.0"
+
+inputs:
+  - name: uuid_count
+    description: 生成 UUID 个数
+    required: false
+    default: 2
+  - name: ts_format
+    description: 时间戳 strftime 格式
+    required: false
+    default: "%Y-%m-%d %H:%M:%S"
+
+steps:
+  - id: ids
+    action: generate.uuid
+    params:
+      count: "{{input.uuid_count}}"
+    save_to: uuids
+
+  - id: ts
+    action: generate.timestamp
+    params:
+      format: "{{input.ts_format}}"
+    save_to: timestamp
+
+  - id: cvid
+    action: generate.cvid
+    save_to: cvid
+
+  - id: summary
+    action: template.render
+    params:
+      template: >-
+        first_uuid={{ uuids.value }} | time={{ timestamp.value }} | cvid={{ cvid }}
+    save_to: summary

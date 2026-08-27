@@ -1,0 +1,23 @@
+# scan.os — 系统信息摘要
+#
+# 运行:
+#   corex run scan-env-demo
+#
+# 输出 variables.summary 含 OS / CPU / 内存等字段
+name: scan-env-demo
+description: scan.os 采集系统信息并模板化摘要
+version: "1.0"
+
+steps:
+  - id: scan
+    action: scan.os
+    save_to: os_info
+
+  - id: summary
+    action: template.render
+    params:
+      template: >-
+        os={{ os_info.OS }} {{ os_info.version }} |
+        cpu={{ os_info.CPU.brand }} x{{ os_info.CPU.cores }} |
+        mem={{ os_info.memory.used }}/{{ os_info.memory.total }}
+    save_to: summary

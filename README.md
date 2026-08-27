@@ -1,104 +1,89 @@
-# CoreX
+# Corex
 
-可组合的指令（Directive）/ Action 运行时：**YAML 定义流水线**，内置与 WASM 插件提供动作，**CLI 与 `corex-daemon` 共用同一引擎**。
+可组合的**指令（Directive）/ Action** 运行时：用 **YAML** 定义自动化流水线，内置与 WASM 插件提供动作，**CLI** 与 **`corex-daemon`** 共用同一引擎。
 
-当前主线为 **v4**（workspace `4.0.0`）。旧 Pipeline v3 / `corex-serve` 已移除；历史文档见 [`docs/archive/`](docs/archive/)。
+**当前版本：v5**（workspace `5.0.0`）
 
-## Workspace 布局
-
-| 路径 | 包名 | 说明 |
-|------|------|------|
-| `crates/core` | `corex-core` | Value / Action / ExecutionContext |
-| `crates/engine` | `corex-engine` | Directive YAML、Pipeline、历史 |
-| `crates/registry` | `corex-registry` | 内置 Action + WASM host |
-| `crates/ipc` | `corex-ipc` | NDJSON；Unix socket / Named Pipe |
-| `crates/plugin-sdk` | `corex-plugin-sdk` | WIT 契约 |
-| `bins/cli` | `corex` | CLI |
-| `bins/daemon` | `corex-daemon` | 后台 Daemon |
-| `config/corex.toml` | — | 运行时配置 |
-| `examples/directives/` | — | Directive 示例 |
-| `pdfium/` | `pdfium` | 可选 native DLL（morph） |
+---
 
 ## 快速开始
 
-```bash
-# 构建
+```powershell
 cargo build -p corex -p corex-daemon
-
-# 运行示例 Directive
-cargo run -p corex -- run examples/directives/hello.yaml
-cargo run -p corex -- run examples/directives/hello.yaml --input who=Corex
-
-# 列出 / 校验 / 创建
-cargo run -p corex -- list
-cargo run -p corex -- actions
-cargo run -p corex -- validate examples/directives/hello.yaml
-cargo run -p corex -- create my-Directive
-
-# 交互 REPL
-cargo run -p corex -- repl
-
-# Daemon（Unix: <data-dir>/corex.sock ；Windows: \\.\pipe\corex）
-cargo run -p corex-daemon
-# 或
-cargo run -p corex -- daemon run
-cargo run -p corex -- daemon status
+corex run hello
+corex run hello -i who=Corex
+corex schedule
+corex actions
 ```
 
-示例 `hello.yaml` 会渲染问候语并写入 `/tmp/corex-hello.txt`（见 [`examples/directives/hello.yaml`](examples/directives/hello.yaml)）。另有 [`control-flow.yaml`](examples/directives/control-flow.yaml)、[`copy-demo.yaml`](examples/directives/copy-demo.yaml)。
+👉 完整入门：[docs/guide/快速开始.md](docs/guide/快速开始.md)
+
+---
+
+## 文档（简体中文）
+
+**[📖 文档中心 — docs/README.md](docs/README.md)**（推荐入口）
+
+| 分类 | 文档 |
+|------|------|
+| 入门 | [快速开始](docs/guide/快速开始.md) · [指令与输入配置](docs/guide/指令与输入配置.md) |
+| 示例 | [examples/directives/README.md](examples/directives/README.md) |
+| 接入/SDK | [接入总览](docs/integration/接入总览.md) · [IPC](docs/integration/IPC接入指南.md) · [Rust 嵌入](docs/integration/Rust嵌入指南.md) · [WASM 插件](docs/integration/WASM插件开发.md) · [Tauri](docs/integration/Tauri接入指南.md) |
+| 参考 | [Directive YAML](docs/directive-yaml.md) · [内置动作](docs/actions.md) · [架构](docs/architecture.md) |
+| 配置 | [运行时配置](docs/guide/运行时配置.md) · [config/corex.toml](config/corex.toml) |
+| 运维 | [企业部署](docs/enterprise-deploy.md) · [合规](docs/compliance.md) |
+
+---
+
+## Workspace 布局
+
+| 路径 | 说明 |
+|------|------|
+| `crates/core` | `corex-core` — Value / Action / ExecutionContext |
+| `crates/engine` | `corex-engine` — Directive、Pipeline、解析器 |
+| `crates/registry` | `corex-registry` — 内置 Action、WASM host |
+| `crates/ipc` | `corex-ipc` — NDJSON 协议 |
+| `crates/plugin-sdk` | WASM 插件 WIT 契约 |
+| `bins/cli` | `corex` CLI |
+| `bins/daemon` | `corex-daemon` IPC 服务 |
+| `examples/directives/` | 可运行 YAML 示例 |
+| `examples/tauri/` | Tauri sidecar 接入示例 |
+
+---
 
 ## CLI 命令
 
 | 命令 | 说明 |
 |------|------|
-| `corex run <name\|path>` | 执行 Directive（`--input KEY=VALUE`） |
-| `corex list` | 列出 Directive |
-| `corex actions` | 列出已注册 Action |
-| `corex create <name>` | 创建 Directive 脚手架 |
+| `corex run <名称\|路径>` | 执行指令（`-i KEY=VALUE`） |
+| `corex schedule` | 列出指令 |
+| `corex watch …` / `corex cron …` | 监听 / 定时守护 |
+| `corex actions` | 列出 Action |
 | `corex validate <path>` | 校验 YAML |
-| `corex repl` | 交互：`help` / `actions` / `list` / `run` / `quit` |
-| `corex daemon` | `start` / `stop` / `status` / `run` |
+| `corex create / edit / repl` | 脚手架 / 编辑 / REPL |
+| `corex daemon start\|stop\|status\|run` | Daemon 管理 |
+| `corex ui ...` | Windows UI 探测（可选） |
 
-全局可用 `-v` / `-vv` 提高日志级别；`--dir` 覆盖 directives 目录。
+---
 
-### 独立 Binary
+## 三种集成方式
 
-| Binary | 说明 |
-|--------|------|
-| `corex` | CLI |
-| `corex-daemon` | IPC Daemon（Tauri / 宿主 sidecar） |
+| 方式 | 场景 | 文档 |
+|------|------|------|
+| CLI | 脚本、CI | [快速开始](docs/guide/快速开始.md) |
+| Daemon + IPC | Tauri、多进程客户端 | [IPC 接入指南](docs/integration/IPC接入指南.md) |
+| Rust 嵌入 | 同进程集成 | [Rust 嵌入指南](docs/integration/Rust嵌入指南.md) |
 
-```bash
-cargo build -p corex -p corex-daemon --release
-```
+---
 
-IPC 默认：Unix `<data-dir>/corex.sock`；Windows `\\.\pipe\corex`。鉴权 token：`COREX_TOKEN` 或 `<data-dir>/token`（见 [docs/ipc-protocol.md](docs/ipc-protocol.md)）。
+## 迁移与归档
 
-### GitHub Release（Windows x64）
+- v5 变更：[docs/breaking-changes-v5.md](docs/breaking-changes-v5.md)
+- v4 变更：[docs/breaking-changes-v4.md](docs/breaking-changes-v4.md)
+- v3 及更早：[docs/archive/](docs/archive/)
 
-打 `v*` SemVer 标签（或 `workflow_dispatch`）会发布 `corex-{tag}-windows-x64.zip`，通常包含 `corex.exe`、`corex-daemon.exe`，以及可选的 `pdfium.dll`（morph）。
+---
 
-## 文档
+## 许可证
 
-| 文档 | 说明 |
-|------|------|
-| [docs/architecture.md](docs/architecture.md) | v4 架构与配置段 |
-| [docs/ipc-protocol.md](docs/ipc-protocol.md) | NDJSON 协议、token、端点 |
-| [docs/directive-yaml.md](docs/directive-yaml.md) | Directive DSL |
-| [docs/actions.md](docs/actions.md) | 内置 Action ID 表 |
-| [docs/breaking-changes-v4.md](docs/breaking-changes-v4.md) | v4 破坏性变更 |
-| [docs/tauri-integration.md](docs/tauri-integration.md) | Tauri + `corex-daemon` |
-| [plugins/README.md](plugins/README.md) | WASM 插件 |
-| [examples/tauri/](examples/tauri/) | Tauri 示例代码 |
-| [docs/archive/](docs/archive/) | ≤v3 历史文档 |
-
-## 迁移提示（v3 → v4）
-
-- 二进制：`corex-serve` → **`corex-daemon`**。
-- YAML：Pipeline v3 → **Directive**（`action` + `{{ }}`）；旧样例在 [`examples/legacy/`](examples/legacy/)。
-- 旧 `corex copy` / `pipeline` / `watch` 子命令已移除；用 Action（如 `copy.run`）写进 Directive，或 IPC `invoke`。
-- **morph / pdfium**：以 Action `morph.*` 调用；发布包若捆绑 `pdfium.dll`，需与二进制同目录；开发可用 `scripts/download-pdfium.ps1`（若存在）。
-
-## 许可证 / 贡献
-
-见仓库内贡献与 CI 工作流（`.github/`）。问题与 PR 请对照 [docs/architecture.md](docs/architecture.md) 与 [docs/actions.md](docs/actions.md)。
+见仓库贡献说明与 CI 配置（`.github/`）。

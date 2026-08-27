@@ -1,14 +1,42 @@
-# 场景 4：生成时间戳并写入 JSON / JS marker
+# 构建时间注入 — generate.timestamp + file.write 多种 patch 模式
+#
+# 运行（仅生成时间戳变量，不写文件）:
+#   corex run inject-build-time
+#
+# 写入 package.json 的 buildTime 字段（json_set）:
+#   corex run inject-build-time -i json_path=./package.json
+#
+# 替换 JS 文件中 COREX marker 区间（replace_between）:
+#   corex run inject-build-time -i js_path=./src/build-marker.js
+#
+# format 输入说明（传给 generate.timestamp，chrono strftime 语法）:
+#   默认 %Y-%m-%d %H:%M:%S  →  2026-08-27 14:30:00
+#   -i format=%Y-%m-%d      →  2026-08-27
+#   -i format=%F_%T          →  2026-08-27_14:30:00
+# 完整格式表见 docs/guide/指令与输入配置.md#时间格式generatetimestamp
+#
+# js 文件需包含:
+#   /* COREX:BUILD_TIME:START */
+#   ...
+#   /* COREX:BUILD_TIME:END */
 name: inject-build-time
-description: 更新 package.json 字段或 JS 占位 marker
-version: "1.0"
+description: 生成时间戳并写入 JSON 字段或 JS marker 区间
+version: "1.1"
 
 inputs:
   - name: json_path
+    description: 要 patch 的 JSON 文件；留空则跳过 json_set
     required: false
+    default: ""
   - name: js_path
+    description: 含 COREX marker 的 JS 文件；留空则跳过 replace_between
     required: false
+    default: ""
   - name: format
+    description: |
+      strftime 时间格式（generate.timestamp / chrono）。
+      默认 %Y-%m-%d %H:%M:%S；示例 %Y-%m-%d、%F %T。
+      详见 docs/guide/指令与输入配置.md#5-时间格式generatetimestamp
     required: false
     default: "%Y-%m-%d %H:%M:%S"
 
@@ -19,15 +47,15 @@ steps:
   - id: ts
     action: generate.timestamp
     params:
-      format: "{{format}}"
+      format: "{{input.format}}"
     save_to: built_at
 
   - id: patch_json
     action: file.write
     when:
-      ne: ["{{json_path}}", ""]
+      ne: ["{{input.json_path}}", ""]
     params:
-      path: "{{json_path}}"
+      path: "{{input.json_path}}"
       mode: json_set
       pointer: "buildTime"
       value: "{{built_at.value}}"
@@ -35,9 +63,9 @@ steps:
   - id: patch_js
     action: file.write
     when:
-      ne: ["{{js_path}}", ""]
+      ne: ["{{input.js_path}}", ""]
     params:
-      path: "{{js_path}}"
+      path: "{{input.js_path}}"
       mode: replace_between
       start: "/* COREX:BUILD_TIME:START */"
       end: "/* COREX:BUILD_TIME:END */"

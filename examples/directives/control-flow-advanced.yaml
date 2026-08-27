@@ -1,0 +1,65 @@
+# 控制流进阶 — repeat.each / parallel / when / on_error
+#
+# 运行:
+#   corex run control-flow-advanced
+#   corex run control-flow-advanced -i fail_optional=true
+#
+# fail_optional=true 时 optional_read 故意读不存在文件，演示 on_error=continue
+name: control-flow-advanced
+description: repeat.each、parallel、when、on_error 组合示例
+version: "1.0"
+
+inputs:
+  - name: fail_optional
+    description: 是否触发可选步骤失败（演示 on_error continue）
+    required: false
+    default: false
+
+variables:
+  palette:
+    - red
+    - green
+    - blue
+
+permissions:
+  filesystem: true
+
+steps:
+  - id: fanout
+    parallel:
+      - id: branch_a
+        action: template.render
+        params:
+          template: "parallel A"
+        save_to: para_a
+      - id: branch_b
+        action: template.render
+        params:
+          template: "parallel B"
+        save_to: para_b
+
+  - id: optional_read
+    action: file.read
+    when: "{{input.fail_optional}}"
+    on_error: continue
+    params:
+      path: "{{env.TEMP}}/corex-nonexistent-optional.txt"
+    save_to: optional_content
+
+  - id: color_loop
+    repeat:
+      each: "{{palette}}"
+      as: color
+      index: idx
+    steps:
+      - id: paint
+        action: template.render
+        params:
+          template: "color[{{idx}}]={{color}}"
+        save_to: last_color
+
+  - id: merge
+    action: template.render
+    params:
+      template: "A={{para_a}} B={{para_b}} last={{last_color}} optional={{optional_content}}"
+    save_to: merged

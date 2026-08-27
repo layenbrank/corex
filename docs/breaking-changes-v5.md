@@ -65,6 +65,24 @@ Shared launch kernel; both Actions remain. Parameter cleanup:
 
 New optional param on both: `host` (`none` \| `cmd` \| `powershell` \| `pwsh` \| `auto`).
 
+## CLI and triggers (v5.0+)
+
+| Removed / old | Replacement |
+|---------------|-------------|
+| `corex list` | `corex schedule` |
+| `http.request` action | `http.send` |
+| `triggers` types `manual` / `hotkey` / `file_watch` | Manual: `corex run`; hotkey: app layer (Tauri); watch: `type: watch` + `paths` |
+
+New supervisor commands (engine `CronEngine` / `WatchEngine`):
+
+```text
+corex schedule [--dir]
+corex watch  start|ps|attach|send|stop|restart|run
+corex cron   start|ps|send|stop|restart|run
+```
+
+YAML `triggers` supports only **`cron`** and **`watch`**. See [directive-yaml.md](./directive-yaml.md#triggers).
+
 ## Version
 
 Workspace package version is **5.0.0**.
