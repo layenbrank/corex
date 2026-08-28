@@ -1,76 +1,101 @@
-# Corex 文档中心
+# Corex 文档
 
-Corex 是可组合的**指令（Directive）/ Action** 运行时：用 YAML 定义流水线，通过 CLI 或 Daemon IPC 执行。
+可组合的**指令（Directive）/ Action** 运行时。当前版本：**v5**。
 
-当前主线版本：**v5**（workspace `5.0.0`）。
-
----
-
-## 文档分层
-
-按阅读顺序与角色选择入口：
-
-| 层级 | 读者 | 文档 |
-|------|------|------|
-| **1. 入门** | 第一次使用 | [快速开始](./guide/快速开始.md) |
-| **2. 使用指南** | 编写/运行指令 | [指令与输入配置](./guide/指令与输入配置.md) · [Directive YAML 参考](./directive-yaml.md) · [内置动作目录](./actions.md) · [示例指令索引](../examples/directives/README.md) |
-| **3. 接入与 SDK** | 集成到其他应用 | [接入总览](./integration/接入总览.md) · [IPC 接入](./integration/IPC接入指南.md) · [Rust 嵌入](./integration/Rust嵌入指南.md) · [WASM 插件](./integration/WASM插件开发.md) · [Tauri 接入](./integration/Tauri接入指南.md) |
-| **4. 运行时** | 部署与调优 | [运行时配置](./guide/运行时配置.md) · [架构说明](./architecture.md) |
-| **5. 专题** | 特定能力 | [UI 自动化](./ui-automation.md) · [跨平台后端](./cross-platform-backends.md) |
-| **6. 运维与安全** | 企业/生产 | [企业部署](./enterprise-deploy.md) · [合规说明](./compliance.md) · [威胁模型](./threat-model.md) |
-| **7. 变更与归档** | 升级迁移 | [v5 破坏性变更](./breaking-changes-v5.md) · [v4 破坏性变更](./breaking-changes-v4.md) · [archive/](./archive/) |
+按用途选文档即可；找不到时先回本页。
 
 ---
 
-## 常见路径（5 分钟上手）
+## 我想…
 
-```powershell
-# 1. 构建
-cargo build -p corex -p corex-daemon
-
-# 2. 运行示例指令
-corex run hello
-corex run hello -i who=Corex
-
-# 3. 查看可用指令与动作
-corex schedule
-corex actions
-
-# 4. 校验 YAML
-corex validate examples/directives/hello.yaml
-```
+| 目标 | 去哪 |
+|------|------|
+| 第一次跑起来 | [guide/快速开始.md](./guide/快速开始.md) |
+| 写指令 / 传参 / 权限 | [guide/指令与输入配置.md](./guide/指令与输入配置.md) |
+| 查 YAML 语法 / Action 参数 | [reference/指令YAML.md](./reference/指令YAML.md) · [reference/内置Action.md](./reference/内置Action.md) |
+| 跑示例 | [examples/directives](../examples/directives/README.md) · [examples/actions](../examples/actions/README.md) |
+| 接到 Tauri / 别的应用 | [integration/接入总览.md](./integration/接入总览.md) |
+| 配 `corex.toml` | [guide/运行时配置.md](./guide/运行时配置.md) |
+| 了解架构 / watch·cron | [reference/架构.md](./reference/架构.md) |
+| 企业锁定 / 合规 | [ops/企业部署.md](./ops/企业部署.md) |
+| 升级迁移 | [changelog/破坏性变更-v5.md](./changelog/破坏性变更-v5.md) |
 
 ---
 
-## 三种使用方式
-
-| 方式 | 适用场景 | 文档 |
-|------|----------|------|
-| **CLI 直接运行** | 脚本、CI、本地自动化 | [快速开始](./guide/快速开始.md) |
-| **Daemon + IPC** | 桌面宿主、Tauri、长期驻留 | [IPC 接入指南](./integration/IPC接入指南.md) |
-| **Rust 库嵌入** | 同一进程内集成引擎 | [Rust 嵌入指南](./integration/Rust嵌入指南.md) |
-
----
-
-## 目录结构（仓库）
+## 目录（按分类）
 
 ```text
-docs/                 ← 本文档根目录
-  guide/              ← 中文使用指南（新手优先）
-  integration/        ← SDK / 接入（第三方开发者）
-  archive/            ← v3 及更早历史文档
-examples/directives/  ← 可运行的 YAML 示例（多步流水线）
-examples/actions/     ← 单 Action 最小示例
-examples/tauri/       ← Tauri sidecar 示例代码
-config/corex.toml     ← 运行时配置模板
-crates/               ← Rust 库源码
+docs/
+  guide/         入门与日常使用
+  reference/     权威参考（YAML / Action / 架构 / IPC）
+  integration/   接入与 SDK
+  topics/        专题（UI、跨平台）
+  ops/           企业部署与安全
+  changelog/     破坏性变更
+  archive/       ≤v3 历史稿（勿当现行 API）
 ```
+
+### 入门 — `guide/`
+
+| 文档 | 说明 |
+|------|------|
+| [快速开始](./guide/快速开始.md) | 构建、首跑、常用命令 |
+| [指令与输入配置](./guide/指令与输入配置.md) | `-i`、占位符、权限 |
+| [运行时配置](./guide/运行时配置.md) | `corex.toml`、UI profile |
+
+### 参考 — `reference/`
+
+| 文档 | 说明 |
+|------|------|
+| [指令 YAML](./reference/指令YAML.md) | DSL、triggers、schema |
+| [内置 Action](./reference/内置Action.md) | Action ID 与示例 |
+| [架构](./reference/架构.md) | crate 布局、Supervisor |
+| [IPC 协议](./reference/IPC协议.md) | NDJSON 请求/响应 |
+
+Schema：[schemas/directive.schema.json](../schemas/directive.schema.json)
+
+### 接入 — `integration/`
+
+| 文档 | 说明 |
+|------|------|
+| [接入总览](./integration/接入总览.md) | CLI / Daemon / 嵌入怎么选 |
+| [IPC 接入指南](./integration/IPC接入指南.md) | NDJSON 客户端 |
+| [Rust 嵌入指南](./integration/Rust嵌入指南.md) | 同进程 Pipeline |
+| [WASM 插件开发](./integration/WASM插件开发.md) | 动态扩展 Action |
+| [Tauri 接入指南](./integration/Tauri接入指南.md) | sidecar `corex-daemon` |
+
+### 专题 — `topics/`
+
+| 文档 | 说明 |
+|------|------|
+| [UI 自动化](./topics/UI自动化.md) | `ui.*`、`corex ui` |
+| [跨平台后端](./topics/跨平台后端.md) | 非 Windows 规划 |
+
+### 运维与安全 — `ops/`
+
+| 文档 | 说明 |
+|------|------|
+| [企业部署](./ops/企业部署.md) | 锁定配置、最小构建、CLI 边界 |
+| [合规说明](./ops/合规说明.md) | 授权与控制项 |
+| [威胁模型](./ops/威胁模型.md) | 高风险 Action |
+
+### 变更 — `changelog/`
+
+| 文档 | 说明 |
+|------|------|
+| [破坏性变更 v5](./changelog/破坏性变更-v5.md) | Shortcut→Directive、CLI 等 |
+| [破坏性变更 v4](./changelog/破坏性变更-v4.md) | v3→v4 重构 |
+| [archive/](./archive/) | ≤v3 与已 superseded 草稿 |
 
 ---
 
-## 获取帮助
+## 5 分钟上手
 
-- 指令 YAML 语法： [directive-yaml.md](./directive-yaml.md)
-- 某个 Action 的参数： [actions.md](./actions.md) 或 `corex actions`
-- 示例跑不通：先 `corex validate <file.yaml>`，再对照 [示例索引](../examples/directives/README.md)
-- 集成问题：从 [接入总览](./integration/接入总览.md) 选择路径
+```powershell
+cargo build -p corex -p corex-daemon
+corex run hello
+corex run hello -i who=Corex
+corex schedule
+corex actions
+corex validate examples/directives/hello.yaml
+```

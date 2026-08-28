@@ -50,4 +50,4 @@ Unix 则传入实际 socket 路径。确保应用进程能读到与 daemon 相�
 
 ## 更多
 
-托盘 + 全局快捷键 wiring 见 `lib.rs`。故障排查见 [docs/tauri-integration.md](../../docs/tauri-integration.md)。
+托盘 + 全局快捷键 wiring 见 `lib.rs`。故障排查见 [Tauri 接入指南](../../docs/integration/Tauri接入指南.md)。

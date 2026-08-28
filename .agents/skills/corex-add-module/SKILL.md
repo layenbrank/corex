@@ -48,7 +48,7 @@ crates/registry/
 用户请求新增 Action
     │
     ▼
-[1] 读 docs/architecture.md 确认契约与现有 ID
+[1] 读 docs/reference/架构.md 确认契约与现有 ID
     │
     ▼
 [2] 选参考实现（见下表）并阅读
@@ -198,7 +198,7 @@ corex actions   # 应列出 foo.bar
 ## IPC（Daemon）
 
 Transport 仍是 NDJSON over Unix socket / Windows Named Pipe（`\\.\pipe\corex`），
-但 **协议形状已变为** `Request` / `Response`（见 [docs/ipc-protocol.md](../../../docs/ipc-protocol.md)）：
+但 **协议形状已变为** `Request` / `Response`（见 [IPC 协议](../../../docs/reference/IPC协议.md)）：
 每条请求带 `auth_token`；`invoke` 使用 Action ID，不再使用旧 `module`+`action`。
 
 ```json
@@ -265,11 +265,11 @@ cargo build -p corex -p corex-daemon
 
 ## 相关文档
 
-- [docs/architecture.md](../../../docs/architecture.md) — v4 workspace 与执行模型
-- [docs/ipc-protocol.md](../../../docs/ipc-protocol.md) — NDJSON 协议、token、端点
-- [docs/actions.md](../../../docs/actions.md) — 内置 Action ID 表
-- [docs/directive-yaml.md](../../../docs/directive-yaml.md) — Directive DSL
-- [docs/breaking-changes-v4.md](../../../docs/breaking-changes-v4.md) — 破坏性变更
+- [架构](../../../docs/reference/架构.md) — workspace 与执行模型
+- [IPC 协议](../../../docs/reference/IPC协议.md) — NDJSON 协议、token、端点
+- [内置 Action](../../../docs/reference/内置Action.md) — 内置 Action ID 表
+- [指令 YAML](../../../docs/reference/指令YAML.md) — Directive DSL
+- [破坏性变更 v4](../../../docs/changelog/破坏性变更-v4.md) — 破坏性变更
 - [plugins/README.md](../../../plugins/README.md) — WASM 插件（非内置 Action）
 
 ## 相关 Skill

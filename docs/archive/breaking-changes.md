@@ -181,4 +181,4 @@ params:
 
 ## i-thinking 集成
 
-Tauri 侧需同步更新 `corex_ipc.rs` 与所有 IPC 调用：v3.0.0 起 wire 格式为 `invoke("capture", action "screenshot", ...)`（旧为 `invoke("screenshot", action "capture", ...)`）。参考 [`examples/tauri/corex_ipc.rs`](../examples/tauri/corex_ipc.rs)。
+Tauri 侧需同步更新 `corex_ipc.rs` 与所有 IPC 调用：v3.0.0 起 wire 格式为 `invoke("capture", action "screenshot", ...)`（旧为 `invoke("screenshot", action "capture", ...)`）。参考 [`examples/tauri/corex_ipc.rs`](../../examples/tauri/corex_ipc.rs)。

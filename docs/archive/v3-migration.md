@@ -43,4 +43,5 @@ IPC（Tauri）经 `serve/dispatch` → `invoke()` → `execute()`；capture 使�
 
 - [runtime.md](./runtime.md) — 运行时与退出码
 - [pipeline-v3.md](./pipeline-v3.md) — YAML schema 与变量
-- [architecture.md](./architecture.md) — 分层架构
+- [../architecture.md](../reference/架构.md) — 现行分层架构（本文所述为 ≤v3）
+- [../breaking-changes-v5.md](../changelog/破坏性变更-v5.md) — 升级到 v5

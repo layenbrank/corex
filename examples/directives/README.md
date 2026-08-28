@@ -96,4 +96,4 @@ corex validate examples/actions/<file>.yaml
 
 未声明 `permissions` 时默认 **allow-all**。一旦声明任一 `permissions.*: true`，则仅允许对应类别，其余 action 会被拒绝。企业环境可设 `[runtime].strict_permissions = true` 拒绝未声明权限的指令。
 
-详见 [docs/directive-yaml.md](../../docs/directive-yaml.md) 与 [docs/guide/指令与输入配置.md](../../docs/guide/指令与输入配置.md#8-权限)。
+详见 [指令 YAML](../../docs/reference/指令YAML.md) 与 [指令与输入配置](../../docs/guide/指令与输入配置.md#8-权限)。

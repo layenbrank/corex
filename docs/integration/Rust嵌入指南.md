@@ -141,7 +141,7 @@ CLI 参考：`bins/cli/src/main.rs` 中 `cmd_run`。
 | `corex-ipc` | Daemon 协议与传输（独立进程时用） |
 | `corex-plugin-sdk` | WASM 插件 WIT 契约 |
 
-架构图：[architecture.md](../architecture.md)
+架构图：[architecture.md](../reference/架构.md)
 
 ---
 
@@ -159,4 +159,4 @@ CLI 参考：`bins/cli/src/main.rs` 中 `cmd_run`。
 
 - [接入总览](./接入总览.md)
 - [IPC 接入指南](./IPC接入指南.md)
-- [directive-yaml.md](../directive-yaml.md)
+- [directive-yaml.md](../reference/指令YAML.md)

@@ -8,7 +8,7 @@ corex.task.schema.json
 - 提供一个可验证的示例配置 (`corex.task.example.json`)。
 - 给出在 Windows PowerShell 下使用 ajv-cli 进行验证的示例命令。
 
-Pipeline YAML（`pipelines.yaml`）使用**小写路由 + 扁平 params**，与 IPC 同构，详见 [pipeline-v3.md](./pipeline-v3.md) 与 [ipc-protocol.md](./ipc-protocol.md)。
+Pipeline YAML（`pipelines.yaml`）使用**小写路由 + 扁平 params**，与 IPC 同构，详见 [pipeline-v3.md](./pipeline-v3.md) 与 [../ipc-protocol.md](../reference/IPC协议.md)（现行协议已演进）。
 
 ## Pipeline 支持的 module
 

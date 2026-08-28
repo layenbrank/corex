@@ -3,7 +3,7 @@
 # - 可能违反微信等第三方 ToS；生产环境勿默认同步本文件。
 # - Experimental / fragile：UI 布局与版本变化会导致失败。
 # - 手机端确认登录为人工环节；PC 侧仅点击「进入微信」并等待 UI 变化。
-# 详见 docs/compliance.md / docs/ui-automation.md
+# 详见 docs/ops/合规说明.md · docs/topics/UI自动化.md
 #
 # 运行（必填 contact + message）：
 #   corex run wechat-send-message -i contact=文件传输助手 -i message=你好

@@ -42,7 +42,7 @@
 
 ## 7. 文档（按需）
 
-- [ ] `docs/architecture.md` / README（若用户要求）
+- [ ] `docs/reference/架构.md` / README（若用户要求）
 - [ ] 示例 Directive YAML（若对外演示）
 
 ## 8. 禁止项（旧架构）

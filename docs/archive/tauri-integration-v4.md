@@ -1,15 +1,15 @@
-# Tauri × Corex 集成指南（v4）
+# Tauri × Corex 集成指南（v4 归档）
 
-> **推荐新版中文文档：** [integration/Tauri接入指南.md](./integration/Tauri接入指南.md) · [文档中心](./README.md)
+> **已归档。** 请使用现行中文文档：[Tauri接入指南](../integration/Tauri接入指南.md) · [文档中心](../README.md)
 
-在 Tauri 2 中通过 sidecar **`corex-daemon`** 调用 Corex。Tauri **不要**链接业务 crate；只发 NDJSON IPC。
+以下为 v4 时期英文草稿，仅供对照。在 Tauri 2 中通过 sidecar **`corex-daemon`** 调用 Corex；Tauri **不要**链接业务 crate，只发 NDJSON IPC。
 
 相关：
 
-- [architecture.md](./architecture.md)
-- [ipc-protocol.md](./ipc-protocol.md)
-- [actions.md](./actions.md)
-- [examples/tauri/](../examples/tauri/)
+- [architecture.md](../reference/架构.md)
+- [ipc-protocol.md](../reference/IPC协议.md)
+- [actions.md](../reference/内置Action.md)
+- [examples/tauri/](../../examples/tauri/)
 
 ---
 
@@ -80,7 +80,7 @@ cargo build -p corex-daemon --release
 | Windows | `\\.\pipe\corex` |
 | Unix | 与 daemon 约定的 socket 路径（示例可用绝对路径或 data-dir 下 `corex.sock`） |
 
-Token（与 [ipc-protocol.md](./ipc-protocol.md) 一致）：
+Token（与 [ipc-protocol.md](../reference/IPC协议.md) 一致）：
 
 1. 进程环境 `COREX_TOKEN`
 2. 或读取与 daemon 相同的 `<data-dir>/token`
@@ -118,7 +118,7 @@ Token（与 [ipc-protocol.md](./ipc-protocol.md) 一致）：
 
 线格式为一行一个 JSON + `\n`，最大 1 MiB。
 
-示例客户端见 [`examples/tauri/corex_ipc.rs`](../examples/tauri/corex_ipc.rs)：`invoke_action("capture.screenshot", params)`，Windows 使用 `\\.\pipe\corex`。
+示例客户端见 [`examples/tauri/corex_ipc.rs`](../../examples/tauri/corex_ipc.rs)：`invoke_action("capture.screenshot", params)`，Windows 使用 `\\.\pipe\corex`。
 
 ---
 

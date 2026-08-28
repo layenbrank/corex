@@ -2,7 +2,7 @@
 
 本文说明如何通过 **NDJSON** 与 **`corex-daemon`** 通信，从任意语言/进程调用指令或单个 Action。
 
-英文协议细节（字段级）：[ipc-protocol.md](../ipc-protocol.md)
+英文协议细节（字段级）：[ipc-protocol.md](../reference/IPC协议.md)
 
 ---
 
@@ -162,4 +162,4 @@ Tauri 等桌面壳：**推荐 Daemon sidecar 模式**。
 - [接入总览](./接入总览.md)
 - [Tauri 接入指南](./Tauri接入指南.md)
 - [运行时配置](../guide/运行时配置.md)
-- [ipc-protocol.md](../ipc-protocol.md)
+- [ipc-protocol.md](../reference/IPC协议.md)

@@ -1,14 +1,17 @@
 # Corex 架构与 Tauri 集成（总览）
 
-本文档是 Corex 架构重构与 Tauri 集成的**入口文档**。详细内容请参阅专题文档。
+> **归档文档（≤v3 / 重构期草稿）。** 现行入口：[文档中心](../README.md) · [架构说明](../reference/架构.md) · [Tauri 接入指南](../integration/Tauri接入指南.md)
+
+本文档是 Corex 架构重构与 Tauri 集成的**历史入口**。详细内容请参阅专题文档。
 
 | 文档 | 说明 |
 |------|------|
-| [architecture.md](./architecture.md) | 阶段 1–3 实现细节、Feature 体系、serve 模块 |
-| [pipeline-v3.md](./pipeline-v3.md) | Pipeline v3 配置、DAG、watch / schedule |
-| [ipc-protocol.md](./ipc-protocol.md) | Named Pipe JSON 协议参考 |
-| [tauri-integration.md](./tauri-integration.md) | Tauri 2 完整接入指南 |
-| [../examples/tauri/README.md](../examples/tauri/README.md) | 可复制的示例代码速查 |
+| [../architecture.md](../reference/架构.md) | 现行 v5 架构（含 supervisor / watch） |
+| [pipeline-v3.md](./pipeline-v3.md) | Pipeline v3 配置、DAG、watch / schedule（已废弃） |
+| [../ipc-protocol.md](../reference/IPC协议.md) | 现行 NDJSON IPC 协议 |
+| [../integration/Tauri接入指南.md](../integration/Tauri接入指南.md) | 现行 Tauri 2 接入指南 |
+| [tauri-integration-v4.md](./tauri-integration-v4.md) | v4 英文 Tauri 草稿 |
+| [../../examples/tauri/README.md](../../examples/tauri/README.md) | 可复制的示例代码速查 |
 
 ---
 
@@ -129,7 +132,7 @@ cargo build -p corex-capture --release
 
 **价值：** Daemon 可按 `module` 名字符串动态分发，无需走 clap。
 
-详见 [architecture.md — 阶段 1](./architecture.md#阶段-1统一-run-入口)。
+详见 [architecture.md](../reference/架构.md)（现行文档；文中「阶段 1」锚点已不存在）。
 
 ### 阶段 2：Cargo Feature 模块化
 
@@ -143,7 +146,7 @@ cargo build -p corex-capture --release
 
 **价值：** `corex-capture` 体积远小于完整版；rust-analyzer 负担减轻。
 
-详见 [architecture.md — 阶段 2](./architecture.md#阶段-2cargo-feature-模块化)。
+详见 [architecture.md](../reference/架构.md)（现行文档；文中「阶段 2」锚点已不存在）。
 
 ### 阶段 3：Daemon + JSON IPC
 
@@ -158,7 +161,7 @@ cargo build -p corex-capture --release
 
 **价值：** IPC 往返 <1ms；Monitor 枚举摊销到 Daemon 启动时一次。
 
-详见 [architecture.md — 阶段 3](./architecture.md#阶段-3daemon--json-ipc) 与 [ipc-protocol.md](./ipc-protocol.md)。
+详见 [architecture.md](../reference/架构.md) 与 [ipc-protocol.md](../reference/IPC协议.md)。
 
 ### 阶段 4：Tauri 集成（示例就绪）
 
@@ -172,7 +175,7 @@ cargo build -p corex-capture --release
 - `lib.rs` — sidecar + 托盘 + Ctrl+Shift+S
 - `tauri.conf.json`、`capabilities/default.json`、复制脚本
 
-详见 [tauri-integration.md](./tauri-integration.md)。
+详见 [Tauri接入指南](../integration/Tauri接入指南.md)（历史草稿：[tauri-integration-v4.md](./tauri-integration-v4.md)）。
 
 ### 阶段 5：基准测试（待办）
 
@@ -229,7 +232,7 @@ cargo run -p corex-capture -- --to C:\Temp\screenshots
 4. **合并配置**：`tauri.conf.json`（externalBin）、`capabilities`（shell spawn）
 5. **启动验证**：`pnpm tauri dev`，按 Ctrl+Shift+S 截图
 
-完整步骤见 [tauri-integration.md](./tauri-integration.md)。
+完整步骤见 [Tauri接入指南](../integration/Tauri接入指南.md)。
 
 ---
 
@@ -318,9 +321,9 @@ sequenceDiagram
 
 | 文件 | 内容 |
 |------|------|
-| [architecture.md](./architecture.md) | 阶段 1–3 深度、Feature 树、serve 模块 |
-| [ipc-protocol.md](./ipc-protocol.md) | JSON 协议、各 module args 示例 |
-| [tauri-integration.md](./tauri-integration.md) | Tauri 2 sidecar、托盘、快捷键 |
+| [../architecture.md](../reference/架构.md) | 现行 v5 架构（历史「阶段 1–3」叙述已过时） |
+| [../ipc-protocol.md](../reference/IPC协议.md) | 现行 NDJSON 协议 |
+| [../integration/Tauri接入指南.md](../integration/Tauri接入指南.md) | Tauri 2 sidecar、托盘、快捷键 |
 | [cron.md](./cron.md) | cron 7 字段格式 |
 | [corex.task.schema.README.md](./corex.task.schema.README.md) | Pipeline 任务 JSON Schema |
 | [worktree.md](./worktree.md) | Git worktree 用法 |
@@ -329,7 +332,7 @@ sequenceDiagram
 
 | 路径 | 说明 |
 |------|------|
-| [examples/tauri/](../examples/tauri/) | Tauri 集成全套示例 |
+| [examples/tauri/](../../examples/tauri/) | Tauri 集成全套示例 |
 | [corex-core/examples/ipc.rs](../corex-core/examples/ipc.rs) | 最小 IPC 客户端验证 |
 
 ### 计划文档

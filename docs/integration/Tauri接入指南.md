@@ -104,7 +104,7 @@ corex_ipc::run_directive("hello", input_map)?;
 | `notify.send` | 系统通知 |
 | `run_directive` | 执行完整 YAML 流水线 |
 
-完整列表：[actions.md](../actions.md)
+完整列表：[actions.md](../reference/内置Action.md)
 
 ---
 
@@ -121,7 +121,7 @@ corex_ipc::run_directive("hello", input_map)?;
 
 ## 8. 可选：UI Inspector
 
-`examples/tauri/inspector/` 提供 WebView 调试 UI 树的原型，配合 `corex ui element tree` 使用。详见 [ui-automation.md](../ui-automation.md)。
+`examples/tauri/inspector/` 提供 WebView 调试 UI 树的原型，配合 `corex ui element tree` 使用。详见 [ui-automation.md](../topics/UI自动化.md)。
 
 ---
 
@@ -129,5 +129,5 @@ corex_ipc::run_directive("hello", input_map)?;
 
 - [接入总览](./接入总览.md)
 - [IPC 接入指南](./IPC接入指南.md)
-- [ipc-protocol.md](../ipc-protocol.md)（英文完整协议）
+- [ipc-protocol.md](../reference/IPC协议.md)（英文完整协议）
 - [examples/tauri/README.md](../../examples/tauri/README.md)
