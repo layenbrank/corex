@@ -50,7 +50,7 @@ impl Action for CronSchedule {
         {
             use corex_engine::{find_cron_engine, CronJobSpec};
             let engine = find_cron_engine().ok_or_else(|| {
-                ActionError::execution("cron 守护未运行：请先执行 corex cron start")
+                ActionError::execution("cron 守护未运行：请先执行 corex cron run")
             })?;
             let path = resolve_directive_path(&directive)?;
             let job_id = format!("dyn-{}", uuid::Uuid::new_v4());
