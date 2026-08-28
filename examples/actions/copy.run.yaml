@@ -1,0 +1,14 @@
+# copy.run — 最小示例
+# 运行: corex run examples/actions/copy.run.yaml
+name: action-copy-run
+description: "Action: copy.run"
+permissions:
+  filesystem: true
+steps:
+  - id: demo
+    action: copy.run
+    params:
+      from: "./examples/directives/hello.yaml"
+      to: "{{env.TEMP}}/corex-copy-run/hello.yaml"
+      empty: false
+    save_to: result

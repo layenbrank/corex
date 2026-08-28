@@ -1,0 +1,14 @@
+# http.send — 最小 GET 示例
+# 运行: corex run examples/actions/http.send.yaml
+name: action-http-send
+description: "Action: http.send"
+permissions:
+  network: true
+steps:
+  - id: demo
+    action: http.send
+    params:
+      url: "https://httpbin.org/get"
+      method: GET
+      timeout_ms: 15000
+    save_to: result

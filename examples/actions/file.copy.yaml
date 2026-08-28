@@ -1,0 +1,13 @@
+# file.copy — 最小示例
+# 运行: corex run examples/actions/file.copy.yaml
+name: action-file-copy
+description: "Action: file.copy"
+permissions:
+  filesystem: true
+steps:
+  - id: demo
+    action: file.copy
+    params:
+      from: "./examples/directives/hello.yaml"
+      to: "{{env.TEMP}}/corex-file-copy.yaml"
+    save_to: result

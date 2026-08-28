@@ -1,0 +1,52 @@
+# morph.export / morph.merge / morph.split — PDF 操作（lopdf，无需 pdfium）
+#
+# 运行（需提供至少一个 PDF）:
+#   corex run morph-demo -i pdf_path=C:/path/to/sample.pdf
+#
+# morph.meta / morph.render 需要 pdfium，见 examples/actions/morph.meta.yaml
+name: morph-demo
+description: morph.export、merge、split（需提供 pdf_path 输入）
+version: "1.0"
+
+inputs:
+  - name: pdf_path
+    description: 源 PDF 文件路径（必填，无默认值）
+    required: true
+  - name: work_dir
+    description: 临时工作目录
+    required: false
+    default: "{{env.TEMP}}/corex-morph-demo"
+
+permissions:
+  filesystem: true
+
+steps:
+  - id: export_copy
+    action: morph.export
+    params:
+      src: "{{input.pdf_path}}"
+      dest: "{{input.work_dir}}/exported.pdf"
+    save_to: exported
+
+  - id: merge
+    action: morph.merge
+    params:
+      paths:
+        - "{{exported}}"
+        - "{{input.pdf_path}}"
+      dest: "{{input.work_dir}}/merged.pdf"
+    save_to: merged
+
+  - id: split
+    action: morph.split
+    params:
+      path: "{{merged}}"
+      dir: "{{input.work_dir}}/pages"
+      limit: 1
+    save_to: split_dir
+
+  - id: summary
+    action: template.render
+    params:
+      template: "exported={{ exported }} merged={{ merged }}"
+    save_to: summary

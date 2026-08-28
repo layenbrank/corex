@@ -1,0 +1,61 @@
+# exec.run — 运行脚本文件（与 shell.run 对称）
+#
+# 运行 (Windows PowerShell):
+#   corex run exec-run-demo
+#   corex run exec-run-demo -i name=Alice
+#
+# 运行 (Unix，覆盖 script 为 .sh 路径):
+#   corex run exec-run-demo -i script="{{env.TEMP}}/corex-exec-demo.sh" -i host=none
+#
+# 说明: 先用 file.write 在临时目录生成脚本，再 exec.run（无需仓库内 scripts/）
+# 输出: exec_out { stdout, stderr, exit_code, success }
+name: exec-run-demo
+description: exec.run 脚本文件执行（host=auto 按扩展名选 shell）
+version: "1.1"
+
+inputs:
+  - name: script
+    description: 脚本路径（由 seed 步骤写入临时目录）
+    required: false
+    default: "{{env.TEMP}}/corex-exec-demo.ps1"
+  - name: host
+    description: none | cmd | powershell | pwsh | auto
+    required: false
+    default: "auto"
+  - name: name
+    description: 传给脚本的参数
+    required: false
+    default: "corex"
+
+permissions:
+  shell: true
+  filesystem: true
+
+steps:
+  - id: seed_script
+    action: file.write
+    params:
+      path: "{{input.script}}"
+      mode: overwrite
+      create_dirs: true
+      content: |
+        param([string]$Name = "corex")
+        Write-Output "hello $Name from exec.run demo"
+
+  - id: run_script
+    action: exec.run
+    params:
+      script: "{{input.script}}"
+      host: "{{input.host}}"
+      args:
+        - "{{input.name}}"
+      wait: sync
+      allow_nonzero: false
+    save_to: exec_out
+
+  - id: summary
+    action: template.render
+    params:
+      template: >-
+        script={{ input.script }} exit={{ exec_out.exit_code }} stdout={{ exec_out.stdout }}
+    save_to: summary

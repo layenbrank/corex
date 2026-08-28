@@ -1,0 +1,9 @@
+# scan.os — 最小示例
+# 运行: corex run examples/actions/scan.os.yaml
+name: action-scan-os
+description: "Action: scan.os"
+steps:
+  - id: demo
+    action: scan.os
+    params: {}
+    save_to: result

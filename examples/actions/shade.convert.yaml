@@ -1,0 +1,15 @@
+# shade.convert — 最小示例（需已有 PNG，或先运行 capture-demo）
+# 运行: corex run examples/actions/shade.convert.yaml
+name: action-shade-convert
+description: "Action: shade.convert"
+permissions:
+  filesystem: true
+steps:
+  - id: demo
+    action: shade.convert
+    params:
+      from: "{{env.TEMP}}/corex-capture-full.png"
+      to: "{{env.TEMP}}/corex-shade-single.jpg"
+      format: jpeg
+      quality: 85
+    save_to: result

@@ -1,0 +1,13 @@
+# clipboard.set — 最小示例（配合 clipboard.get 见 keyring-demo / clipboard-notify）
+# 运行: corex run examples/actions/clipboard.set.yaml
+name: action-clipboard-set
+description: "Action: clipboard.set"
+permissions:
+  clipboard: true
+steps:
+  - id: demo
+    action: clipboard.set
+    params:
+      format: text
+      text: "corex clipboard demo"
+    save_to: result

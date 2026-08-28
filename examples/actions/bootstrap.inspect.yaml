@@ -1,0 +1,11 @@
+# bootstrap.inspect — 最小示例（platform: windows）
+# 运行: corex run examples/actions/bootstrap.inspect.yaml
+name: action-bootstrap-inspect
+description: "Action: bootstrap.inspect"
+permissions:
+  shell: true
+steps:
+  - id: demo
+    action: bootstrap.inspect
+    params: {}
+    save_to: result

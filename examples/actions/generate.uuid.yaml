@@ -1,0 +1,11 @@
+# generate.uuid — 最小示例
+# 运行: corex run examples/actions/generate.uuid.yaml
+name: action-generate-uuid
+description: "Action: generate.uuid"
+steps:
+  - id: demo
+    action: generate.uuid
+    params:
+      count: 2
+      uppercase: false
+    save_to: result

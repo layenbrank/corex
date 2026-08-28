@@ -1,0 +1,14 @@
+# capture.ocr — 最小示例（platform: windows，需含文字的图片）
+# 运行: corex run examples/actions/capture.ocr.yaml
+name: action-capture-ocr
+description: "Action: capture.ocr"
+permissions:
+  capture: true
+  filesystem: true
+steps:
+  - id: demo
+    action: capture.ocr
+    params:
+      file: "{{env.TEMP}}/corex-action-screenshot.png"
+      language: en-US
+    save_to: result

@@ -1,0 +1,18 @@
+# yaml-language-server: $schema=../../schemas/directive.schema.json
+# morph.render — 参数示例（需要 pdfium，当前构建会 soft-fail）
+# 运行: corex run examples/actions/morph.render.yaml -i pdf_path=C:/path/to/file.pdf
+name: action-morph-render
+description: "Action: morph.render (needs pdfium)"
+inputs:
+  - name: pdf_path
+    required: true
+permissions:
+  filesystem: true
+steps:
+  - id: demo
+    action: morph.render
+    params:
+      path: "{{input.pdf_path}}"
+      offset: 0
+      scale: 2.0
+    save_to: result

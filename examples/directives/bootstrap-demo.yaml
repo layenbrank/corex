@@ -1,0 +1,25 @@
+# bootstrap.inspect — 检查 corex 可执行目录是否在 PATH（platform: windows）
+#
+# 运行 (Windows):
+#   corex run bootstrap-demo
+#
+# 输出: inspect { in_path, exe_dir }
+# bootstrap.env / bootstrap.force 会修改 PATH，本示例仅 inspect（只读）
+name: bootstrap-demo
+description: bootstrap.inspect 检查 PATH 是否包含 corex 目录
+version: "1.0"
+
+permissions:
+  shell: true
+
+steps:
+  - id: inspect
+    action: bootstrap.inspect
+    params: {}
+    save_to: inspect
+
+  - id: summary
+    action: template.render
+    params:
+      template: "in_path={{ inspect.in_path }} exe_dir={{ inspect.exe_dir }}"
+    save_to: summary

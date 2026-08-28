@@ -1,0 +1,17 @@
+# capture.crop — 最小示例（需源图，先运行 capture.screenshot）
+# 运行: corex run examples/actions/capture.crop.yaml
+name: action-capture-crop
+description: "Action: capture.crop"
+permissions:
+  filesystem: true
+steps:
+  - id: demo
+    action: capture.crop
+    params:
+      from: "{{env.TEMP}}/corex-action-screenshot.png"
+      to: "{{env.TEMP}}/corex-action-crop.png"
+      x: 0
+      y: 0
+      width: 100
+      height: 80
+    save_to: result

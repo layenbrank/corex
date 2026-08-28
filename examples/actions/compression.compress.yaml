@@ -1,0 +1,15 @@
+# compression.compress — 最小示例
+# 运行: corex run examples/actions/compression.compress.yaml
+name: action-compression-compress
+description: "Action: compression.compress"
+permissions:
+  filesystem: true
+steps:
+  - id: demo
+    action: compression.compress
+    params:
+      from: "./examples/directives/hello.yaml"
+      to: "{{env.TEMP}}/corex-compress.zip"
+      format: zip
+      level: 6
+    save_to: result

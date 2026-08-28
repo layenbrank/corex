@@ -1,0 +1,15 @@
+# morph.meta — 参数示例（需要 pdfium，当前构建会 soft-fail）
+# 运行: corex run examples/actions/morph.meta.yaml -i pdf_path=C:/path/to/file.pdf
+name: action-morph-meta
+description: "Action: morph.meta (needs pdfium)"
+inputs:
+  - name: pdf_path
+    required: true
+permissions:
+  filesystem: true
+steps:
+  - id: demo
+    action: morph.meta
+    params:
+      path: "{{input.pdf_path}}"
+    save_to: result

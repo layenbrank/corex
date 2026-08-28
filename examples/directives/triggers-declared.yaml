@@ -1,14 +1,14 @@
 # triggers 字段声明示例
 #
 # 说明:
-#   - triggers.watch → corex watch start <name>
-#   - triggers.cron → corex cron start <name>
+#   - triggers.watch → corex watch run <name>
+#   - triggers.cron → corex cron run <name>
 #   - 手动执行: corex run <name>（无需在 triggers 中声明）
 #
 # 运行:
 #   corex run triggers-declared
-#   corex watch start triggers-declared
-#   corex cron start triggers-declared
+#   corex watch run triggers-declared
+#   corex cron run triggers-declared
 name: triggers-declared
 description: 展示 triggers 声明形状（cron + watch 可并存，各仅一条）
 version: "1.0"

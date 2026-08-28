@@ -1,0 +1,49 @@
+# scrub.run — 删除目录下指定名称的文件
+#
+# 运行:
+#   corex run scrub-demo
+#
+# 输出: scrubbed 删除计数
+name: scrub-demo
+description: 创建含 .tmp 文件的临时目录后 scrub.run 递归删除
+version: "1.0"
+
+inputs:
+  - name: work_dir
+    description: 工作目录
+    required: false
+    default: "{{env.TEMP}}/corex-scrub-demo"
+
+permissions:
+  filesystem: true
+
+steps:
+  - id: seed_a
+    action: file.write
+    params:
+      path: "{{input.work_dir}}/keep.txt"
+      mode: overwrite
+      create_dirs: true
+      content: "keep me"
+
+  - id: seed_tmp
+    action: file.write
+    params:
+      path: "{{input.work_dir}}/nested/stale.tmp"
+      mode: overwrite
+      create_dirs: true
+      content: "delete me"
+
+  - id: scrub
+    action: scrub.run
+    params:
+      source: "{{input.work_dir}}"
+      target: "stale.tmp"
+      recursive: true
+    save_to: scrubbed
+
+  - id: summary
+    action: template.render
+    params:
+      template: "scrubbed={{ scrubbed }} work_dir={{ input.work_dir }}"
+    save_to: summary

@@ -1,0 +1,39 @@
+# shade.convert — 图片格式转换（依赖 capture-demo 截图或自备 PNG）
+#
+# 运行 (Windows，需先截图或提供 from):
+#   corex run shade-demo
+#   corex run shade-demo -i from="{{env.TEMP}}/corex-capture-full.png"
+#
+# 若无 from 文件，先运行: corex run capture-demo
+name: shade-demo
+description: shade.convert 将 PNG 转为 JPEG
+version: "1.0"
+
+inputs:
+  - name: from
+    description: 源图片（PNG）
+    required: false
+    default: "{{env.TEMP}}/corex-capture-full.png"
+  - name: to
+    description: 输出 JPEG 路径
+    required: false
+    default: "{{env.TEMP}}/corex-shade-out.jpg"
+
+permissions:
+  filesystem: true
+
+steps:
+  - id: convert
+    action: shade.convert
+    params:
+      from: "{{input.from}}"
+      to: "{{input.to}}"
+      format: jpeg
+      quality: 85
+    save_to: converted
+
+  - id: summary
+    action: template.render
+    params:
+      template: "converted={{ converted }}"
+    save_to: summary

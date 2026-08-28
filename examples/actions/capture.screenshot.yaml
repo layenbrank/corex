@@ -1,0 +1,14 @@
+# capture.screenshot — 最小示例（platform: windows）
+# 运行: corex run examples/actions/capture.screenshot.yaml
+name: action-capture-screenshot
+description: "Action: capture.screenshot"
+permissions:
+  capture: true
+  filesystem: true
+steps:
+  - id: demo
+    action: capture.screenshot
+    params:
+      to: "{{env.TEMP}}/corex-action-screenshot.png"
+      format: png
+    save_to: result

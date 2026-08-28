@@ -1,0 +1,49 @@
+# file.copy / file.delete — 单文件复制与删除
+#
+# 运行:
+#   corex run file-ops-demo
+#   corex run file-ops-demo -i from=./examples/directives/hello.yaml
+#
+# 输出: copied 路径 → 读取副本 → 删除副本
+name: file-ops-demo
+description: 演示 file.copy 与 file.delete
+version: "1.0"
+
+inputs:
+  - name: from
+    description: 源文件
+    required: false
+    default: "./examples/directives/hello.yaml"
+  - name: to
+    description: 副本路径
+    required: false
+    default: "{{env.TEMP}}/corex-file-ops-copy.yaml"
+
+permissions:
+  filesystem: true
+
+steps:
+  - id: copy
+    action: file.copy
+    params:
+      from: "{{input.from}}"
+      to: "{{input.to}}"
+    save_to: copied
+
+  - id: read_copy
+    action: file.read
+    params:
+      path: "{{copied}}"
+    save_to: content
+
+  - id: delete
+    action: file.delete
+    params:
+      path: "{{copied}}"
+    save_to: deleted
+
+  - id: summary
+    action: template.render
+    params:
+      template: "copied={{ copied }} deleted={{ deleted }}"
+    save_to: summary

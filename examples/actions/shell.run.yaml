@@ -1,0 +1,15 @@
+# shell.run — 最小示例
+# 运行: corex run examples/actions/shell.run.yaml
+name: action-shell-run
+description: "Action: shell.run"
+permissions:
+  shell: true
+steps:
+  - id: demo
+    action: shell.run
+    params:
+      command: echo
+      args: ["hello from shell.run"]
+      host: none
+      wait: sync
+    save_to: result

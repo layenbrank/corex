@@ -1,0 +1,11 @@
+# capture.monitors — 最小示例（platform: windows）
+# 运行: corex run examples/actions/capture.monitors.yaml
+name: action-capture-monitors
+description: "Action: capture.monitors"
+permissions:
+  capture: true
+steps:
+  - id: demo
+    action: capture.monitors
+    params: {}
+    save_to: result

@@ -1,0 +1,52 @@
+# generate.path — 遍历目录写出路径列表
+#
+# 运行:
+#   corex run generate-path-demo
+#   corex run generate-path-demo -i from=./examples/directives -i to="{{env.TEMP}}/paths.txt"
+#
+# 输出: path_list 文件路径
+name: generate-path-demo
+description: generate.path 遍历 examples/directives 写出 YAML 路径列表
+version: "1.0"
+
+inputs:
+  - name: from
+    description: 源目录
+    required: false
+    default: "./examples/directives"
+  - name: to
+    description: 输出列表文件
+    required: false
+    default: "{{env.TEMP}}/corex-path-list.txt"
+  - name: transform
+    description: 每行模板（{{path}} 为相对路径）
+    required: false
+    default: "{{path}}"
+
+permissions:
+  filesystem: true
+
+steps:
+  - id: list_paths
+    action: generate.path
+    params:
+      from: "{{input.from}}"
+      to: "{{input.to}}"
+      transform: "{{input.transform}}"
+      includes:
+        - "*.yaml"
+      excludes:
+        - "*.bak"
+    save_to: path_list
+
+  - id: preview
+    action: file.read
+    params:
+      path: "{{path_list}}"
+    save_to: preview
+
+  - id: summary
+    action: template.render
+    params:
+      template: "wrote={{ path_list }}"
+    save_to: summary

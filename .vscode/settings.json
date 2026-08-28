@@ -1,0 +1,10 @@
+{
+  "yaml.schemas": {
+    "./schemas/directive.schema.json": [
+      "examples/directives/*.yaml",
+      "examples/directives/*.yml",
+      "examples/actions/*.yaml",
+      "examples/actions/*.yml"
+    ]
+  }
+}

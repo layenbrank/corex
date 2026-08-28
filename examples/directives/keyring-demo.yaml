@@ -1,0 +1,49 @@
+# keyring.set / keyring.get — OS 钥匙串读写
+#
+# 运行:
+#   corex run keyring-demo
+#   corex run keyring-demo -i service=my-app -i user=demo -i secret=rotate-me
+#
+# 输出: stored secret 读回值（写入后立即读取验证）
+name: keyring-demo
+description: keyring.set 写入后 keyring.get 读回（使用占位 service/user）
+version: "1.0"
+
+inputs:
+  - name: service
+    description: 钥匙串 service 名（请使用你的应用标识）
+    required: false
+    default: "corex-demo"
+  - name: user
+    description: 钥匙串 user 名
+    required: false
+    default: "demo-user"
+  - name: secret
+    description: 要存储的密钥（占位符，勿用生产密码）
+    required: false
+    default: "demo-secret-CHANGE-ME"
+
+permissions:
+  secret: true
+
+steps:
+  - id: set
+    action: keyring.set
+    params:
+      service: "{{input.service}}"
+      user: "{{input.user}}"
+      password: "{{input.secret}}"
+    save_to: set_ok
+
+  - id: get
+    action: keyring.get
+    params:
+      service: "{{input.service}}"
+      user: "{{input.user}}"
+    save_to: secret
+
+  - id: summary
+    action: template.render
+    params:
+      template: "service={{ input.service }} user={{ input.user }} read_ok=true"
+    save_to: summary

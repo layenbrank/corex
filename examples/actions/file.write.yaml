@@ -1,0 +1,15 @@
+# file.write — 最小示例
+# 运行: corex run examples/actions/file.write.yaml
+name: action-file-write
+description: "Action: file.write"
+permissions:
+  filesystem: true
+steps:
+  - id: demo
+    action: file.write
+    params:
+      path: "{{env.TEMP}}/corex-file-write-demo.txt"
+      content: "hello file.write"
+      mode: overwrite
+      create_dirs: true
+    save_to: result

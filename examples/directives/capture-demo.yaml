@@ -1,0 +1,56 @@
+# capture.* — 截图、裁剪、显示器列表（platform: windows）
+#
+# 运行 (Windows):
+#   corex run capture-demo
+#   corex run capture-demo -i out="{{env.TEMP}}/corex-shot.png"
+#
+# 链路: capture.screenshot → capture.crop → capture.monitors
+# 非 Windows 平台 capture.screenshot / capture.monitors 会报错
+name: capture-demo
+description: capture.screenshot、capture.crop、capture.monitors 演示
+version: "1.0"
+
+inputs:
+  - name: out
+    description: 全屏截图输出路径
+    required: false
+    default: "{{env.TEMP}}/corex-capture-full.png"
+  - name: crop_out
+    description: 裁剪后输出路径
+    required: false
+    default: "{{env.TEMP}}/corex-capture-crop.png"
+
+permissions:
+  capture: true
+  filesystem: true
+
+steps:
+  - id: shot
+    action: capture.screenshot
+    params:
+      to: "{{input.out}}"
+      format: png
+      quality: 90
+    save_to: screenshot
+
+  - id: crop
+    action: capture.crop
+    params:
+      from: "{{screenshot}}"
+      to: "{{input.crop_out}}"
+      x: 0
+      y: 0
+      width: 200
+      height: 150
+    save_to: cropped
+
+  - id: monitors
+    action: capture.monitors
+    params: {}
+    save_to: monitor_list
+
+  - id: summary
+    action: template.render
+    params:
+      template: "screenshot={{ screenshot }} cropped={{ cropped }}"
+    save_to: summary

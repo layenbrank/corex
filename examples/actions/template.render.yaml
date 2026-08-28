@@ -1,0 +1,13 @@
+# yaml-language-server: $schema=../../schemas/directive.schema.json
+# template.render — 最小示例
+# 运行: corex run examples/actions/template.render.yaml
+name: action-template-render
+description: "Action: template.render"
+steps:
+  - id: demo
+    action: template.render
+    params:
+      template: "Hello, {{ name }}!"
+      context:
+        name: corex
+    save_to: result

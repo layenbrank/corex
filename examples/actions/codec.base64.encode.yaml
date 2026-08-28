@@ -1,0 +1,10 @@
+# codec.base64.encode — 最小示例
+# 运行: corex run examples/actions/codec.base64.encode.yaml
+name: action-codec-base64-encode
+description: "Action: codec.base64.encode"
+steps:
+  - id: demo
+    action: codec.base64.encode
+    params:
+      input: "corex"
+    save_to: result

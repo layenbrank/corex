@@ -1,0 +1,23 @@
+# exec.run — 最小示例（先写临时脚本再执行）
+# 运行: corex run examples/actions/exec.run.yaml
+name: action-exec-run
+description: "Action: exec.run"
+permissions:
+  shell: true
+  filesystem: true
+steps:
+  - id: seed
+    action: file.write
+    params:
+      path: "{{env.TEMP}}/corex-action-exec.ps1"
+      mode: overwrite
+      create_dirs: true
+      content: |
+        Write-Output "hello from exec.run"
+  - id: demo
+    action: exec.run
+    params:
+      script: "{{env.TEMP}}/corex-action-exec.ps1"
+      host: auto
+      wait: sync
+    save_to: result

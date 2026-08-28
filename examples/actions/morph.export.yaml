@@ -1,0 +1,16 @@
+# morph.export — 最小示例（需提供 pdf_path）
+# 运行: corex run examples/actions/morph.export.yaml -i pdf_path=C:/path/to/file.pdf
+name: action-morph-export
+description: "Action: morph.export"
+inputs:
+  - name: pdf_path
+    required: true
+permissions:
+  filesystem: true
+steps:
+  - id: demo
+    action: morph.export
+    params:
+      src: "{{input.pdf_path}}"
+      dest: "{{env.TEMP}}/corex-morph-export.pdf"
+    save_to: result

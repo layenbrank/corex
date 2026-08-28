@@ -1,41 +1,53 @@
-# HTTP 登录 → JSON 提取 → file.write regex 补丁
+# HTTP POST → JSON 提取 → file.write regex 补丁
 #
-# 场景: POST 登录 API，从响应 JSON 取 token，用 regex 更新前端 JS 中的 initToken
+# 场景: POST 登录类 API，从响应 JSON 取 token，用 regex 更新 JS 中的 initToken
+# 本示例使用 httpbin.org/post 公网 echo，无需真实凭据
 #
-# 运行（需可访问内网 API 且 target 文件存在）:
+# 运行:
 #   corex run http-extract-patch
-#   corex run http-extract-patch -i username=dba -i password='secret'
-#   corex run http-extract-patch -i target="C:/path/to/request.js"
+#   corex run http-extract-patch -i username=demo -i password=secret-token-123
+#   corex run http-extract-patch -i target="{{env.TEMP}}/my-request.js"
 #
-# 链路: http.send → codec.json.parse → file.write(mode=regex, backup=true)
-# JSON 路径: parsed.data.token.tokenValue
+# 链路: file.write(seed) → http.send → codec.json.parse → file.write(regex)
+# JSON 路径: parsed.json.password（httpbin 回显请求体中的 password 字段）
 name: http-extract-patch
-description: POST 登录 goview，提取 token 并写入 request.js 的 initToken
-version: "1.2"
+description: POST JSON、提取 echo 字段并用 regex 更新 initToken（演示用 httpbin）
+version: "1.3"
 
 inputs:
   - name: url
-    description: 登录 API
+    description: POST 目标 URL
     required: false
-    default: "http://172.16.0.8:9001/go/api/goview/sys/login"
+    default: "https://httpbin.org/post"
   - name: username
-    description: 登录用户名
+    description: 登录用户名（占位符，请替换为你的值）
     required: false
-    default: "dba"
+    default: "YOUR_USERNAME"
   - name: password
-    description: 登录密码
+    description: 用作 token 的密码字段（占位符）
     required: false
-    default: "iwell@123"
+    default: "YOUR_PASSWORD"
   - name: target
-    description: 待更新 initToken 的前端 request.js
+    description: 待更新 initToken 的 JS 文件
     required: false
-    default: "{{env.USERPROFILE}}\\Documents\\source code of business\\iwellnew\\src\\api\\request.js"
+    default: "{{env.TEMP}}/corex-request-demo.js"
 
 permissions:
   network: true
   filesystem: true
 
 steps:
+  - id: seed
+    action: file.write
+    params:
+      path: "{{input.target}}"
+      mode: overwrite
+      create_dirs: true
+      content: |
+        // corex http-extract-patch demo
+        const initToken =
+          'PLACEHOLDER'
+
   - id: login
     action: http.send
     params:
@@ -62,5 +74,5 @@ steps:
       path: "{{input.target}}"
       mode: regex
       pattern: "(?s)const initToken\\s*=\\s*\\n\\s*'[^']*'"
-      replacement: "const initToken =\n  '{{parsed.data.token.tokenValue}}'"
+      replacement: "const initToken =\n  '{{parsed.json.password}}'"
       backup: true

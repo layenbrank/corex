@@ -1,0 +1,14 @@
+# keyring.set — 最小示例
+# 运行: corex run examples/actions/keyring.set.yaml
+name: action-keyring-set
+description: "Action: keyring.set"
+permissions:
+  secret: true
+steps:
+  - id: demo
+    action: keyring.set
+    params:
+      service: corex-demo
+      user: demo-user
+      password: "demo-secret-CHANGE-ME"
+    save_to: result

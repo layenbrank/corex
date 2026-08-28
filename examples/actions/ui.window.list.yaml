@@ -1,0 +1,11 @@
+# ui.window.list — 最小示例（platform: windows）
+# 运行: corex run examples/actions/ui.window.list.yaml
+name: action-ui-window-list
+description: "Action: ui.window.list"
+permissions:
+  ui: true
+steps:
+  - id: demo
+    action: ui.window.list
+    params: {}
+    save_to: result

@@ -1,0 +1,11 @@
+# cron.schedule — 最小示例（需 corex cron run）
+# 运行: corex run examples/actions/cron.schedule.yaml
+name: action-cron-schedule
+description: "Action: cron.schedule"
+steps:
+  - id: demo
+    action: cron.schedule
+    params:
+      expr: "0 0 12 * * *"
+      directive: hello
+    save_to: result

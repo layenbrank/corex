@@ -1,0 +1,14 @@
+# notify.send — 最小示例
+# 运行: corex run examples/actions/notify.send.yaml
+name: action-notify-send
+description: "Action: notify.send"
+permissions:
+  notifications: true
+steps:
+  - id: demo
+    action: notify.send
+    params:
+      summary: "Corex"
+      body: "notify.send demo"
+      appname: corex
+    save_to: result

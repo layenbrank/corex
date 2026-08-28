@@ -1,0 +1,51 @@
+# compression.compress / compression.decompress — zip 压缩与解压
+#
+# 运行:
+#   corex run compression-demo
+#   corex run compression-demo -i from=./examples/directives/hello.yaml
+#
+# 输出: archive 路径 → extract_dir 解压目录
+name: compression-demo
+description: zip 压缩 hello.yaml 并解压到临时目录
+version: "1.0"
+
+inputs:
+  - name: from
+    description: 待压缩文件或目录
+    required: false
+    default: "./examples/directives/hello.yaml"
+  - name: archive
+    description: 输出 zip 路径
+    required: false
+    default: "{{env.TEMP}}/corex-compression-demo.zip"
+  - name: extract_dir
+    description: 解压目标目录
+    required: false
+    default: "{{env.TEMP}}/corex-compression-out"
+
+permissions:
+  filesystem: true
+
+steps:
+  - id: compress
+    action: compression.compress
+    params:
+      from: "{{input.from}}"
+      to: "{{input.archive}}"
+      format: zip
+      level: 6
+    save_to: archive
+
+  - id: decompress
+    action: compression.decompress
+    params:
+      from: "{{archive}}"
+      to: "{{input.extract_dir}}"
+      format: zip
+    save_to: extract_dir
+
+  - id: summary
+    action: template.render
+    params:
+      template: "archive={{ archive }} extract_dir={{ extract_dir }}"
+    save_to: summary

@@ -1,0 +1,40 @@
+# cron.schedule — 动态向 cron 守护注册任务
+#
+# 前置: 必须先启动 cron supervisor
+#   corex cron run
+#   # 或前台开发: corex cron run cron-schedule-demo --foreground
+#
+# 运行（在另一终端）:
+#   corex run cron-schedule-demo
+#   corex run cron-schedule-demo -i expr="*/5 * * * * *" -i target=hello
+#
+# 输出: scheduled { job_id, expr, registered }
+name: cron-schedule-demo
+description: 使用 cron.schedule 动态注册定时任务（需 corex cron run）
+version: "1.0"
+
+inputs:
+  - name: expr
+    description: cron 表达式（6 段，含秒）
+    required: false
+    default: "0 */1 * * * *"
+  - name: target
+    description: 要定时执行的指令名
+    required: false
+    default: "hello"
+
+permissions: {}
+
+steps:
+  - id: register
+    action: cron.schedule
+    params:
+      expr: "{{input.expr}}"
+      directive: "{{input.target}}"
+    save_to: scheduled
+
+  - id: summary
+    action: template.render
+    params:
+      template: "job_id={{ scheduled.job_id }} expr={{ scheduled.expr }}"
+    save_to: summary

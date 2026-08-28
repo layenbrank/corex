@@ -304,4 +304,26 @@ mod tests {
             .unwrap();
         assert_eq!(std::fs::read_to_string(out_dir.join("a.txt")).unwrap(), "hello");
     }
+
+    #[tokio::test]
+    async fn seven_zip_soft_fails_on_compress() {
+        let dir = tempdir().unwrap();
+        let src = dir.path().join("src");
+        std::fs::create_dir_all(&src).unwrap();
+        std::fs::write(src.join("a.txt"), b"x").unwrap();
+        let mut params = BTreeMap::new();
+        params.insert("from".into(), Value::Str(src.to_string_lossy().into()));
+        params.insert(
+            "to".into(),
+            Value::Str(dir.path().join("out.7z").to_string_lossy().into()),
+        );
+        params.insert("format".into(), Value::Str("7z".into()));
+        let mut ctx = ExecutionContext::default();
+        let err = CompressionCompress
+            .execute(Value::Map(params), &mut ctx)
+            .await
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("7z"), "expected 7z soft-fail message: {err}");
+    }
 }

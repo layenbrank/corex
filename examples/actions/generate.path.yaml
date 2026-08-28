@@ -1,0 +1,15 @@
+# generate.path — 最小示例
+# 运行: corex run examples/actions/generate.path.yaml
+name: action-generate-path
+description: "Action: generate.path"
+permissions:
+  filesystem: true
+steps:
+  - id: demo
+    action: generate.path
+    params:
+      from: "./examples/directives"
+      to: "{{env.TEMP}}/corex-generate-path.txt"
+      transform: "{{path}}"
+      includes: ["*.yaml"]
+    save_to: result

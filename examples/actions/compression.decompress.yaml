@@ -1,0 +1,20 @@
+# compression.decompress — 最小示例（需先有 zip）
+# 运行: corex run examples/actions/compression.decompress.yaml
+name: action-compression-decompress
+description: "Action: compression.decompress"
+permissions:
+  filesystem: true
+steps:
+  - id: prep
+    action: compression.compress
+    params:
+      from: "./examples/directives/hello.yaml"
+      to: "{{env.TEMP}}/corex-decompress-src.zip"
+      format: zip
+  - id: demo
+    action: compression.decompress
+    params:
+      from: "{{env.TEMP}}/corex-decompress-src.zip"
+      to: "{{env.TEMP}}/corex-decompress-out"
+      format: zip
+    save_to: result
