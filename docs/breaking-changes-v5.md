@@ -77,9 +77,11 @@ New supervisor commands (engine `CronEngine` / `WatchEngine`):
 
 ```text
 corex schedule [--dir]
-corex watch  start|ps|attach|send|stop|restart|run
-corex cron   start|ps|send|stop|restart|run
+corex watch  run [--foreground|--all]|ps|attach|logs|send|stop|restart
+corex cron   run [--foreground|--all]|ps|attach|logs|send|stop|restart
 ```
+
+> **CLI 变更：** 原 `watch start` / `cron start` 已合并为 `run`（默认后台）。原 `watch run` / `cron run` 在无 `--foreground` 时等价于 `attach` 的行为已移除；查看日志请用 `attach`。
 
 YAML `triggers` supports only **`cron`** and **`watch`**. See [directive-yaml.md](./directive-yaml.md#triggers).
 

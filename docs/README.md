@@ -59,7 +59,8 @@ docs/                 ← 本文档根目录
   guide/              ← 中文使用指南（新手优先）
   integration/        ← SDK / 接入（第三方开发者）
   archive/            ← v3 及更早历史文档
-examples/directives/  ← 可运行的 YAML 示例
+examples/directives/  ← 可运行的 YAML 示例（多步流水线）
+examples/actions/     ← 单 Action 最小示例
 examples/tauri/       ← Tauri sidecar 示例代码
 config/corex.toml     ← 运行时配置模板
 crates/               ← Rust 库源码

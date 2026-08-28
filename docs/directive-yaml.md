@@ -197,35 +197,51 @@ Typical chain: `http.send` → `codec.json.parse` → use `{{parsed.field}}` in 
 ```yaml
 triggers:
   - type: cron
-    expr: "0 * * * *"          # 5 或 6 字段；启动: corex cron start <name>
+    expr: "0 * * * *"          # 5 或 6 字段；启动: corex cron run <name>
   - type: watch
     paths: ["./src"]
     includes: []
     excludes: ["**/node_modules/**"]
     debounce_ms: 300
-    cooldown_ms: 1200          # 启动: corex watch start <name>
+    cooldown_ms: 1200
+    immediate: false          # 启动后立即跑一次 pipeline
+    poll: false               # NFS/WSL 等不可靠 FS 时用 PollWatcher
+    events: []                # 空 = create+modify+remove；可收紧为 ["create","modify"]
 ```
+
+| watch 字段 | 默认 | 说明 |
+|------------|------|------|
+| `paths` | （必填） | 监听根路径（文件或目录） |
+| `includes` / `excludes` | `[]` / 内置 `.git`、`node_modules`、`test-results` | glob 过滤（与 copy.run 语义一致） |
+| `debounce_ms` / `cooldown_ms` | `300` / `max(debounce×2, 1000)` | 防抖与执行后冷却 |
+| `immediate` | `false` | 等价 v3 `--immediate`；supervisor 启动后立刻执行一次 |
+| `poll` | `false` | 使用 PollWatcher 代替 OS 原生 watcher |
+| `events` | `[]`（全部内容变更 kind） | 可选白名单：`create`、`modify`、`remove`、`access` |
 
 YAML `triggers` 规则：
 
 - 同一指令 **可同时** 声明 **1 个** `watch` **和** **1 个** `cron`（互不排斥）
 - 同一指令 **不可** 声明多个 `watch` 或多个 `cron`
-- 运行时：每种类型 **最多一个** 守护进程（`corex watch start` 与 `corex cron start` 可同时对同一指令各启一个）
+- 运行时：每种类型 **最多一个** 守护进程（`corex watch run` 与 `corex cron run` 可同时对同一指令各启一个）
 - `paths` / `expr` 支持 `{{variables.*}}`、`{{env.*}}` 等占位符（supervisor 启动时解析，与 steps 相同）
 
 - **`corex run <name>`** — 手动执行（无需在 triggers 声明）
 - **`corex schedule`** — 列出可用指令
-- **`corex watch start|ps|attach|logs|send|stop|restart`** — 文件监听守护（**操作用指令名，非 pid**）
-- **`corex cron start|ps|attach|logs|send|stop|restart`** — cron 守护（同上）
+- **`corex watch run|ps|attach|logs|send|stop|restart`** — 文件监听守护（**操作用指令名，非 pid**）
+- **`corex cron run|ps|attach|logs|send|stop|restart`** — cron 守护（同上）
 
 常用 watch/cron 流程：
 
 ```text
-corex watch start build-client    # 后台启动
-corex watch attach build-client   # 进入实时日志；Ctrl+C 退出查看，不停止守护
+corex watch run build-client         # 后台启动
+corex watch run build-client --immediate   # 启动后立即跑一次
+corex watch run build-client --foreground   # 前台开发（Ctrl+C 停止）
+corex watch attach build-client      # 查看日志；Ctrl+C 退出查看，不停止守护
 corex watch ps                    # NAME 列为指令名
 corex watch send build-client run-now
 corex watch stop build-client
+corex watch stop build-client --force   # 立即终止进行中的构建
+corex watch send build-client run-now
 ```
 
 ## Examples

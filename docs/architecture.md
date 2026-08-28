@@ -21,7 +21,8 @@ plugins/         # 第三方 *.wasm 插件目录说明
 config/
   corex.toml     # 运行时配置
 examples/
-  directives/     # Directive YAML 示例
+  directives/     # Directive YAML 示例（多步流水线）
+  actions/          # 单 Action 最小示例（逐步参考）
   legacy/        # ≤v3 Pipeline 样例（仅历史）
   tauri/         # Tauri sidecar 客户端示例
 ```
@@ -55,6 +56,76 @@ Value 结果  +  可选 history.jsonl
 - **占位符**：`{{var}}`、`{{input.x}}`、`{{env.X}}`、`{{step.id}}`（见 [directive-yaml.md](./directive-yaml.md)）。
 - **控制流**：`if` / `repeat` / `parallel`。
   - **`parallel`**：当有效并发度（步骤 `max_concurrency` 或配置 `runtime.max_parallel`）**> 1** 且子步骤多于 1 个时，使用 `buffer_unordered` **真正并发**；否则顺序执行。
+
+## Supervisor 子系统（Cron / Watch）
+
+PM2 风格的任务监督：`corex cron` 与 `corex watch` 在后台启动 **supervisor 子进程**，托管 [`CronEngine`](../crates/engine/src/cron/engine.rs) 或 [`WatchEngine`](../crates/engine/src/watch/engine.rs)，并通过磁盘 control 文件接收指令。
+
+```mermaid
+flowchart LR
+    CLI["corex cron run"]
+    Sup["supervisor 子进程"]
+    Eng["CronEngine / WatchEngine"]
+    Pipe["run_directive_file"]
+    CLI --> Sup
+    Sup --> Eng
+    Eng -->|"tick / 文件事件"| Pipe
+    CLI2["corex cron send NAME run-now"] --> Ctrl["control.cmd"]
+    Ctrl --> Sup
+```
+
+### 数据目录布局
+
+`<data-dir>/` 下按 job 类型分目录（见 [`JobMeta`](../crates/engine/src/supervisor/job.rs)）：
+
+| 路径 | 内容 |
+|------|------|
+| `<data-dir>/cron/<id>/meta.json` | Job 元数据（directive 名/路径、pid、expr） |
+| `<data-dir>/cron/<id>/supervisor.log` | Supervisor 日志 |
+| `<data-dir>/cron/<id>/control.cmd` | 待消费的 control 消息（写入后由 supervisor 轮询删除） |
+| `<data-dir>/watch/<id>/…` | Watch job 同上结构 |
+
+`corex cron ps` / `corex watch ps` 列出 **指令名**（NAME 列），`send` / `stop` / `attach` 均使用指令名而非 OS pid。
+
+### Watch 事件管道
+
+[`WatchEngine`](../crates/engine/src/watch/engine.rs) 单路径处理 notify 事件：
+
+```mermaid
+flowchart LR
+    Debouncer[debouncer_full] --> Classify[event classify]
+    Classify --> Filter[WatchFilter glob]
+    Filter --> Worker[worker debounce+cooldown+pending]
+    Worker --> Run[run_directive_file]
+    Err[Rescan or debouncer Err] --> Remount[remount paths]
+```
+
+- **订阅收窄**：`includes` 为简单目录名时，实际 watch `{paths}/{include}` 而非整棵项目树
+- **EventKind**：默认忽略 Access；Rescan/错误时自动 remount
+- **pending**：pipeline 运行期间到达的事件，结束后补触发一次（仍受 `cooldown_ms` 约束）
+
+### Control 消息
+
+[`ControlMsg`](../crates/engine/src/supervisor/control.rs)：`RUN_NOW`、`STATUS`、`STOP`、`STOP_FORCE`。
+
+- **`STOP`**：优雅停止 supervisor 循环并注销 job。
+- **`STOP_FORCE`**：强制停止并调用 `kill_process_tree` 终止 supervisor 进程树（含进行中的 pipeline）。
+
+### 两种 Cron 注册方式
+
+| 方式 | 机制 | 示例 |
+|------|------|------|
+| **声明式** | Directive 顶层 `triggers.cron`；`corex cron run <name>` 读取并注册 | [`triggers-declared.yaml`](../examples/directives/triggers-declared.yaml) |
+| **命令式** | 流水线内 `cron.schedule` Action 动态注册 | [`cron-schedule-demo.yaml`](../examples/directives/cron-schedule-demo.yaml) |
+
+声明式触发需 supervisor 已启动；`cron.schedule` 通过 [`find_cron_engine()`](../crates/engine/src/cron/registry.rs) 访问 **supervisor 进程内** 绑定的 `CronEngine` 全局句柄（`OnceLock`）。因此：
+
+- 仅 `corex cron run` 启动的 supervisor 进程内可成功调用 `cron.schedule`；
+- CLI 一次性 `corex run` **不会**绑定 CronEngine，`cron.schedule` 会报错「cron 守护未运行」。
+
+### registry → engine 依赖（act-cron）
+
+[`corex-registry`](../crates/registry/Cargo.toml) 的 `act-cron` feature 可选依赖 `corex-engine`（`cron` feature），供 `cron.schedule` Action 调用 `find_cron_engine`。其余 builtin 仅依赖 `corex-core`，保持 registry 作为 Action 实现层的独立性。
 
 ## 双模式
 
