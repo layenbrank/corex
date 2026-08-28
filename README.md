@@ -2,7 +2,7 @@
 
 可组合的**指令（Directive）/ Action** 运行时：用 YAML 定义流水线，CLI 与 `corex-daemon` 共用同一引擎。
 
-**当前版本：v5**（workspace `5.0.0`）
+**当前版本：v5.1.0**（workspace `5.1.0`）
 
 ## 快速开始
 
