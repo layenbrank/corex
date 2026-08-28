@@ -9,6 +9,8 @@ pub enum ControlMsg {
     RunNow,
     Status,
     Stop,
+    /// Stop supervisor and terminate in-flight pipeline / child processes.
+    StopForce,
 }
 
 impl fmt::Display for ControlMsg {
@@ -17,6 +19,7 @@ impl fmt::Display for ControlMsg {
             Self::RunNow => write!(f, "RUN_NOW"),
             Self::Status => write!(f, "STATUS"),
             Self::Stop => write!(f, "STOP"),
+            Self::StopForce => write!(f, "STOP_FORCE"),
         }
     }
 }
@@ -30,7 +33,10 @@ impl FromStr for ControlMsg {
             "run_now" => Ok(Self::RunNow),
             "status" => Ok(Self::Status),
             "stop" => Ok(Self::Stop),
-            other => Err(format!("未知 control 消息: {other}（支持 run-now、status、stop）")),
+            "stop_force" => Ok(Self::StopForce),
+            other => Err(format!(
+                "未知 control 消息: {other}（支持 run-now、status、stop、stop-force）"
+            )),
         }
     }
 }
@@ -57,5 +63,9 @@ mod tests {
         assert_eq!(ControlMsg::from_str("run-now").unwrap(), ControlMsg::RunNow);
         assert_eq!(ControlMsg::from_str("status").unwrap(), ControlMsg::Status);
         assert_eq!(ControlMsg::from_str("stop").unwrap(), ControlMsg::Stop);
+        assert_eq!(
+            ControlMsg::from_str("stop-force").unwrap(),
+            ControlMsg::StopForce
+        );
     }
 }

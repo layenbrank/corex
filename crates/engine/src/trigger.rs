@@ -6,6 +6,13 @@ use serde::{Deserialize, Serialize, Serializer};
 pub const DEBOUNCE_MS: u64 = 300;
 pub const COOLDOWN_MS: u64 = 1_000;
 
+/// Default excludes (Vite-style): always skip VCS, deps, and test output unless overridden.
+pub const WATCH_EXCLUDES: &[&str] = &[
+    "**/.git/**",
+    "**/node_modules/**",
+    "**/test-results/**",
+];
+
 /// Parsed watch trigger (paths may include files or directories).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WatchConfig {
@@ -14,6 +21,12 @@ pub struct WatchConfig {
     pub excludes: Vec<String>,
     pub debounce_ms: u64,
     pub cooldown_ms: u64,
+    #[serde(default)]
+    pub immediate: bool,
+    #[serde(default)]
+    pub poll: bool,
+    #[serde(default)]
+    pub events: Vec<String>,
 }
 
 /// Parsed cron trigger.
@@ -39,6 +52,12 @@ struct RawTrigger {
     debounce_ms: Option<u64>,
     #[serde(default)]
     cooldown_ms: Option<u64>,
+    #[serde(default)]
+    immediate: Option<bool>,
+    #[serde(default)]
+    poll: Option<bool>,
+    #[serde(default)]
+    events: Option<Vec<String>>,
 }
 
 impl Trigger {
@@ -71,13 +90,16 @@ impl Serialize for Trigger {
                 s.end()
             }
             Trigger::Watch(w) => {
-                let mut s = serializer.serialize_struct("Trigger", 6)?;
+                let mut s = serializer.serialize_struct("Trigger", 9)?;
                 s.serialize_field("type", "watch")?;
                 s.serialize_field("paths", &w.paths)?;
                 s.serialize_field("includes", &w.includes)?;
                 s.serialize_field("excludes", &w.excludes)?;
                 s.serialize_field("debounce_ms", &w.debounce_ms)?;
                 s.serialize_field("cooldown_ms", &w.cooldown_ms)?;
+                s.serialize_field("immediate", &w.immediate)?;
+                s.serialize_field("poll", &w.poll)?;
+                s.serialize_field("events", &w.events)?;
                 s.end()
             }
         }
@@ -118,12 +140,21 @@ fn parse_watch_fields(raw: RawTrigger) -> Result<WatchConfig, String> {
     let cooldown_ms = raw
         .cooldown_ms
         .unwrap_or_else(|| debounce_ms.saturating_mul(2).max(COOLDOWN_MS));
+    let mut excludes = raw.excludes.unwrap_or_default();
+    for pat in WATCH_EXCLUDES {
+        if !excludes.iter().any(|e| e == pat) {
+            excludes.push((*pat).to_string());
+        }
+    }
     Ok(WatchConfig {
         paths,
         includes: raw.includes.unwrap_or_default(),
-        excludes: raw.excludes.unwrap_or_default(),
+        excludes,
         debounce_ms,
         cooldown_ms,
+        immediate: raw.immediate.unwrap_or(false),
+        poll: raw.poll.unwrap_or(false),
+        events: raw.events.unwrap_or_default(),
     })
 }
 
@@ -172,6 +203,49 @@ triggers:
         let w = find_watch_trigger(&d.triggers).unwrap().unwrap();
         assert_eq!(w.paths, vec!["./src"]);
         assert_eq!(w.debounce_ms, 500);
+    }
+
+    #[test]
+    fn parse_watch_merges_default_excludes() {
+        let yaml = r#"
+name: t
+steps:
+  - id: a
+    action: template.render
+    params:
+      template: ok
+triggers:
+  - type: watch
+    paths: ["./src"]
+"#;
+        let d = Directive::from_yaml_str(yaml).unwrap();
+        let w = find_watch_trigger(&d.triggers).unwrap().unwrap();
+        assert!(w.excludes.iter().any(|e| e.contains(".git")));
+        assert!(w.excludes.iter().any(|e| e.contains("node_modules")));
+        assert!(w.excludes.iter().any(|e| e.contains("test-results")));
+    }
+
+    #[test]
+    fn parse_watch_immediate_and_poll() {
+        let yaml = r#"
+name: t
+steps:
+  - id: a
+    action: template.render
+    params:
+      template: ok
+triggers:
+  - type: watch
+    paths: ["./src"]
+    immediate: true
+    poll: true
+    events: ["create", "modify"]
+"#;
+        let d = Directive::from_yaml_str(yaml).unwrap();
+        let w = find_watch_trigger(&d.triggers).unwrap().unwrap();
+        assert!(w.immediate);
+        assert!(w.poll);
+        assert_eq!(w.events, vec!["create", "modify"]);
     }
 
     #[test]

@@ -125,6 +125,11 @@ impl CronEngine {
         Ok(())
     }
 
+    /// Remove scheduled job and stop accepting new cron ticks.
+    pub async fn shutdown_force(&self, job_id: &str) -> Result<(), EngineError> {
+        self.unregister(job_id).await
+    }
+
     pub async fn run_now(&self, job_id: &str) -> Result<(), EngineError> {
         let jobs = self.jobs.lock().await;
         let state = jobs

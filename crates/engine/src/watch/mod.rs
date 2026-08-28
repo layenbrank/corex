@@ -3,6 +3,8 @@
 #[cfg(feature = "watch")]
 pub mod engine;
 #[cfg(feature = "watch")]
+pub mod event;
+#[cfg(feature = "watch")]
 pub mod filter;
 
 #[cfg(feature = "watch")]

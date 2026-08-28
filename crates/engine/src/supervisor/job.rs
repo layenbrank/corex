@@ -1,5 +1,6 @@
 //! Supervisor job metadata on disk.
 
+use crate::supervisor::process::is_supervisor_alive;
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 
@@ -23,6 +24,12 @@ pub struct JobMeta {
     pub expr: Option<String>,
     #[serde(default)]
     pub paths: Vec<String>,
+    /// Absolute path to the supervisor `corex` binary.
+    #[serde(default)]
+    pub supervisor_exe: Option<PathBuf>,
+    /// Process creation time (unix ms) for PID reuse detection.
+    #[serde(default)]
+    pub started_at_ms: Option<u64>,
 }
 
 impl JobMeta {
@@ -44,6 +51,20 @@ impl JobMeta {
             JobKind::Watch => "watch",
             JobKind::Cron => "cron",
         }
+    }
+
+    /// Returns true when the recorded supervisor process is still alive.
+    pub fn is_supervisor_alive(&self) -> bool {
+        is_supervisor_alive(self)
+    }
+
+    /// Remove persisted job metadata (keeps `supervisor.log`).
+    pub fn remove(data_dir: &Path, kind: JobKind, id: &str) -> std::io::Result<()> {
+        let dir = Self::job_dir(data_dir, kind, id);
+        let _ = std::fs::remove_file(dir.join("meta.json"));
+        let _ = std::fs::remove_file(dir.join("supervisor.pid"));
+        let _ = std::fs::remove_file(dir.join("control.cmd"));
+        Ok(())
     }
 
     /// Resolve a job by directive name (not OS pid).
@@ -115,15 +136,49 @@ impl JobMeta {
         out
     }
 
+    /// Remove stale job records that no longer refer to a live supervisor.
+    pub fn prune_stale(data_dir: &Path, kind: JobKind) {
+        for meta in Self::scan(data_dir, kind) {
+            if !meta.is_supervisor_alive() {
+                let _ = Self::remove(data_dir, kind, &meta.id);
+            }
+        }
+    }
+
     /// Find a running supervisor job for the given directive name.
     pub fn find_running_by_directive(
         data_dir: &Path,
         kind: JobKind,
         directive_name: &str,
-        is_pid_running: impl Fn(u32) -> bool,
     ) -> Option<Self> {
         Self::scan(data_dir, kind)
             .into_iter()
-            .find(|j| j.directive_name == directive_name && is_pid_running(j.pid))
+            .find(|j| j.directive_name == directive_name && j.is_supervisor_alive())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn prune_stale_removes_legacy_meta() {
+        let dir = tempfile::tempdir().unwrap();
+        let data = dir.path();
+        let meta = JobMeta {
+            id: "demo".into(),
+            kind: JobKind::Watch,
+            directive_name: "demo".into(),
+            directive_path: PathBuf::from("demo.yaml"),
+            pid: 999_999,
+            expr: None,
+            paths: vec![],
+            supervisor_exe: None,
+            started_at_ms: None,
+        };
+        meta.write(data).unwrap();
+        assert!(JobMeta::read(data, JobKind::Watch, "demo").is_ok());
+        JobMeta::prune_stale(data, JobKind::Watch);
+        assert!(JobMeta::read(data, JobKind::Watch, "demo").is_err());
     }
 }

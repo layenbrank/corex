@@ -6,9 +6,11 @@ pub async fn supervise_watch_job(
     store: std::sync::Arc<dyn corex_core::ActionStore>,
     runtime: corex_core::RuntimeConfig,
     data_dir: &std::path::Path,
+    immediate_cli: bool,
 ) -> Result<(), corex_core::EngineError> {
     use crate::definition::Directive;
     use crate::supervisor::resolve::resolve_watch_config;
+    use crate::supervisor::process::kill_process_tree;
     use crate::supervisor::{poll_control, ControlMsg, JobKind, JobMeta};
     use crate::trigger::find_watch_trigger;
     use crate::watch::{WatchEngine, WatchJobSpec};
@@ -23,15 +25,21 @@ pub async fn supervise_watch_job(
             meta.directive_name
         ))
     })?;
-    let watch = resolve_watch_config(&directive, runtime, watch_raw)?;
+    let mut watch = resolve_watch_config(&directive, runtime, watch_raw)?;
+    if immediate_cli {
+        watch.immediate = true;
+    }
     engine
         .register(WatchJobSpec {
             id: meta.id.clone(),
             directive_path: meta.directive_path.clone(),
             directive_name: meta.directive_name.clone(),
-            config: watch,
+            config: watch.clone(),
         })
         .await?;
+    if watch.immediate {
+        let _ = engine.run_now(&meta.id).await;
+    }
     let job_dir = JobMeta::job_dir(data_dir, JobKind::Watch, &meta.id);
     info!(job = %meta.id, "watch supervisor 已启动");
     loop {
@@ -39,6 +47,13 @@ pub async fn supervise_watch_job(
             match msg {
                 ControlMsg::Stop => {
                     info!(job = %meta.id, "watch supervisor 停止");
+                    break;
+                }
+                ControlMsg::StopForce => {
+                    info!(job = %meta.id, "watch supervisor 强制停止");
+                    let _ = engine.shutdown_force(&meta.id).await;
+                    let _ = JobMeta::remove(data_dir, JobKind::Watch, &meta.id);
+                    let _ = kill_process_tree(std::process::id());
                     break;
                 }
                 ControlMsg::RunNow => {
@@ -52,6 +67,8 @@ pub async fn supervise_watch_job(
         }
         tokio::time::sleep(Duration::from_millis(500)).await;
     }
+    let _ = engine.unregister(&meta.id).await;
+    let _ = JobMeta::remove(data_dir, JobKind::Watch, &meta.id);
     Ok(())
 }
 
@@ -65,6 +82,7 @@ pub async fn supervise_cron_job(
     use crate::cron::{bind_cron_engine, CronEngine, CronJobSpec};
     use crate::definition::Directive;
     use crate::supervisor::resolve::resolve_cron_expr;
+    use crate::supervisor::process::kill_process_tree;
     use crate::supervisor::{poll_control, ControlMsg, JobKind, JobMeta};
     use crate::trigger::find_cron_trigger;
     use std::sync::Arc;
@@ -98,6 +116,13 @@ pub async fn supervise_cron_job(
                     info!(job = %meta.id, "cron supervisor 停止");
                     break;
                 }
+                ControlMsg::StopForce => {
+                    info!(job = %meta.id, "cron supervisor 强制停止");
+                    let _ = engine.shutdown_force(&meta.id).await;
+                    let _ = JobMeta::remove(data_dir, JobKind::Cron, &meta.id);
+                    let _ = kill_process_tree(std::process::id());
+                    break;
+                }
                 ControlMsg::RunNow => {
                     let _ = engine.run_now(&meta.id).await;
                 }
@@ -109,5 +134,6 @@ pub async fn supervise_cron_job(
         }
         tokio::time::sleep(Duration::from_millis(500)).await;
     }
+    let _ = JobMeta::remove(data_dir, JobKind::Cron, &meta.id);
     Ok(())
 }

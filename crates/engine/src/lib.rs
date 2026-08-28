@@ -24,7 +24,10 @@ pub use pipeline::Pipeline;
 pub use resolver::Resolver;
 pub use run::{run_directive_file, DirectiveRunner};
 pub use supervisor::{poll_control, send_control, ControlMsg, JobKind, JobMeta};
-pub use supervisor::process::{is_pid_running, spawn_detached};
+pub use supervisor::process::{
+    child_supervisor_identity, current_supervisor_identity, is_pid_running, is_supervisor_alive,
+    kill_process_tree, spawn_detached,
+};
 #[cfg(feature = "watch")]
 pub use supervisor::supervise_watch_job;
 #[cfg(feature = "cron")]
@@ -39,4 +42,4 @@ pub use cron::{bind_cron_engine, find_cron_engine, parse_cron_expr, CronEngine, 
 #[cfg(feature = "watch")]
 pub use watch::{WatchEngine, WatchJobSpec};
 #[cfg(feature = "watch")]
-pub use watch::filter::path_matches;
+pub use watch::filter::{path_matches, watch_relative_path, WatchFilter};

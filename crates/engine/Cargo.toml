@@ -32,6 +32,10 @@ cron = ["dep:tokio-cron-scheduler", "dep:uuid"]
 watch = ["dep:notify", "dep:notify-debouncer-full", "dep:glob"]
 triggers = ["cron", "watch"]
 
+[[test]]
+name = "triggers_smoke"
+required-features = ["triggers"]
+
 [dependencies.tokio-cron-scheduler]
 workspace = true
 optional = true
@@ -47,3 +51,9 @@ optional = true
 [dependencies.glob]
 workspace = true
 optional = true
+
+[target.'cfg(windows)'.dependencies]
+windows = { workspace = true, features = [
+  "Win32_Foundation",
+  "Win32_System_Threading",
+] }
