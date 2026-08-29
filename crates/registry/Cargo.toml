@@ -29,6 +29,7 @@ full = [
   "act-capture",
   "act-morph",
   "act-ui",
+  "act-sys",
   "wasm",
 ]
 
@@ -81,6 +82,12 @@ act-ui = [
   "windows/Win32_System_Console",
   "windows/Win32_System_LibraryLoader",
   "windows/Win32_UI_Input_KeyboardAndMouse",
+]
+act-sys = [
+  "win32-base",
+  "win32-process",
+  "windows/Win32_UI_Shell",
+  "windows/Win32_System_Threading",
 ]
 wasm = ["dep:wasmtime", "dep:wasmtime-wasi"]
 

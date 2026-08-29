@@ -20,14 +20,16 @@ pub enum PermissionKind {
 /// Map action id → required permission kind.
 pub fn permission_kind_for(action_id: &str) -> PermissionKind {
     match action_id {
-        "shell.run" | "exec.run" | "bootstrap.env" | "bootstrap.inspect" | "bootstrap.force" => {
-            PermissionKind::Shell
-        }
+        "shell.run" | "exec.run" | "bootstrap.env" | "bootstrap.inspect" | "bootstrap.force"
+        | "url.open" => PermissionKind::Shell,
+        id if id.starts_with("process.") => PermissionKind::Shell,
         "http.send" => PermissionKind::Network,
         "clipboard.get" | "clipboard.set" => PermissionKind::Clipboard,
         "notify.send" => PermissionKind::Notifications,
-        id if id.starts_with("ui.") => PermissionKind::Ui,
-        "capture.screenshot" | "capture.monitors" | "capture.ocr" => PermissionKind::Capture,
+        id if id.starts_with("ui.") || id.starts_with("dialog.") => PermissionKind::Ui,
+        "capture.screenshot" | "capture.monitors" | "capture.ocr" | "capture.find" => {
+            PermissionKind::Capture
+        }
         id if id.starts_with("keyring.") => PermissionKind::Secret,
         "codec.json.parse" => PermissionKind::None,
         id if id.starts_with("file.")

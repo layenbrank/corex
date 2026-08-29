@@ -1,0 +1,11 @@
+# url.open — 最小示例
+name: action-url-open
+description: "Action: url.open"
+permissions:
+  shell: true
+steps:
+  - id: demo
+    action: url.open
+    params:
+      url: "https://example.com"
+    save_to: result

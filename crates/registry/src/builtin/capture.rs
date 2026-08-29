@@ -1,5 +1,8 @@
 //! Capture actions — soft-fail on unsupported platforms; crop/clipboard where possible.
 
+#[path = "capture_match.rs"]
+mod match_img;
+
 use crate::builtin::util::{
     confine_path, ensure_parent, opt_i64, opt_str, require_map, require_path,
 };
@@ -16,6 +19,7 @@ pub struct CaptureScreenshot;
 pub struct CaptureCrop;
 pub struct CaptureMonitors;
 pub struct CaptureOcr;
+pub struct CaptureFind;
 
 #[async_trait]
 impl Action for CaptureScreenshot {
@@ -156,6 +160,75 @@ pub fn register(registry: &mut ActionRegistry) {
     registry.register(Arc::new(CaptureCrop));
     registry.register(Arc::new(CaptureMonitors));
     registry.register(Arc::new(CaptureOcr));
+    registry.register(Arc::new(CaptureFind));
+}
+
+#[async_trait]
+impl Action for CaptureFind {
+    fn meta(&self) -> ActionMeta {
+        ActionMeta::new(
+            "capture.find",
+            "Find Template",
+            "在大图中查找模板（灰度 NCC）",
+            ActionCategory::Ui,
+        )
+        .with_params(vec![
+            ParamSchema::new("haystack", SchemaType::File, true),
+            ParamSchema::new("needle", SchemaType::File, true),
+            ParamSchema::new("threshold", SchemaType::Float, false).with_default(0.9),
+            ParamSchema::new("step", SchemaType::Int, false).with_default(2),
+            ParamSchema::new("x", SchemaType::Int, false),
+            ParamSchema::new("y", SchemaType::Int, false),
+            ParamSchema::new("width", SchemaType::Int, false),
+            ParamSchema::new("height", SchemaType::Int, false),
+        ])
+    }
+
+    async fn execute(
+        &self,
+        params: Value,
+        ctx: &mut ExecutionContext,
+    ) -> Result<Value, ActionError> {
+        let map = require_map(&params)?;
+        let haystack = confine_path(ctx, &require_path(map, "haystack")?)?;
+        let needle = confine_path(ctx, &require_path(map, "needle")?)?;
+        let threshold = map
+            .get("threshold")
+            .and_then(|v| v.as_f64())
+            .unwrap_or(0.9);
+        let step = opt_i64(map, "step", 2).max(1) as u32;
+        let region = match (
+            map.get("x").and_then(|v| v.as_i64()),
+            map.get("y").and_then(|v| v.as_i64()),
+            map.get("width").and_then(|v| v.as_i64()),
+            map.get("height").and_then(|v| v.as_i64()),
+        ) {
+            (Some(x), Some(y), Some(w), Some(h)) if w > 0 && h > 0 => {
+                Some((x.max(0) as u32, y.max(0) as u32, w as u32, h as u32))
+            }
+            _ => None,
+        };
+
+        tokio::task::spawn_blocking(move || {
+            let hay = image::open(&haystack)
+                .map_err(|e| ActionError::execution(format!("打开 haystack 失败: {e}")))?;
+            let ndl = image::open(&needle)
+                .map_err(|e| ActionError::execution(format!("打开 needle 失败: {e}")))?;
+            let hay_g = match_img::to_gray(hay);
+            let ndl_g = match_img::to_gray(ndl);
+            let m = match_img::find_template(&hay_g, &ndl_g, region, step, threshold)?;
+            let mut out = BTreeMap::new();
+            out.insert("found".into(), Value::Bool(m.found));
+            out.insert("score".into(), Value::Float(m.score));
+            out.insert("x".into(), Value::Int(m.x as i64));
+            out.insert("y".into(), Value::Int(m.y as i64));
+            out.insert("width".into(), Value::Int(m.width as i64));
+            out.insert("height".into(), Value::Int(m.height as i64));
+            Ok(Value::Map(out))
+        })
+        .await
+        .map_err(|e| ActionError::execution(format!("capture.find 失败: {e}")))?
+    }
 }
 
 #[cfg(windows)]

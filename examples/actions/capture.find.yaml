@@ -1,0 +1,15 @@
+# capture.find — 模板匹配
+# 运行: corex run examples/actions/capture.find.yaml
+name: action-capture-find
+description: "Action: capture.find"
+permissions:
+  filesystem: true
+  capture: true
+steps:
+  - id: demo
+    action: capture.find
+    params:
+      haystack: "{{env.TEMP}}/corex-haystack.png"
+      needle: "{{env.TEMP}}/corex-needle.png"
+      threshold: 0.85
+    save_to: result

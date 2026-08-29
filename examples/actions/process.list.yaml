@@ -1,0 +1,11 @@
+# process.list — 最小示例
+name: action-process-list
+description: "Action: process.list"
+permissions:
+  shell: true
+steps:
+  - id: demo
+    action: process.list
+    params:
+      name_contains: "corex"
+    save_to: result

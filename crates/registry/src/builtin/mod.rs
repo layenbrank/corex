@@ -58,6 +58,8 @@ pub mod morph;
 pub mod ui;
 #[cfg(feature = "act-ui")]
 pub mod ui_kernel;
+#[cfg(feature = "act-sys")]
+pub mod sys;
 
 /// Register every feature-enabled builtin into `registry`.
 pub fn register_all(registry: &mut ActionRegistry) {
@@ -103,4 +105,6 @@ pub fn register_all(registry: &mut ActionRegistry) {
     morph::register(registry);
     #[cfg(feature = "act-ui")]
     ui::register(registry);
+    #[cfg(feature = "act-sys")]
+    sys::register(registry);
 }

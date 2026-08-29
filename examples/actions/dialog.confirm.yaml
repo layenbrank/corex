@@ -1,0 +1,12 @@
+# dialog.confirm — 最小示例（需桌面会话）
+name: action-dialog-confirm
+description: "Action: dialog.confirm"
+permissions:
+  ui: true
+steps:
+  - id: demo
+    action: dialog.confirm
+    params:
+      title: corex
+      message: "Continue?"
+    save_to: result
