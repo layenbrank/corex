@@ -38,12 +38,32 @@ pub enum TransportError {
     Unsupported(String),
 }
 
-/// Platform project data directory for corex.
+/// Writable directory of the running binary, if any.
+fn try_exe_dir() -> Option<PathBuf> {
+    let exe = std::env::current_exe().ok()?;
+    let dir = exe.parent()?.to_path_buf();
+    let probe = dir.join(".corex-write-check");
+    match std::fs::OpenOptions::new()
+        .write(true)
+        .create(true)
+        .truncate(true)
+        .open(&probe)
+    {
+        Ok(_) => {
+            let _ = std::fs::remove_file(&probe);
+            Some(dir)
+        }
+        Err(_) => None,
+    }
+}
+
+/// Data root for directives / token / history / config.
 ///
-/// Uses `ProjectDirs::from("dev", "", "corex")` so Windows resolves to
-/// `%AppData%\corex\data` (not `%AppData%\corex\corex\data`). Falls back to
-/// `.corex` when project dirs are unavailable. Creates the directory if needed.
-pub fn platform_data_dir() -> std::io::Result<PathBuf> {
+/// Order: writable exe dir → OS project data dir → `.corex`.
+pub fn data_dir() -> std::io::Result<PathBuf> {
+    if let Some(dir) = try_exe_dir() {
+        return Ok(dir);
+    }
     let base = directories::ProjectDirs::from("dev", "", "corex")
         .map(|d| d.data_dir().to_path_buf())
         .unwrap_or_else(|| PathBuf::from(".corex"));
@@ -51,32 +71,40 @@ pub fn platform_data_dir() -> std::io::Result<PathBuf> {
     Ok(base)
 }
 
-/// Platform IPC endpoint for the given data directory.
+/// Config TOML search paths (first hit wins): data dir, then cwd.
+pub fn config_paths() -> Vec<PathBuf> {
+    let mut out = Vec::new();
+    if let Ok(root) = data_dir() {
+        out.push(root.join("config").join("corex.toml"));
+        out.push(root.join("config.toml"));
+    }
+    out.push(PathBuf::from("config/corex.toml"));
+    out
+}
+
+/// Default IPC endpoint for `data`.
 ///
-/// - Unix: `<data_dir>/corex.sock`
+/// - Unix: `<data>/corex.sock`
 /// - Windows: `\\.\pipe\corex`
-pub fn platform_endpoint(data_dir: &Path) -> PathBuf {
+pub fn ipc_endpoint(data: &Path) -> PathBuf {
     #[cfg(unix)]
     {
-        data_dir.join("corex.sock")
+        data.join("corex.sock")
     }
     #[cfg(windows)]
     {
-        let _ = data_dir;
+        let _ = data;
         PathBuf::from(r"\\.\pipe\corex")
     }
 }
 
-/// Create the platform transport for `endpoint`.
-pub fn platform_transport(endpoint: impl Into<PathBuf>) -> PlatformTransport {
+/// Client transport for `endpoint`.
+pub fn ipc_connect(endpoint: impl Into<PathBuf>) -> PlatformTransport {
     PlatformTransport::new(endpoint)
 }
 
-/// Serve newline-delimited JSON requests on the platform transport.
-pub async fn serve_platform<F, Fut>(
-    endpoint: &Path,
-    handler: F,
-) -> Result<(), TransportError>
+/// Serve NDJSON requests on the platform transport.
+pub async fn serve_ipc<F, Fut>(endpoint: &Path, handler: F) -> Result<(), TransportError>
 where
     F: FnMut(Request) -> Fut + Send,
     Fut: std::future::Future<Output = Response> + Send,

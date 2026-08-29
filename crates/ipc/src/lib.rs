@@ -5,8 +5,8 @@ pub mod transport;
 
 pub use protocol::{Request, Response, RpcError, MAX_LINE_BYTES};
 pub use transport::{
-    platform_data_dir, platform_endpoint, platform_transport, serve_platform, PlatformTransport,
-    Transport, TransportError,
+    config_paths, data_dir, ipc_connect, ipc_endpoint, serve_ipc, PlatformTransport, Transport,
+    TransportError,
 };
 
 #[cfg(unix)]

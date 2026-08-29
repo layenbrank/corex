@@ -83,7 +83,7 @@ fn resolve_directive_path(name: &str) -> Result<std::path::PathBuf, ActionError>
     if as_path.exists() {
         return Ok(as_path);
     }
-    let data = corex_ipc::platform_data_dir()
+    let data = corex_ipc::data_dir()
         .map_err(|e| ActionError::execution(format!("data dir: {e}")))?;
     let base = data.join("directives");
     for ext in ["yaml", "yml"] {

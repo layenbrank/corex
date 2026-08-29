@@ -4,7 +4,7 @@ use anyhow::{bail, Result};
 #[cfg(windows)]
 use anyhow::Context;
 use clap::{Subcommand, ValueEnum};
-use corex_core::{RuntimeConfig, Value, RUNTIME_CONFIG};
+use corex_core::{RuntimeConfig, Value};
 use corex_engine::{AuditEntry, ExecutionAudit};
 use corex_registry::ui_probe::{self, TreeFormat};
 use std::collections::BTreeMap;
@@ -132,8 +132,9 @@ struct RuntimeSectionFields {
 
 fn load_runtime_config(data_dir: &Path) -> RuntimeConfig {
     let candidates = [
-        PathBuf::from(RUNTIME_CONFIG),
+        data_dir.join("config").join("corex.toml"),
         data_dir.join("config.toml"),
+        PathBuf::from("config/corex.toml"),
     ];
     for path in candidates {
         if path.exists() {

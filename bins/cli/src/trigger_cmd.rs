@@ -7,7 +7,7 @@ use corex_engine::{
     supervise_watch_job, kill_process_tree, send_control, spawn_detached, ControlMsg, JobKind,
     JobMeta, Directive,
 };
-use corex_ipc::platform_data_dir;
+use corex_ipc::data_dir;
 use corex_registry::ActionRegistry;
 use std::io::{self, IsTerminal, Write};
 use std::path::{Path, PathBuf};
@@ -45,7 +45,7 @@ pub fn directives_dir(override_dir: Option<&Path>) -> Result<PathBuf> {
     if let Some(d) = override_dir {
         return Ok(d.to_path_buf());
     }
-    let d = platform_data_dir()?.join("directives");
+    let d = data_dir()?.join("directives");
     std::fs::create_dir_all(&d)?;
     Ok(d)
 }
@@ -69,7 +69,7 @@ fn kind_sub(kind: JobKind) -> &'static str {
 }
 
 fn resolve_job(kind: JobKind, name: &str) -> Result<JobMeta> {
-    let data = platform_data_dir()?;
+    let data = data_dir()?;
     JobMeta::resolve_by_name(&data, kind, name).map_err(|e| anyhow::anyhow!(e))
 }
 
@@ -102,7 +102,7 @@ pub async fn start_job(
     let path = resolve_directive_path(target, dir)?;
     let directive = Directive::from_yaml_file(&path).context("解析指令")?;
     ensure_trigger_declared(kind, &directive)?;
-    let data = platform_data_dir()?;
+    let data = data_dir()?;
     if let Some(existing) = find_running_job(&data, kind, &directive.name) {
         bail!(
             "指令 `{}` 已有 {} 守护运行中 (pid {})。查看: corex {} attach {}",
@@ -186,7 +186,7 @@ pub async fn cmd_run(
 }
 
 pub fn cmd_ps(kind: JobKind) -> Result<()> {
-    let data = platform_data_dir()?;
+    let data = data_dir()?;
     let sub = kind_sub(kind);
     JobMeta::prune_stale(&data, kind);
     let jobs = JobMeta::scan(&data, kind);
@@ -229,7 +229,7 @@ pub fn cmd_ps(kind: JobKind) -> Result<()> {
 }
 
 pub async fn cmd_stop(kind: JobKind, name: &str, force: bool) -> Result<()> {
-    let data = platform_data_dir()?;
+    let data = data_dir()?;
     let meta = resolve_job(kind, name)?;
     let job_dir = JobMeta::job_dir(&data, kind, &meta.id);
     if force {
@@ -257,7 +257,7 @@ pub async fn cmd_stop(kind: JobKind, name: &str, force: bool) -> Result<()> {
 }
 
 pub fn cmd_send(kind: JobKind, name: &str, msg: &str) -> Result<()> {
-    let data = platform_data_dir()?;
+    let data = data_dir()?;
     let meta = resolve_job(kind, name)?;
     let job_dir = JobMeta::job_dir(&data, kind, &meta.id);
     let control = msg.parse::<ControlMsg>().map_err(|e| anyhow::anyhow!(e))?;
@@ -267,7 +267,7 @@ pub fn cmd_send(kind: JobKind, name: &str, msg: &str) -> Result<()> {
 }
 
 pub async fn cmd_attach(kind: JobKind, name: &str) -> Result<()> {
-    let data = platform_data_dir()?;
+    let data = data_dir()?;
     let meta = resolve_job(kind, name)?;
     let log_path = JobMeta::supervisor_log_path(&data, kind, &meta.id);
     let status = if meta.is_supervisor_alive() {
@@ -299,7 +299,7 @@ pub async fn cmd_attach(kind: JobKind, name: &str) -> Result<()> {
 }
 
 pub async fn cmd_logs(kind: JobKind, name: Option<&str>, lines: usize, follow: bool) -> Result<()> {
-    let data = platform_data_dir()?;
+    let data = data_dir()?;
     if let Some(n) = name {
         let meta = resolve_job(kind, n)?;
         let log_path = JobMeta::supervisor_log_path(&data, kind, &meta.id);
@@ -373,7 +373,7 @@ pub async fn cmd_run_supervised(
     dir: Option<&Path>,
     immediate: bool,
 ) -> Result<()> {
-    let data = platform_data_dir()?;
+    let data = data_dir()?;
     let meta = JobMeta::read(&data, kind, job_id).context("读取 job meta")?;
     let _dir = dir;
     let store = build_store();
@@ -398,7 +398,7 @@ pub async fn cmd_run_foreground(
     let path = resolve_directive_path(target, dir)?;
     let directive = Directive::from_yaml_file(&path)?;
     ensure_trigger_declared(kind, &directive)?;
-    let data = platform_data_dir()?;
+    let data = data_dir()?;
     if find_running_job(&data, kind, &directive.name).is_some() {
         bail!(
             "指令 `{}` 已有 {} 守护运行中，请用 attach 查看",

@@ -4,11 +4,10 @@ use anyhow::{bail, Context, Result};
 use clap::Parser;
 use corex_core::{
     check_runtime_allowed, DaemonConfig, ExecutionContext, LoggingConfig, RuntimeConfig, Value,
-    RUNTIME_CONFIG,
 };
 use corex_engine::{AuditEntry, ExecutionAudit, ExecutionHistory, Pipeline, Directive};
 use corex_ipc::protocol::{Request, Response, RpcError};
-use corex_ipc::{platform_data_dir, platform_endpoint, serve_platform};
+use corex_ipc::{data_dir, ipc_endpoint, config_paths, serve_ipc};
 use corex_registry::ActionRegistry;
 use fs2::FileExt;
 use rand::RngExt;
@@ -53,7 +52,7 @@ struct DaemonState {
 async fn main() -> Result<()> {
     let args = Args::parse();
 
-    let data = platform_data_dir()?;
+    let data = data_dir()?;
     let config = load_runtime_config(args.config.as_deref())?;
     init_tracing(&config.logging);
 
@@ -110,7 +109,7 @@ async fn main() -> Result<()> {
     info!(endpoint = %endpoint.display(), "corex-daemon 启动");
 
     let state_serve = Arc::clone(&state);
-    let result = serve_platform(&endpoint, move |req| {
+    let result = serve_ipc(&endpoint, move |req| {
         let state = Arc::clone(&state_serve);
         async move { handle_request(&state, req).await }
     })
@@ -377,7 +376,7 @@ fn resolve_endpoint(cli: Option<PathBuf>, daemon: &DaemonConfig, data: &Path) ->
     if let Some(p) = &daemon.socket_path {
         return resolve_data_relative(data, p);
     }
-    platform_endpoint(data)
+    ipc_endpoint(data)
 }
 
 fn resolve_lock_path(daemon: &DaemonConfig, data: &Path) -> PathBuf {
@@ -456,22 +455,18 @@ fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
 }
 
 fn load_runtime_config(path: Option<&Path>) -> Result<RuntimeConfig> {
-    let candidates: Vec<PathBuf> = path.map(|p| vec![p.to_path_buf()]).unwrap_or_else(|| {
-        vec![
-            PathBuf::from(RUNTIME_CONFIG),
-            platform_data_dir()
-                .map(|d| d.join("config.toml"))
-                .unwrap_or_default(),
-        ]
-    });
+    let candidates: Vec<PathBuf> = path
+        .map(|p| vec![p.to_path_buf()])
+        .unwrap_or_else(config_paths);
 
     for p in candidates {
-        if p.exists() {
-            let text = std::fs::read_to_string(&p)?;
-            match toml::from_str::<ConfigFile>(&text) {
-                Ok(cf) => return Ok(cf.into_runtime()),
-                Err(e) => warn!(path = %p.display(), error = %e, "配置解析失败，尝试下一个"),
-            }
+        if p.as_os_str().is_empty() || !p.exists() {
+            continue;
+        }
+        let text = std::fs::read_to_string(&p)?;
+        match toml::from_str::<ConfigFile>(&text) {
+            Ok(cf) => return Ok(cf.into_runtime()),
+            Err(e) => warn!(path = %p.display(), error = %e, "配置解析失败，尝试下一个"),
         }
     }
     Ok(RuntimeConfig::default())

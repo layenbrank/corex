@@ -9,10 +9,12 @@ mod watch_cmd;
 
 use anyhow::{bail, Context, Result};
 use clap::{Parser, Subcommand};
-use corex_core::{DaemonConfig, ExecutionContext, LoggingConfig, RuntimeConfig, Value, RUNTIME_CONFIG};
+use corex_core::{DaemonConfig, ExecutionContext, LoggingConfig, RuntimeConfig, Value};
 use corex_engine::{validate_permissions, ExecutionAudit, ExecutionHistory, Pipeline, Directive};
 use corex_ipc::protocol::{Request, Response};
-use corex_ipc::{platform_data_dir, platform_endpoint, platform_transport, Transport};
+use corex_ipc::{
+    data_dir, ipc_endpoint, ipc_connect, config_paths, Transport,
+};
 use corex_registry::ActionRegistry;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -123,7 +125,7 @@ async fn main() -> Result<()> {
         Commands::Cron { command } => cron_cmd::run(command, cli.dir.as_deref()).await,
         Commands::Daemon { command } => cmd_daemon(command).await,
         Commands::Ui { command } => {
-            let data = platform_data_dir()?;
+            let data = data_dir()?;
             ui_cmd::run(command, &data).await
         }
     }
@@ -151,18 +153,18 @@ fn directives_dir(override_dir: Option<&Path>) -> Result<PathBuf> {
     if let Some(d) = override_dir {
         return Ok(d.to_path_buf());
     }
-    let d = platform_data_dir()?.join("directives");
+    let d = data_dir()?.join("directives");
     std::fs::create_dir_all(&d)?;
     Ok(d)
 }
 
-fn ipc_endpoint() -> Result<PathBuf> {
-    let data = platform_data_dir()?;
+fn resolve_endpoint() -> Result<PathBuf> {
+    let data = data_dir()?;
     let config = load_runtime_config();
     if let Some(p) = &config.daemon.socket_path {
         return Ok(resolve_data_relative(&data, p));
     }
-    Ok(platform_endpoint(&data))
+    Ok(ipc_endpoint(&data))
 }
 
 /// Resolve a path from config: absolute stays absolute; relative joins `data`.
@@ -189,7 +191,7 @@ fn load_auth_token() -> Result<String> {
             return Ok(t);
         }
     }
-    let path = platform_data_dir()?.join("token");
+    let path = data_dir()?.join("token");
     let text = std::fs::read_to_string(&path)
         .with_context(|| format!("无法读取 auth token {}", path.display()))?;
     let token = text.trim().to_string();
@@ -208,19 +210,14 @@ fn build_registry() -> ActionRegistry {
 }
 
 pub(crate) fn load_runtime_config() -> RuntimeConfig {
-    let candidates = [
-        PathBuf::from(RUNTIME_CONFIG),
-        platform_data_dir()
-            .map(|d| d.join("config.toml"))
-            .unwrap_or_default(),
-    ];
-    for path in candidates {
-        if path.exists() {
-            if let Ok(text) = std::fs::read_to_string(&path) {
-                // Accept either flat RuntimeConfig or nested [runtime]/[plugins]
-                if let Ok(cfg) = toml::from_str::<RuntimeConfigWrapper>(&text) {
-                    return cfg.into_runtime();
-                }
+    for path in config_paths() {
+        if path.as_os_str().is_empty() || !path.exists() {
+            continue;
+        }
+        if let Ok(text) = std::fs::read_to_string(&path) {
+            // Accept either flat RuntimeConfig or nested [runtime]/[plugins]
+            if let Ok(cfg) = toml::from_str::<RuntimeConfigWrapper>(&text) {
+                return cfg.into_runtime();
             }
         }
     }
@@ -350,13 +347,13 @@ pub(crate) async fn cmd_run(target: &str, inputs: &[String], dir: Option<&Path>)
         let hist_path = if config.history.file.is_absolute() {
             config.history.file.clone()
         } else {
-            platform_data_dir()?.join(&config.history.file)
+            data_dir()?.join(&config.history.file)
         };
         let history = ExecutionHistory::open(hist_path).context("无法打开执行历史")?;
         pipeline = pipeline.with_history(history);
     }
     {
-        let audit_path = platform_data_dir()?.join("audit.jsonl");
+        let audit_path = data_dir()?.join("audit.jsonl");
         if let Ok(audit) = ExecutionAudit::open(audit_path) {
             pipeline = pipeline.with_audit(audit);
         }
@@ -509,9 +506,9 @@ async fn cmd_daemon(cmd: DaemonCmd) -> Result<()> {
             Ok(())
         }
         DaemonCmd::Stop => {
-            let endpoint = ipc_endpoint()?;
+            let endpoint = resolve_endpoint()?;
             let token = load_auth_token()?;
-            let mut transport = platform_transport(&endpoint);
+            let mut transport = ipc_connect(&endpoint);
             let req = Request::Shutdown {
                 id: 1,
                 auth_token: None,
@@ -528,7 +525,7 @@ async fn cmd_daemon(cmd: DaemonCmd) -> Result<()> {
             }
         }
         DaemonCmd::Status => {
-            let endpoint = ipc_endpoint()?;
+            let endpoint = resolve_endpoint()?;
             let token = match load_auth_token() {
                 Ok(t) => t,
                 Err(_) => {
@@ -536,7 +533,7 @@ async fn cmd_daemon(cmd: DaemonCmd) -> Result<()> {
                     return Ok(());
                 }
             };
-            let mut transport = platform_transport(&endpoint);
+            let mut transport = ipc_connect(&endpoint);
             let req = Request::Ping {
                 id: 1,
                 auth_token: None,
