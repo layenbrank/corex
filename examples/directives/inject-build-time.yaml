@@ -6,7 +6,7 @@
 # 写入 package.json 的 buildTime 字段（json_set）:
 #   corex run inject-build-time -i json_path=./package.json
 #
-# 替换 JS 文件中 COREX marker 区间（replace_between）:
+# 替换 JS 文件中 COREX marker 区间（splice）:
 #   corex run inject-build-time -i js_path=./src/build-marker.js
 #
 # format 输入说明（传给 generate.timestamp，chrono strftime 语法）:
@@ -29,7 +29,7 @@ inputs:
     required: false
     default: ""
   - name: js_path
-    description: 含 COREX marker 的 JS 文件；留空则跳过 replace_between
+    description: 含 COREX marker 的 JS 文件；留空则跳过 splice
     required: false
     default: ""
   - name: format
@@ -66,7 +66,7 @@ steps:
       ne: ["{{input.js_path}}", ""]
     params:
       path: "{{input.js_path}}"
-      mode: replace_between
+      mode: splice
       start: "/* COREX:BUILD_TIME:START */"
       end: "/* COREX:BUILD_TIME:END */"
       content: "{{built_at.value}}"

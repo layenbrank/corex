@@ -24,6 +24,8 @@ pub mod clipboard;
 pub mod notify;
 #[cfg(feature = "act-file")]
 pub mod file;
+#[cfg(feature = "act-file")]
+pub mod dir;
 #[cfg(feature = "act-template")]
 pub mod template;
 #[cfg(feature = "act-cron")]
@@ -69,6 +71,8 @@ pub fn register_all(registry: &mut ActionRegistry) {
     notify::register(registry);
     #[cfg(feature = "act-file")]
     file::register(registry);
+    #[cfg(feature = "act-file")]
+    dir::register(registry);
     #[cfg(feature = "act-template")]
     template::register(registry);
     #[cfg(feature = "act-cron")]

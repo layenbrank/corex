@@ -1,0 +1,19 @@
+# file.remove — 最小示例（先 write 再 remove，见 file-ops-demo）
+# 运行: corex run examples/actions/file.remove.yaml
+name: action-file-remove
+description: "Action: file.remove"
+permissions:
+  filesystem: true
+steps:
+  - id: seed
+    action: file.write
+    params:
+      path: "{{env.TEMP}}/corex-file-remove-me.txt"
+      content: "remove me"
+      mode: overwrite
+      create_dirs: true
+  - id: demo
+    action: file.remove
+    params:
+      path: "{{env.TEMP}}/corex-file-remove-me.txt"
+    save_to: result

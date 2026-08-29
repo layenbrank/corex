@@ -1,4 +1,4 @@
-# file.copy / file.delete — 单文件复制与删除
+# file.copy / file.remove — 单文件复制与删除
 #
 # 运行:
 #   corex run file-ops-demo
@@ -6,7 +6,7 @@
 #
 # 输出: copied 路径 → 读取副本 → 删除副本
 name: file-ops-demo
-description: 演示 file.copy 与 file.delete
+description: 演示 file.copy 与 file.remove
 version: "1.0"
 
 inputs:
@@ -36,14 +36,14 @@ steps:
       path: "{{copied}}"
     save_to: content
 
-  - id: delete
-    action: file.delete
+  - id: remove
+    action: file.remove
     params:
       path: "{{copied}}"
-    save_to: deleted
+    save_to: removed
 
   - id: summary
     action: template.render
     params:
-      template: "copied={{ copied }} deleted={{ deleted }}"
+      template: "copied={{ copied }} removed={{ removed }}"
     save_to: summary

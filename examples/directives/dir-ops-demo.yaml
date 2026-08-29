@@ -1,0 +1,68 @@
+# dir.write / read / update / remove — 目录 CRUD
+#
+# 运行:
+#   corex run dir-ops-demo
+#
+name: dir-ops-demo
+description: 演示 dir.write、dir.read（flat/tree）、dir.update、dir.remove
+version: "1.0"
+
+inputs:
+  - name: base
+    description: 工作根目录
+    required: false
+    default: "{{env.TEMP}}/corex-dir-ops"
+
+permissions:
+  filesystem: true
+
+steps:
+  - id: mkdir
+    action: dir.write
+    params:
+      path: "{{input.base}}/src"
+      parents: true
+    save_to: created
+
+  - id: seed_file
+    action: file.write
+    params:
+      path: "{{input.base}}/src/hello.txt"
+      content: "hi"
+      mode: overwrite
+      create_dirs: true
+
+  - id: list_flat
+    action: dir.read
+    params:
+      path: "{{input.base}}/src"
+      mode: flat
+    save_to: flat
+
+  - id: list_tree
+    action: dir.read
+    params:
+      path: "{{input.base}}"
+      mode: tree
+      max_depth: 4
+    save_to: tree
+
+  - id: rename
+    action: dir.update
+    params:
+      from: "{{input.base}}/src"
+      to: "{{input.base}}/dst"
+    save_to: renamed
+
+  - id: cleanup
+    action: dir.remove
+    params:
+      path: "{{input.base}}"
+      recursive: true
+    save_to: removed
+
+  - id: summary
+    action: template.render
+    params:
+      template: "created={{ created }} removed={{ removed }}"
+    save_to: summary

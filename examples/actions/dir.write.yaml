@@ -1,0 +1,14 @@
+# dir.write — 最小示例
+# 运行: corex run examples/actions/dir.write.yaml
+name: action-dir-write
+description: "Action: dir.write"
+permissions:
+  filesystem: true
+steps:
+  - id: demo
+    action: dir.write
+    params:
+      path: "{{env.TEMP}}/corex-dir-write"
+      parents: true
+      exist_ok: true
+    save_to: result

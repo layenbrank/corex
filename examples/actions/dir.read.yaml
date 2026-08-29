@@ -1,0 +1,17 @@
+# dir.read — 最小示例（flat）
+# 运行: corex run examples/actions/dir.read.yaml
+name: action-dir-read
+description: "Action: dir.read"
+permissions:
+  filesystem: true
+steps:
+  - id: seed
+    action: dir.write
+    params:
+      path: "{{env.TEMP}}/corex-dir-read"
+  - id: demo
+    action: dir.read
+    params:
+      path: "{{env.TEMP}}/corex-dir-read"
+      mode: flat
+    save_to: result

@@ -1,0 +1,20 @@
+# file.update — 最小示例（rename）
+# 运行: corex run examples/actions/file.update.yaml
+name: action-file-update
+description: "Action: file.update"
+permissions:
+  filesystem: true
+steps:
+  - id: seed
+    action: file.write
+    params:
+      path: "{{env.TEMP}}/corex-file-update-from.txt"
+      content: "move me"
+      mode: overwrite
+      create_dirs: true
+  - id: demo
+    action: file.update
+    params:
+      from: "{{env.TEMP}}/corex-file-update-from.txt"
+      to: "{{env.TEMP}}/corex-file-update-to.txt"
+    save_to: result

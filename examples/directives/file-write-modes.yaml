@@ -1,12 +1,11 @@
-# file.write 四种 mode — overwrite / replace_between / json_set / regex
+# file.write 迷你 IDE modes — overwrite / splice / json_set / regex / str_replace / lines / patch
 #
 # 运行:
 #   corex run file-write-modes
 #
 # 产物目录: {{env.TEMP}}/corex-file-modes/
-# 可在输出 JSON 中查看各 step 结果
 name: file-write-modes
-description: 演示 file.write 的 overwrite、replace_between、json_set、regex
+description: 演示 file.write / file.read 的迷你 IDE 能力
 version: "1.0"
 
 inputs:
@@ -43,11 +42,11 @@ steps:
       content: '{"name":"corex","version":1}'
       mode: overwrite
 
-  - id: patch_between
+  - id: patch_splice
     action: file.write
     params:
       path: "{{input.base_dir}}/note.txt"
-      mode: replace_between
+      mode: splice
       start: "{{marker_start}}"
       end: "{{marker_end}}"
       content: "NEW-BUILD"
@@ -67,6 +66,31 @@ steps:
       mode: regex
       pattern: "^line1"
       replacement: "line1-patched"
+
+  - id: str_replace
+    action: file.write
+    params:
+      path: "{{input.base_dir}}/note.txt"
+      mode: str_replace
+      old: "line2"
+      new: "line2-done"
+
+  - id: append_tail
+    action: file.write
+    params:
+      path: "{{input.base_dir}}/note.txt"
+      mode: append
+      content: |
+        tail
+
+  - id: read_lines
+    action: file.read
+    params:
+      path: "{{input.base_dir}}/note.txt"
+      mode: lines
+      start_line: 1
+      limit: 3
+    save_to: note_head
 
   - id: read_back
     action: file.read

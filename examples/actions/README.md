@@ -24,8 +24,9 @@ cargo test -p corex-engine example_directives_validate
 | `http.send` | [http.send.yaml](./http.send.yaml) | [http-post-json.yaml](../directives/http-post-json.yaml) |
 | `clipboard.get` / `set` | [clipboard.set.yaml](./clipboard.set.yaml) | [clipboard-notify.yaml](../directives/clipboard-notify.yaml) |
 | `notify.send` | [notify.send.yaml](./notify.send.yaml) | [clipboard-notify.yaml](../directives/clipboard-notify.yaml) |
-| `file.read` / `write` | [file.write.yaml](./file.write.yaml) | [file-write-modes.yaml](../directives/file-write-modes.yaml) |
-| `file.copy` / `delete` | [file.copy.yaml](./file.copy.yaml) | [file-ops-demo.yaml](../directives/file-ops-demo.yaml) |
+| `file.read` / `write` / `update` | [file.write.yaml](./file.write.yaml) · [file.update.yaml](./file.update.yaml) | [file-write-modes.yaml](../directives/file-write-modes.yaml) |
+| `file.copy` / `remove` | [file.copy.yaml](./file.copy.yaml) · [file.remove.yaml](./file.remove.yaml) | [file-ops-demo.yaml](../directives/file-ops-demo.yaml) |
+| `dir.write` / `read` / `update` / `remove` | [dir.write.yaml](./dir.write.yaml) · [dir.read.yaml](./dir.read.yaml) | [dir-ops-demo.yaml](../directives/dir-ops-demo.yaml) |
 | `template.render` | [template.render.yaml](./template.render.yaml) | [hello.yaml](../directives/hello.yaml) |
 | `cron.schedule` | [cron.schedule.yaml](./cron.schedule.yaml) | [cron-schedule-demo.yaml](../directives/cron-schedule-demo.yaml) |
 | `keyring.*` | [keyring.set.yaml](./keyring.set.yaml) | [keyring-demo.yaml](../directives/keyring-demo.yaml) |

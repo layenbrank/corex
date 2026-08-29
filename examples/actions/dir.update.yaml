@@ -1,0 +1,17 @@
+# dir.update — 最小示例（rename）
+# 运行: corex run examples/actions/dir.update.yaml
+name: action-dir-update
+description: "Action: dir.update"
+permissions:
+  filesystem: true
+steps:
+  - id: seed
+    action: dir.write
+    params:
+      path: "{{env.TEMP}}/corex-dir-update-from"
+  - id: demo
+    action: dir.update
+    params:
+      from: "{{env.TEMP}}/corex-dir-update-from"
+      to: "{{env.TEMP}}/corex-dir-update-to"
+    save_to: result

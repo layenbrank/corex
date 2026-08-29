@@ -9,8 +9,10 @@
 同步到用户数据目录（可选）：
 
 ```text
-%LOCALAPPDATA%\corex\directives\
+<corex.exe 所在目录>\directives\
 ```
+
+（exe 目录不可写时回退到 `%LOCALAPPDATA%\corex\directives\`）
 
 验证全部示例能否解析且 action 已注册：
 
@@ -43,8 +45,9 @@ corex validate examples/actions/<file>.yaml
 
 | 文件 | 说明 | 运行示例 |
 |------|------|----------|
-| [file-write-modes.yaml](./file-write-modes.yaml) | `overwrite` / `replace_between` / `json_set` / `regex` | `corex run file-write-modes` |
-| [file-ops-demo.yaml](./file-ops-demo.yaml) | `file.copy` + `file.delete` | `corex run file-ops-demo` |
+| [file-write-modes.yaml](./file-write-modes.yaml) | `overwrite` / `splice` / `str_replace` / `json_set` / `regex` / `lines` | `corex run file-write-modes` |
+| [file-ops-demo.yaml](./file-ops-demo.yaml) | `file.copy` + `file.remove` | `corex run file-ops-demo` |
+| [dir-ops-demo.yaml](./dir-ops-demo.yaml) | `dir.write` / `read` / `update` / `remove` | `corex run dir-ops-demo` |
 | [copy-demo.yaml](./copy-demo.yaml) | `copy.run` 目录/文件复制 | `corex run copy-demo` |
 | [compression-demo.yaml](./compression-demo.yaml) | `compression.compress` + `decompress` | `corex run compression-demo` |
 | [generate-path-demo.yaml](./generate-path-demo.yaml) | `generate.path` 路径列表 | `corex run generate-path-demo` |

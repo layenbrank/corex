@@ -53,7 +53,7 @@ act-shell = ["win32-process"]
 act-http = ["dep:reqwest"]
 act-clipboard = ["dep:arboard", "dep:image"]
 act-notify = ["dep:notify-rust"]
-act-file = ["dep:regex", "dep:uuid"]
+act-file = ["dep:regex", "dep:uuid", "dep:ropey", "dep:diffy"]
 act-template = ["dep:minijinja"]
 act-cron = ["dep:corex-engine", "dep:corex-ipc", "dep:uuid"]
 act-keyring = ["dep:keyring"]
@@ -111,6 +111,8 @@ flate2 = { workspace = true, optional = true }
 tar = { workspace = true, optional = true }
 rand = { workspace = true, optional = true }
 regex = { workspace = true, optional = true }
+ropey = { workspace = true, optional = true }
+diffy = { workspace = true, optional = true }
 uuid = { workspace = true, optional = true }
 chrono = { workspace = true, optional = true }
 lopdf = { workspace = true, optional = true }

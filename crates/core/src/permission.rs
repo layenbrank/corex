@@ -31,6 +31,7 @@ pub fn permission_kind_for(action_id: &str) -> PermissionKind {
         id if id.starts_with("keyring.") => PermissionKind::Secret,
         "codec.json.parse" => PermissionKind::None,
         id if id.starts_with("file.")
+            || id.starts_with("dir.")
             || id.starts_with("copy.")
             || id.starts_with("scrub.")
             || id.starts_with("shade.")
@@ -103,6 +104,7 @@ mod tests {
             PermissionKind::None
         );
         assert_eq!(permission_kind_for("file.write"), PermissionKind::Filesystem);
+        assert_eq!(permission_kind_for("dir.read"), PermissionKind::Filesystem);
     }
 
     #[test]

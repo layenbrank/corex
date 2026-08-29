@@ -1,0 +1,17 @@
+# dir.remove — 最小示例
+# 运行: corex run examples/actions/dir.remove.yaml
+name: action-dir-remove
+description: "Action: dir.remove"
+permissions:
+  filesystem: true
+steps:
+  - id: seed
+    action: dir.write
+    params:
+      path: "{{env.TEMP}}/corex-dir-remove-me"
+  - id: demo
+    action: dir.remove
+    params:
+      path: "{{env.TEMP}}/corex-dir-remove-me"
+      recursive: false
+    save_to: result
