@@ -25,10 +25,15 @@
 | `clipboard.get` | `act-clipboard` | `format?` (`text` \| `image`) | 读取剪贴板 |
 | `clipboard.set` | `act-clipboard` | `format?`；`text?`；`file?` (image) | 写入剪贴板 |
 | `notify.send` | `act-notify` | `summary`；`body?`、`appname?` (corex) | 桌面通知 |
-| `file.read` | `act-file` | `path` | 读取文件 → 字符串 |
-| `file.write` | `act-file` | `path`；`content?`；`mode?` (`overwrite` \| `replace_between` \| `regex` \| `json_set`)；`backup?` | 写入或补丁文件 |
+| `file.read` | `act-file` | `path`；`mode?` (`content` \| `lines` \| `stat` \| `exists`)；`start_line?`/`end_line?`/`limit?`/`max_bytes?` | 全文、行窗或轻量元数据 |
+| `file.write` | `act-file` | `path`；`mode?` (`overwrite` \| `append` \| `str_replace` \| `replace_lines` \| `insert_lines` \| `delete_lines` \| `splice` \| `regex` \| `json_set` \| `patch`)；`newline?`；`backup?` | 写入 / 迷你 IDE 局部更新 |
+| `file.update` | `act-file` | `from`、`to`；`create_dirs?` | 重命名 / 移动文件 |
 | `file.copy` | `act-file` | `from`、`to` | 复制文件 |
-| `file.delete` | `act-file` | `path` | 删除文件 |
+| `file.remove` | `act-file` | `path` | 删除文件（目录则递归删除） |
+| `dir.write` | `act-file` | `path`；`parents?`；`exist_ok?` | 创建目录 |
+| `dir.read` | `act-file` | `path`；`mode?` (`flat` \| `tree`)；`max_depth?`；`max_entries?` | 列举目录 |
+| `dir.update` | `act-file` | `from`、`to`；`create_dirs?` | 重命名 / 移动目录 |
+| `dir.remove` | `act-file` | `path`；`recursive?` | 删除目录（默认仅空目录） |
 | `template.render` | `act-template` | `template`；`context?` (map) | MiniJinja 渲染 |
 | `cron.schedule` | `act-cron` | `expr`；`directive?` | 在活动的 `corex cron` 监督进程上注册 cron 任务 |
 | `keyring.get` | `act-keyring` | `service`、`user` | 读取系统钥匙串 |
@@ -56,19 +61,29 @@
 | `capture.ocr` | `act-capture` | `file`；`language?` | OCR（Windows Media OCR） |
 | `capture.crop` | `act-capture` | `from`、`to`、`x`、`y`、`width`、`height` | 裁剪图像 |
 | `capture.monitors` | `act-capture` | — | 列出显示器（Windows 后端） |
+| `capture.find` | `act-capture` | `haystack`、`needle`；`threshold?`、`step?`、区域 | 模板匹配找图 |
 | `ui.window.list` | `act-ui` | — | 列出顶层窗口（`hwnd`/`title`/`class`/`pid`） |
+| `ui.window.desktop` | `act-ui` | — | 桌面图标 ListItem |
 | `ui.window.focus` | `act-ui` | `title_contains?`、`hwnd?`、`prefer_largest?`、`class_name?` | 聚焦窗口；更新 ui_session 作用域 |
 | `ui.window.find` | `act-ui` | 同 focus | 查找顶层窗口 |
 | `ui.window.wait` | `act-ui` | `title_contains?`、`timeout_ms`、`prefer_largest?` | 等待窗口出现 |
 | `ui.element.list` | `act-ui` | `hwnd?`、`title_contains?`、`depth?`、`limit?` | 列出子元素（UIA） |
 | `ui.element.find` | `act-ui` | `name?`、`name_contains?`、`automation_id?`、`control_type?`、`selectors?` | 查找应用内元素 |
+| `ui.element.get` / `set` | `act-ui` | 同 find；`set` 需 `value` | ValuePattern 读写 |
 | `ui.element.exists` | `act-ui` | 同 find | 探测 `{ found, element? }` |
 | `ui.element.click` | `act-ui` | 同 find + `safe?`（默认 true） | 点击元素（safe 时等待可用） |
 | `ui.element.wait` | `act-ui` | 同 find + `state?`、`timeout_ms`、`poll_interval_ms?` | 等待 `present` / `absent` / `enabled` |
+| `ui.element.point` | `act-ui` | `x`、`y` | 屏幕坐标命中元素 |
+| `ui.element.pick` | `act-ui` | `scope_hwnd?` | 交互点选（需桌面会话） |
 | `ui.wait` | `act-ui` | `ms` | 固定休眠（回退；受 `ui_max_settle_ms` 上限约束） |
-| `ui.click` | `act-ui` | `x`、`y` | 在屏幕坐标点击 |
+| `ui.click` | `act-ui` | `x`、`y`；`button?`、`clicks?` | 屏幕坐标点击（可双击/右键） |
+| `ui.scroll` | `act-ui` | `dy?`、`dx?`；`x?`、`y?` | 滚轮 |
+| `ui.drag` | `act-ui` | `from_x/y`、`to_x/y`；`steps?` | 拖拽 |
 | `ui.type` | `act-ui` | `text` | 输入文本 |
 | `ui.key` | `act-ui` | `keys` | 按键组合（`Enter`、`Ctrl+F` 等） |
+| `dialog.alert` / `confirm` / `prompt` | `act-sys` | `message`；`title?` | 原生对话框 |
+| `url.open` | `act-sys` | `url` | ShellExecute 打开 |
+| `process.list` / `kill` | `act-sys` | list:`name_contains?`；kill:`pid` | 进程枚举/结束 |
 | `morph.meta` | `act-morph` | `path` | PDF 元数据（启用时需要 pdfium） |
 | `morph.render` | `act-morph` | `path`；`offset?`、`scale?` | PDF 页面渲染 |
 | `morph.export` | `act-morph` | `src`、`dest` | PDF 导出 |
@@ -198,9 +213,9 @@ IPC: `{"type":"invoke","action":"template.render","params":{"template":"Hi","con
 
 ### 文件系统
 
-#### `file.read` / `file.write` / `file.copy` / `file.delete`
+#### `file.read` / `file.write` / `file.update` / `file.copy` / `file.remove`
 
-- 示例：[`file.write.yaml`](../../examples/actions/file.write.yaml) · [`file.copy.yaml`](../../examples/actions/file.copy.yaml) · [`file-ops-demo.yaml`](../../examples/directives/file-ops-demo.yaml) · [`file-write-modes.yaml`](../../examples/directives/file-write-modes.yaml)
+- 示例：[`file.write.yaml`](../../examples/actions/file.write.yaml) · [`file.update.yaml`](../../examples/actions/file.update.yaml) · [`file.copy.yaml`](../../examples/actions/file.copy.yaml) · [`file.remove.yaml`](../../examples/actions/file.remove.yaml) · [`file-ops-demo.yaml`](../../examples/directives/file-ops-demo.yaml) · [`file-write-modes.yaml`](../../examples/directives/file-write-modes.yaml)
 
 ```yaml
 - id: write
@@ -213,6 +228,27 @@ IPC: `{"type":"invoke","action":"template.render","params":{"template":"Hi","con
 ```
 
 ```yaml
+- id: edit
+  action: file.write
+  params:
+    path: "{{env.TEMP}}/out.txt"
+    mode: str_replace
+    old: "hello"
+    new: "world"
+```
+
+```yaml
+- id: splice_block
+  action: file.write
+  params:
+    path: "{{env.TEMP}}/out.txt"
+    mode: splice
+    start: "/* START */"
+    end: "/* END */"
+    content: "NEW"
+```
+
+```yaml
 - id: copy
   action: file.copy
   params:
@@ -221,6 +257,20 @@ IPC: `{"type":"invoke","action":"template.render","params":{"template":"Hi","con
 ```
 
 IPC: `{"type":"invoke","action":"file.copy","params":{"from":"a.txt","to":"b.txt"}}`
+
+#### `dir.write` / `dir.read` / `dir.update` / `dir.remove`
+
+- 示例：[`dir.write.yaml`](../../examples/actions/dir.write.yaml) · [`dir.read.yaml`](../../examples/actions/dir.read.yaml) · [`dir-ops-demo.yaml`](../../examples/directives/dir-ops-demo.yaml)
+
+```yaml
+- id: list
+  action: dir.read
+  params:
+    path: "{{env.TEMP}}/workdir"
+    mode: flat   # 或 tree
+```
+
+IPC: `{"type":"invoke","action":"dir.read","params":{"path":".","mode":"tree"}}`
 
 #### `copy.run`
 
