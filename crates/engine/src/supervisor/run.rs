@@ -79,7 +79,9 @@ pub async fn supervise_cron_job(
     runtime: corex_core::RuntimeConfig,
     data_dir: &std::path::Path,
 ) -> Result<(), corex_core::EngineError> {
-    use crate::cron::{bind_cron_engine, CronEngine, CronJobSpec};
+    use crate::cron::{
+        bind_cron_engine, effective_cron_timezone, CronEngine, CronJobSpec,
+    };
     use crate::definition::Directive;
     use crate::supervisor::resolve::resolve_cron_expr;
     use crate::supervisor::process::kill_process_tree;
@@ -98,17 +100,19 @@ pub async fn supervise_cron_job(
             meta.directive_name
         ))
     })?;
-    let expr = resolve_cron_expr(&directive, runtime, &cron.expr)?;
+    let expr = resolve_cron_expr(&directive, runtime.clone(), &cron.expr)?;
+    let timezone = effective_cron_timezone(cron.timezone.as_deref(), &runtime.cron_timezone);
     engine
         .register(CronJobSpec {
             id: meta.id.clone(),
             expr,
+            timezone: timezone.clone(),
             directive_path: meta.directive_path.clone(),
             directive_name: meta.directive_name.clone(),
         })
         .await?;
     let job_dir = JobMeta::job_dir(data_dir, JobKind::Cron, &meta.id);
-    info!(job = %meta.id, "cron supervisor 已启动");
+    info!(job = %meta.id, timezone = %timezone, "cron supervisor 已启动");
     loop {
         if let Some(msg) = poll_control(&job_dir) {
             match msg {

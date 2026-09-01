@@ -22,6 +22,9 @@ impl Action for CronSchedule {
         )
         .with_params(vec![
             ParamSchema::new("expr", SchemaType::Str, true).with_description("cron 表达式"),
+            ParamSchema::new("timezone", SchemaType::Str, false).with_description(
+                "时区：local / utc / ±HH:MM（默认用 runtime.cron_timezone）",
+            ),
             ParamSchema::new("directive", SchemaType::Str, false)
                 .with_description("关联的指令名或路径"),
         ])
@@ -39,6 +42,12 @@ impl Action for CronSchedule {
             .and_then(|v| v.as_str())
             .ok_or_else(|| ActionError::MissingParam("expr".to_string()))?
             .to_string();
+        let timezone_param = map
+            .get("timezone")
+            .and_then(|v| v.as_str())
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .map(str::to_string);
         let directive = map
             .get("directive")
             .and_then(|v| v.as_str())
@@ -48,16 +57,19 @@ impl Action for CronSchedule {
 
         #[cfg(feature = "act-cron")]
         {
-            use corex_engine::{find_cron_engine, CronJobSpec};
+            use corex_engine::{effective_cron_timezone, find_cron_engine, CronJobSpec};
             let engine = find_cron_engine().ok_or_else(|| {
                 ActionError::execution("cron 守护未运行：请先执行 corex cron run")
             })?;
             let path = resolve_directive_path(&directive)?;
             let job_id = format!("dyn-{}", uuid::Uuid::new_v4());
+            let timezone =
+                effective_cron_timezone(timezone_param.as_deref(), &ctx.config.cron_timezone);
             engine
                 .register(CronJobSpec {
                     id: job_id.clone(),
                     expr: expr.clone(),
+                    timezone: timezone.clone(),
                     directive_path: path,
                     directive_name: directive.clone(),
                 })
@@ -66,13 +78,14 @@ impl Action for CronSchedule {
             let mut out = BTreeMap::new();
             out.insert("job_id".into(), Value::Str(job_id));
             out.insert("expr".into(), Value::Str(expr));
+            out.insert("timezone".into(), Value::Str(timezone));
             out.insert("registered".into(), Value::Bool(true));
             return Ok(Value::Map(out));
         }
 
         #[cfg(not(feature = "act-cron"))]
         {
-            let _ = (expr, directive, ctx);
+            let _ = (expr, timezone_param, directive, ctx);
             Err(ActionError::execution("act-cron feature 未启用"))
         }
     }

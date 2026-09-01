@@ -307,7 +307,11 @@ steps:
 /// Directive trigger definitions (automated sources only; manual run via `corex run`).
 #[derive(Debug, Clone)]
 pub enum Trigger {
-    Cron { expr: String },
+    Cron {
+        expr: String,
+        /// Optional IANA / `local` / `utc`; falls back to `RuntimeConfig.cron_timezone`.
+        timezone: Option<String>,
+    },
     Watch(WatchTrigger),
 }
 

@@ -33,6 +33,8 @@ pub struct WatchConfig {
 #[derive(Debug, Clone)]
 pub struct CronConfig {
     pub expr: String,
+    /// Optional override; empty/`None` → use `RuntimeConfig.cron_timezone`.
+    pub timezone: Option<String>,
 }
 
 /// Raw YAML trigger.
@@ -58,6 +60,8 @@ struct RawTrigger {
     poll: Option<bool>,
     #[serde(default)]
     events: Option<Vec<String>>,
+    #[serde(default)]
+    timezone: Option<String>,
 }
 
 impl Trigger {
@@ -70,7 +74,10 @@ impl Trigger {
 
     pub fn parse_cron(&self) -> Option<CronConfig> {
         match self {
-            Trigger::Cron { expr } => Some(CronConfig { expr: expr.clone() }),
+            Trigger::Cron { expr, timezone } => Some(CronConfig {
+                expr: expr.clone(),
+                timezone: timezone.clone(),
+            }),
             _ => None,
         }
     }
@@ -83,10 +90,14 @@ impl Serialize for Trigger {
     {
         use serde::ser::SerializeStruct;
         match self {
-            Trigger::Cron { expr } => {
-                let mut s = serializer.serialize_struct("Trigger", 2)?;
+            Trigger::Cron { expr, timezone } => {
+                let fields = if timezone.is_some() { 3 } else { 2 };
+                let mut s = serializer.serialize_struct("Trigger", fields)?;
                 s.serialize_field("type", "cron")?;
                 s.serialize_field("expr", expr)?;
+                if let Some(tz) = timezone {
+                    s.serialize_field("timezone", tz)?;
+                }
                 s.end()
             }
             Trigger::Watch(w) => {
@@ -119,7 +130,11 @@ impl<'de> serde::Deserialize<'de> for Trigger {
                     .expr
                     .filter(|s| !s.trim().is_empty())
                     .ok_or_else(|| serde::de::Error::custom("cron 需要 expr"))?;
-                Ok(Trigger::Cron { expr })
+                let timezone = raw
+                    .timezone
+                    .map(|s| s.trim().to_string())
+                    .filter(|s| !s.is_empty());
+                Ok(Trigger::Cron { expr, timezone })
             }
             "watch" => parse_watch_fields(raw)
                 .map(Trigger::Watch)

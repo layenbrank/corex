@@ -161,6 +161,12 @@ pub struct RuntimeConfig {
     /// Cap total fixed `ui.wait` ms per directive run (0 = unlimited).
     #[serde(default)]
     pub ui_max_settle_ms: u64,
+    /// Default timezone for cron triggers / `cron.schedule`.
+    ///
+    /// Accepts `local` (system local), `utc`, or a fixed offset (e.g. `+08:00`).
+    /// Per-trigger `timezone` overrides this. Default: `local`.
+    #[serde(default = "init_cron_timezone")]
+    pub cron_timezone: String,
 }
 
 fn init_ui_profile() -> String {
@@ -169,6 +175,10 @@ fn init_ui_profile() -> String {
 
 fn init_max_parallel() -> usize {
     MAX_PARALLEL
+}
+
+fn init_cron_timezone() -> String {
+    "local".into()
 }
 
 impl Default for RuntimeConfig {
@@ -186,6 +196,7 @@ impl Default for RuntimeConfig {
             ui_profile: init_ui_profile(),
             ui_max_selector_chain: preset.max_selector_chain,
             ui_max_settle_ms: preset.max_settle_ms,
+            cron_timezone: init_cron_timezone(),
         }
     }
 }

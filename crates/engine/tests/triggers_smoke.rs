@@ -43,6 +43,33 @@ triggers:
     let d = Directive::from_yaml_str(yaml).unwrap();
     let c = find_cron_trigger(&d.triggers).unwrap().unwrap();
     assert_eq!(c.expr, "0 9 * * *");
+    assert!(c.timezone.is_none());
+}
+
+#[test]
+fn cron_trigger_timezone() {
+    use corex_engine::{effective_cron_timezone, parse_cron_timezone, ResolvedCronTz};
+    let yaml = r#"
+name: t
+steps:
+  - id: a
+    action: template.render
+    params:
+      template: ok
+triggers:
+  - type: cron
+    expr: "0 9 * * 1-5"
+    timezone: "+08:00"
+"#;
+    let d = Directive::from_yaml_str(yaml).unwrap();
+    let c = find_cron_trigger(&d.triggers).unwrap().unwrap();
+    assert_eq!(c.timezone.as_deref(), Some("+08:00"));
+    let effective = effective_cron_timezone(c.timezone.as_deref(), "local");
+    assert_eq!(effective, "+08:00");
+    assert!(matches!(
+        parse_cron_timezone(&effective).unwrap(),
+        ResolvedCronTz::Fixed(_)
+    ));
 }
 
 #[test]

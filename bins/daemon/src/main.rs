@@ -502,6 +502,8 @@ struct RuntimeSection {
     ui_max_selector_chain: Option<usize>,
     #[serde(default)]
     ui_max_settle_ms: Option<u64>,
+    #[serde(default)]
+    cron_timezone: Option<String>,
 }
 
 impl ConfigFile {
@@ -544,6 +546,12 @@ impl ConfigFile {
                 }
                 if let Some(ms) = r.ui_max_settle_ms {
                     cfg.ui_max_settle_ms = ms;
+                }
+            }
+            if let Some(tz) = r.cron_timezone {
+                let trimmed = tz.trim();
+                if !trimmed.is_empty() {
+                    cfg.cron_timezone = trimmed.to_string();
                 }
             }
         }

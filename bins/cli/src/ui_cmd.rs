@@ -128,6 +128,8 @@ struct RuntimeSectionFields {
     ui_max_settle_ms: Option<u64>,
     #[serde(default)]
     strict_permissions: Option<bool>,
+    #[serde(default)]
+    cron_timezone: Option<String>,
 }
 
 fn load_runtime_config(data_dir: &Path) -> RuntimeConfig {
@@ -171,6 +173,12 @@ impl RuntimeConfigWrapper {
             }
             if let Some(s) = r.strict_permissions {
                 cfg.strict_permissions = s;
+            }
+            if let Some(tz) = r.cron_timezone {
+                let trimmed = tz.trim();
+                if !trimmed.is_empty() {
+                    cfg.cron_timezone = trimmed.to_string();
+                }
             }
         }
         cfg

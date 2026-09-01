@@ -15,7 +15,8 @@ version: "1.0"
 
 triggers:
   - type: cron
-    expr: "0 9 * * 1-5"
+    expr: "0 9 * * 1-5"   # 工作日本地 09:00（默认 timezone=local）
+    # timezone: local     # 可选；也可用 utc / +08:00
   - type: watch
     paths: ["./src"]
     debounce_ms: 500

@@ -38,7 +38,10 @@ pub use trigger::{
 };
 
 #[cfg(feature = "cron")]
-pub use cron::{bind_cron_engine, find_cron_engine, parse_cron_expr, CronEngine, CronJobSpec};
+pub use cron::{
+    bind_cron_engine, effective_cron_timezone, find_cron_engine, parse_cron_expr,
+    parse_cron_timezone, CronEngine, CronJobSpec, ResolvedCronTz,
+};
 #[cfg(feature = "watch")]
 pub use watch::{WatchEngine, WatchJobSpec};
 #[cfg(feature = "watch")]

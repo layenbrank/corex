@@ -1,10 +1,13 @@
 //! Cron job scheduling engine.
 
 use super::expr::parse_cron_expr;
+use super::tz::{parse_cron_timezone, ResolvedCronTz};
 use crate::run::run_directive_file;
 use corex_core::{ActionStore, EngineError, RuntimeConfig};
 use std::collections::HashMap;
+use std::future::Future;
 use std::path::{Path, PathBuf};
+use std::pin::Pin;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use tokio::sync::Mutex;
@@ -16,6 +19,8 @@ use uuid::Uuid;
 pub struct CronJobSpec {
     pub id: String,
     pub expr: String,
+    /// Effective timezone (`local`, `utc`, or `±HH:MM`).
+    pub timezone: String,
     pub directive_path: PathBuf,
     pub directive_name: String,
 }
@@ -34,6 +39,8 @@ pub struct CronEngine {
     scheduler: tokio_cron_scheduler::JobScheduler,
     jobs: Mutex<HashMap<String, JobState>>,
 }
+
+type CronJobFuture = Pin<Box<dyn Future<Output = ()> + Send>>;
 
 impl CronEngine {
     pub async fn new(
@@ -59,6 +66,7 @@ impl CronEngine {
 
     pub async fn register(&self, spec: CronJobSpec) -> Result<String, EngineError> {
         let parsed = parse_cron_expr(&spec.expr)?;
+        let tz = parse_cron_timezone(&spec.timezone)?;
         let job_id = spec.id.clone();
         if self.jobs.lock().await.contains_key(&job_id) {
             self.unregister(&job_id).await?;
@@ -71,8 +79,9 @@ impl CronEngine {
         let name = spec.directive_name.clone();
         let is_running = Arc::new(AtomicBool::new(false));
         let flag = Arc::clone(&is_running);
+        let tz_label = spec.timezone.clone();
 
-        let job = tokio_cron_scheduler::Job::new_async(parsed.as_str(), move |_uuid, _l| {
+        let job = build_timezone_job(parsed.as_str(), tz, move |_uuid, _l| {
             let store = Arc::clone(&store);
             let runtime = runtime.clone();
             let data_dir = data_dir.clone();
@@ -88,21 +97,26 @@ impl CronEngine {
                     return;
                 }
                 info!(directive = %name, "cron 触发执行");
-                let result =
-                    run_directive_file(store, runtime, data_dir, &path).await;
+                let result = run_directive_file(store, runtime, data_dir, &path).await;
                 if let Err(e) = result {
                     warn!(directive = %name, error = %e, "cron 执行失败");
                 }
                 flag.store(false, Ordering::SeqCst);
-            })
-        })
-        .map_err(|e| EngineError::ParseError(format!("cron expr 无效: {e}")))?;
+            }) as CronJobFuture
+        })?;
 
         let uuid = self
             .scheduler
             .add(job)
             .await
             .map_err(|e| EngineError::other(format!("cron 注册失败: {e}")))?;
+
+        info!(
+            job = %job_id,
+            expr = %parsed,
+            timezone = %tz_label,
+            "cron job 已注册"
+        );
 
         self.jobs.lock().await.insert(
             job_id.clone(),
@@ -173,4 +187,28 @@ impl CronEngine {
     pub fn data_dir(&self) -> &Path {
         &self.data_dir
     }
+}
+
+fn build_timezone_job<F>(
+    expr: &str,
+    tz: ResolvedCronTz,
+    run: F,
+) -> Result<tokio_cron_scheduler::Job, EngineError>
+where
+    F: FnMut(
+            Uuid,
+            tokio_cron_scheduler::JobScheduler,
+        ) -> Pin<Box<dyn Future<Output = ()> + Send>>
+        + Send
+        + Sync
+        + 'static,
+{
+    let job = match tz {
+        ResolvedCronTz::Utc => tokio_cron_scheduler::Job::new_async_tz(expr, chrono::Utc, run),
+        ResolvedCronTz::Local => tokio_cron_scheduler::Job::new_async_tz(expr, chrono::Local, run),
+        ResolvedCronTz::Fixed(offset) => {
+            tokio_cron_scheduler::Job::new_async_tz(expr, offset, run)
+        }
+    };
+    job.map_err(|e| EngineError::ParseError(format!("cron expr 无效: {e}")))
 }

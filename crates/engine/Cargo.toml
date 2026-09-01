@@ -28,7 +28,7 @@ proptest      = { workspace = true }
 
 [features]
 default = []
-cron = ["dep:tokio-cron-scheduler", "dep:uuid"]
+cron = ["dep:tokio-cron-scheduler", "dep:uuid", "dep:chrono"]
 watch = ["dep:notify", "dep:notify-debouncer-full", "dep:glob"]
 triggers = ["cron", "watch"]
 
@@ -37,6 +37,10 @@ name = "triggers_smoke"
 required-features = ["triggers"]
 
 [dependencies.tokio-cron-scheduler]
+workspace = true
+optional = true
+
+[dependencies.chrono]
 workspace = true
 optional = true
 

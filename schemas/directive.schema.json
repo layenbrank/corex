@@ -20,7 +20,11 @@
             "required": ["type", "expr"],
             "properties": {
               "type": { "const": "cron" },
-              "expr": { "type": "string" }
+              "expr": { "type": "string" },
+              "timezone": {
+                "type": "string",
+                "description": "local | utc | ±HH:MM; overrides runtime.cron_timezone"
+              }
             },
             "additionalProperties": false
           },
