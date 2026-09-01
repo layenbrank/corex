@@ -249,10 +249,10 @@ fn record_probe_audit(
     data_dir: &Path,
     action_id: &str,
     duration_ms: u64,
-    result: Result<(), String>,
+    result: Result<(), &corex_core::ActionError>,
 ) {
     if let Ok(audit) = ExecutionAudit::under_data_dir(data_dir) {
-        let entry = AuditEntry::new("ui.probe", "probe", action_id, duration_ms, result, false);
+        let entry = AuditEntry::from_action("ui.probe", "probe", action_id, duration_ms, result);
         let _ = audit.append(&entry);
     }
 }
@@ -270,12 +270,7 @@ where
     let t0 = Instant::now();
     let result = f.await;
     let duration_ms = t0.elapsed().as_millis() as u64;
-    record_probe_audit(
-        data_dir,
-        action_id,
-        duration_ms,
-        result.as_ref().map(|_| ()).map_err(|e| e.to_string()),
-    );
+    record_probe_audit(data_dir, action_id, duration_ms, result.as_ref().map(|_| ()));
     result.map_err(|e| anyhow::anyhow!("{e}"))
 }
 

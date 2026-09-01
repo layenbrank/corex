@@ -240,18 +240,13 @@ async fn invoke_action(state: &DaemonState, action_id: &str, params: Value) -> R
     }
     .await;
     let duration_ms = t0.elapsed().as_millis() as u64;
-    let perm_denied = matches!(
-        &outcome,
-        Err(corex_core::ActionError::PermissionDenied(_))
-    );
     if let Some(audit) = &state.audit {
-        let entry = AuditEntry::new(
+        let entry = AuditEntry::from_action(
             "invoke",
             "invoke",
             action_id,
             duration_ms,
-            outcome.as_ref().map(|_| ()).map_err(|e| e.to_string()),
-            perm_denied,
+            outcome.as_ref().map(|_| ()),
         );
         audit.record_best_effort(&entry);
     }
