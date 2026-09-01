@@ -122,10 +122,7 @@ mod tests {
 
     #[test]
     fn effective_prefers_trigger() {
-        assert_eq!(
-            effective_cron_timezone(Some("+08:00"), "local"),
-            "+08:00"
-        );
+        assert_eq!(effective_cron_timezone(Some("+08:00"), "local"), "+08:00");
         assert_eq!(effective_cron_timezone(None, "utc"), "utc");
         assert_eq!(effective_cron_timezone(Some("  "), "local"), "local");
     }

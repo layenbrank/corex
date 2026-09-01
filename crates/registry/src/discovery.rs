@@ -1,7 +1,7 @@
 //! Scan a plugin directory for `*.wasm` components and register successful loads.
 
-use crate::wasm_host::WasmPluginHost;
 use crate::ActionRegistry;
+use crate::wasm_host::WasmPluginHost;
 use std::path::Path;
 use tracing::{info, warn};
 

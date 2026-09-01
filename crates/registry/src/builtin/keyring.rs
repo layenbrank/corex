@@ -43,7 +43,8 @@ impl Action for KeyringGet {
     }
 
     async fn execute(
-        &self, params: Value,
+        &self,
+        params: Value,
         _ctx: &mut ExecutionContext,
     ) -> Result<Value, ActionError> {
         let entry = entry(&params)?;
@@ -71,7 +72,8 @@ impl Action for KeyringSet {
     }
 
     async fn execute(
-        &self, params: Value,
+        &self,
+        params: Value,
         _ctx: &mut ExecutionContext,
     ) -> Result<Value, ActionError> {
         let password = params

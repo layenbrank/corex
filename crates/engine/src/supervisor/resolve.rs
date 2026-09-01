@@ -79,7 +79,9 @@ triggers:
     paths: ["{{variables.root}}"]
 "#;
         let d = Directive::from_yaml_str(yaml).unwrap();
-        let w = crate::trigger::find_watch_trigger(&d.triggers).unwrap().unwrap();
+        let w = crate::trigger::find_watch_trigger(&d.triggers)
+            .unwrap()
+            .unwrap();
         let resolved = resolve_watch_config(&d, RuntimeConfig::default(), w).unwrap();
         assert!(!resolved.paths[0].contains("{{"));
         assert!(resolved.paths[0].contains("watch-root") || !resolved.paths[0].is_empty());

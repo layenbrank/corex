@@ -1,18 +1,18 @@
 //! Compression actions: zip / tar.gz / 7z compress & decompress.
 
+use crate::ActionRegistry;
 use crate::builtin::filter::Filter;
 use crate::builtin::util::{
     confine_path, ensure_parent, opt_i64, opt_str, require_map, require_path,
 };
-use crate::ActionRegistry;
 use async_trait::async_trait;
 use corex_core::{
     Action, ActionCategory, ActionError, ActionMeta, ExecutionContext, ParamSchema, SchemaType,
     Value,
 };
+use flate2::Compression;
 use flate2::read::GzDecoder;
 use flate2::write::GzEncoder;
-use flate2::Compression;
 use std::fs::File;
 use std::io::copy as io_copy;
 use std::path::{Path, PathBuf};
@@ -47,7 +47,8 @@ impl Action for CompressionCompress {
     }
 
     async fn execute(
-        &self, params: Value,
+        &self,
+        params: Value,
         ctx: &mut ExecutionContext,
     ) -> Result<Value, ActionError> {
         let map = require_map(&params)?;
@@ -67,12 +68,12 @@ impl Action for CompressionCompress {
             "7z" | "sevenz" => {
                 return Err(ActionError::execution(
                     "7z 压缩未在此构建中启用；请使用 zip 或 tar.gz",
-                ))
+                ));
             }
             other => {
                 return Err(ActionError::InvalidParams(format!(
                     "不支持的压缩格式: {other}"
-                )))
+                )));
             }
         }
         Ok(Value::File(to))
@@ -97,7 +98,8 @@ impl Action for CompressionDecompress {
     }
 
     async fn execute(
-        &self, params: Value,
+        &self,
+        params: Value,
         ctx: &mut ExecutionContext,
     ) -> Result<Value, ActionError> {
         let map = require_map(&params)?;
@@ -112,12 +114,12 @@ impl Action for CompressionDecompress {
             "7z" | "sevenz" => {
                 return Err(ActionError::execution(
                     "7z 解压未在此构建中启用；请使用 zip 或 tar.gz",
-                ))
+                ));
             }
             other => {
                 return Err(ActionError::InvalidParams(format!(
                     "不支持的解压格式: {other}"
-                )))
+                )));
             }
         }
         Ok(Value::File(to))
@@ -260,9 +262,6 @@ fn decompress_tar_gz(from: &Path, to: &Path) -> Result<(), ActionError> {
     Ok(())
 }
 
-
-
-
 pub fn register(registry: &mut ActionRegistry) {
     registry.register(Arc::new(CompressionCompress));
     registry.register(Arc::new(CompressionDecompress));
@@ -271,8 +270,8 @@ pub fn register(registry: &mut ActionRegistry) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::collections::BTreeMap;
     use corex_core::ExecutionContext;
+    use std::collections::BTreeMap;
     use tempfile::tempdir;
 
     #[tokio::test]
@@ -302,7 +301,10 @@ mod tests {
             .execute(Value::Map(params), &mut ctx)
             .await
             .unwrap();
-        assert_eq!(std::fs::read_to_string(out_dir.join("a.txt")).unwrap(), "hello");
+        assert_eq!(
+            std::fs::read_to_string(out_dir.join("a.txt")).unwrap(),
+            "hello"
+        );
     }
 
     #[tokio::test]

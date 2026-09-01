@@ -1,7 +1,7 @@
 //! Permissions gating, on_error skip/continue, and step timeout.
 
 use corex_core::{ExecutionContext, RuntimeConfig};
-use corex_engine::{Pipeline, Directive};
+use corex_engine::{Directive, Pipeline};
 use corex_registry::ActionRegistry;
 use std::sync::Arc;
 

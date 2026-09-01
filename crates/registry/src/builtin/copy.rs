@@ -1,10 +1,10 @@
 //! `copy.run` — recursive directory/file copy with includes/excludes.
 
+use crate::ActionRegistry;
 use crate::builtin::filter::Filter;
 use crate::builtin::util::{
     confine_path, ensure_parent, opt_bool, opt_str_list, require_map, require_path,
 };
-use crate::ActionRegistry;
 use async_trait::async_trait;
 use corex_core::{
     Action, ActionCategory, ActionError, ActionMeta, ExecutionContext, ParamSchema, SchemaType,
@@ -35,7 +35,8 @@ impl Action for CopyRun {
     }
 
     async fn execute(
-        &self, params: Value,
+        &self,
+        params: Value,
         ctx: &mut ExecutionContext,
     ) -> Result<Value, ActionError> {
         let map = require_map(&params)?;
@@ -128,8 +129,8 @@ pub fn register(registry: &mut ActionRegistry) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::collections::BTreeMap;
     use corex_core::ExecutionContext;
+    use std::collections::BTreeMap;
     use tempfile::tempdir;
 
     #[tokio::test]
@@ -150,10 +151,7 @@ mod tests {
         );
 
         let mut ctx = ExecutionContext::default();
-        CopyRun
-            .execute(Value::Map(params), &mut ctx)
-            .await
-            .unwrap();
+        CopyRun.execute(Value::Map(params), &mut ctx).await.unwrap();
         assert!(dst.join("a/keep.txt").exists());
         assert!(!dst.join("a/skip.tmp").exists());
     }

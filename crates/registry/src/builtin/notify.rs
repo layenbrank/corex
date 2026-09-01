@@ -13,21 +13,18 @@ pub struct NotifySend;
 #[async_trait]
 impl Action for NotifySend {
     fn meta(&self) -> ActionMeta {
-        ActionMeta::new(
-            "notify.send",
-            "Notify",
-            "发送桌面通知",
-            ActionCategory::Ui,
+        ActionMeta::new("notify.send", "Notify", "发送桌面通知", ActionCategory::Ui).with_params(
+            vec![
+                ParamSchema::new("summary", SchemaType::Str, true),
+                ParamSchema::new("body", SchemaType::Str, false).with_default(""),
+                ParamSchema::new("appname", SchemaType::Str, false).with_default("corex"),
+            ],
         )
-        .with_params(vec![
-            ParamSchema::new("summary", SchemaType::Str, true),
-            ParamSchema::new("body", SchemaType::Str, false).with_default(""),
-            ParamSchema::new("appname", SchemaType::Str, false).with_default("corex"),
-        ])
     }
 
     async fn execute(
-        &self, params: Value,
+        &self,
+        params: Value,
         _ctx: &mut ExecutionContext,
     ) -> Result<Value, ActionError> {
         let map = params
@@ -37,10 +34,7 @@ impl Action for NotifySend {
             .get("summary")
             .and_then(|v| v.as_str())
             .ok_or_else(|| ActionError::MissingParam("summary".to_string()))?;
-        let body = map
-            .get("body")
-            .and_then(|v| v.as_str())
-            .unwrap_or("");
+        let body = map.get("body").and_then(|v| v.as_str()).unwrap_or("");
         let appname = map
             .get("appname")
             .and_then(|v| v.as_str())

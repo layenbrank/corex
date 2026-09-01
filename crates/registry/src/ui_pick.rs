@@ -12,12 +12,12 @@ use windows::Win32::System::Console::GetConsoleWindow;
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows::Win32::UI::Input::KeyboardAndMouse::{GetAsyncKeyState, VK_ESCAPE, VK_LBUTTON};
 use windows::Win32::UI::WindowsAndMessaging::{
-    CS_HREDRAW, CS_VREDRAW, CreateWindowExW, DefWindowProcW, DispatchMessageW, GetCursorPos,
-    GetMessageW, GWLP_USERDATA, HWND_BOTTOM, HWND_TOPMOST, KillTimer, LoadCursorW, MSG,
-    PostQuitMessage, RegisterClassW, SetWindowLongPtrW, SetWindowPos, SetWindowTextW, ShowWindow,
-    TranslateMessage, WM_DESTROY, WM_TIMER, WNDCLASSW, WNDPROC, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW,
-    WS_EX_TOPMOST, WS_POPUP, SWP_NOACTIVATE, SWP_NOSIZE, SWP_NOMOVE, SWP_SHOWWINDOW, SW_HIDE,
-    SW_SHOWNA,
+    CS_HREDRAW, CS_VREDRAW, CreateWindowExW, DefWindowProcW, DispatchMessageW, GWLP_USERDATA,
+    GetCursorPos, GetMessageW, HWND_BOTTOM, HWND_TOPMOST, KillTimer, LoadCursorW, MSG,
+    PostQuitMessage, RegisterClassW, SW_HIDE, SW_SHOWNA, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE,
+    SWP_SHOWWINDOW, SetWindowLongPtrW, SetWindowPos, SetWindowTextW, ShowWindow, TranslateMessage,
+    WM_DESTROY, WM_TIMER, WNDCLASSW, WNDPROC, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW, WS_EX_TOPMOST,
+    WS_POPUP,
 };
 
 const BORDER_CLASS: &str = "CorexUiPickBorder";
@@ -298,8 +298,7 @@ impl PickSession {
             return Ok(());
         }
 
-        let lbutton_down =
-            unsafe { GetAsyncKeyState(VK_LBUTTON.0 as i32) as u16 & 0x8000 != 0 };
+        let lbutton_down = unsafe { GetAsyncKeyState(VK_LBUTTON.0 as i32) as u16 & 0x8000 != 0 };
         if lbutton_down && !self.prev_lbutton_down && !self.done {
             match self.select_at_cursor() {
                 Ok(()) => unsafe {

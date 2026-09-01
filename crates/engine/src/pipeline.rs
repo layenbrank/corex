@@ -3,7 +3,7 @@
 use crate::audit::{self, AuditEntry, ExecutionAudit};
 use crate::control_flow::evaluate_condition;
 use crate::definition::{
-    ActionStep, IfStep, OnError, ParallelStep, Permissions, RepeatStep, Directive, Step,
+    ActionStep, Directive, IfStep, OnError, ParallelStep, Permissions, RepeatStep, Step,
 };
 use crate::history::{ExecutionHistory, HistoryEntry};
 use crate::inputs::apply_input_defaults;
@@ -46,7 +46,8 @@ impl Pipeline {
 
     /// Execute an entire directive.
     pub async fn execute(
-        &self, directive: &Directive,
+        &self,
+        directive: &Directive,
         mut ctx: ExecutionContext,
     ) -> Result<Value, EngineError> {
         let started = SystemTime::now();
@@ -102,7 +103,8 @@ impl Pipeline {
     }
 
     fn record_history(
-        &self, directive: &Directive,
+        &self,
+        directive: &Directive,
         started: SystemTime,
         outcome: Result<(), &EngineError>,
     ) {
@@ -115,18 +117,13 @@ impl Pipeline {
     }
 
     fn record_step_audit(
-        &self, step: &ActionStep,
+        &self,
+        step: &ActionStep,
         duration_ms: u64,
         outcome: Result<(), &EngineError>,
     ) {
         let name = self.run_name.as_deref().unwrap_or("unknown");
-        let entry = AuditEntry::from_engine(
-            name,
-            &step.id,
-            &step.action,
-            duration_ms,
-            outcome,
-        );
+        let entry = AuditEntry::from_engine(name, &step.id, &step.action, duration_ms, outcome);
         audit::log_step_end(&entry);
         if let Some(a) = &self.audit {
             a.record_best_effort(&entry);
@@ -134,7 +131,8 @@ impl Pipeline {
     }
 
     pub async fn execute_steps(
-        &self, steps: &[Step],
+        &self,
+        steps: &[Step],
         ctx: &mut ExecutionContext,
         default_on_error: OnError,
         permissions: &Permissions,
@@ -149,7 +147,8 @@ impl Pipeline {
     }
 
     pub async fn execute_step(
-        &self, step: &Step,
+        &self,
+        step: &Step,
         ctx: &mut ExecutionContext,
         default_on_error: OnError,
         permissions: &Permissions,
@@ -159,7 +158,10 @@ impl Pipeline {
                 self.run_action_step(s, ctx, default_on_error, permissions)
                     .await
             }
-            Step::If(s) => self.run_if_step(s, ctx, default_on_error, permissions).await,
+            Step::If(s) => {
+                self.run_if_step(s, ctx, default_on_error, permissions)
+                    .await
+            }
             Step::Repeat(s) => {
                 self.run_repeat_step(s, ctx, default_on_error, permissions)
                     .await
@@ -172,7 +174,8 @@ impl Pipeline {
     }
 
     async fn run_action_step(
-        &self, step: &ActionStep,
+        &self,
+        step: &ActionStep,
         ctx: &mut ExecutionContext,
         default_on_error: OnError,
         permissions: &Permissions,
@@ -229,7 +232,8 @@ impl Pipeline {
     }
 
     async fn invoke_action(
-        &self, step: &ActionStep,
+        &self,
+        step: &ActionStep,
         ctx: &mut ExecutionContext,
         permissions: &Permissions,
     ) -> Result<Value, EngineError> {
@@ -304,7 +308,8 @@ impl Pipeline {
     }
 
     async fn run_if_step(
-        &self, step: &IfStep,
+        &self,
+        step: &IfStep,
         ctx: &mut ExecutionContext,
         default_on_error: OnError,
         permissions: &Permissions,
@@ -314,13 +319,13 @@ impl Pipeline {
         if pass {
             Box::pin(self.execute_steps(&step.then, ctx, default_on_error, permissions)).await
         } else {
-            Box::pin(self.execute_steps(&step.else_steps, ctx, default_on_error, permissions))
-                .await
+            Box::pin(self.execute_steps(&step.else_steps, ctx, default_on_error, permissions)).await
         }
     }
 
     async fn run_repeat_step(
-        &self, step: &RepeatStep,
+        &self,
+        step: &RepeatStep,
         ctx: &mut ExecutionContext,
         default_on_error: OnError,
         permissions: &Permissions,
@@ -352,16 +357,15 @@ impl Pipeline {
                         .await?;
             }
         } else {
-            return Err(EngineError::ControlFlow(
-                "repeat 需要 count 或 each".into(),
-            ));
+            return Err(EngineError::ControlFlow("repeat 需要 count 或 each".into()));
         }
         ctx.set_step_output(&step.id, last.clone());
         Ok(last)
     }
 
     async fn run_parallel_step(
-        &self, step: &ParallelStep,
+        &self,
+        step: &ParallelStep,
         ctx: &mut ExecutionContext,
         default_on_error: OnError,
         permissions: &Permissions,

@@ -6,7 +6,7 @@ pub mod process;
 pub mod resolve;
 pub mod run;
 
-pub use control::{poll_control, send_control, ControlMsg};
+pub use control::{ControlMsg, poll_control, send_control};
 pub use job::{JobKind, JobMeta};
 pub use process::{
     child_supervisor_identity, current_supervisor_identity, is_pid_running, is_supervisor_alive,

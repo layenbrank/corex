@@ -3,10 +3,10 @@
 #[path = "capture_match.rs"]
 mod match_img;
 
+use crate::ActionRegistry;
 use crate::builtin::util::{
     confine_path, ensure_parent, opt_i64, opt_str, require_map, require_path,
 };
-use crate::ActionRegistry;
 use async_trait::async_trait;
 use corex_core::{
     Action, ActionCategory, ActionError, ActionMeta, ExecutionContext, ParamSchema, SchemaType,
@@ -38,7 +38,8 @@ impl Action for CaptureScreenshot {
     }
 
     async fn execute(
-        &self, params: Value,
+        &self,
+        params: Value,
         ctx: &mut ExecutionContext,
     ) -> Result<Value, ActionError> {
         let mut map = require_map(&params)?.clone();
@@ -68,7 +69,8 @@ impl Action for CaptureCrop {
     }
 
     async fn execute(
-        &self, params: Value,
+        &self,
+        params: Value,
         ctx: &mut ExecutionContext,
     ) -> Result<Value, ActionError> {
         let map = require_map(&params)?;
@@ -79,8 +81,8 @@ impl Action for CaptureCrop {
         let width = require_i64(map, "width")? as u32;
         let height = require_i64(map, "height")? as u32;
 
-        let img = image::open(&from)
-            .map_err(|e| ActionError::execution(format!("打开图片失败: {e}")))?;
+        let img =
+            image::open(&from).map_err(|e| ActionError::execution(format!("打开图片失败: {e}")))?;
         let cropped = image::imageops::crop_imm(&img, x, y, width, height).to_image();
         ensure_parent(&to)?;
         cropped
@@ -108,7 +110,8 @@ impl Action for CaptureMonitors {
     }
 
     async fn execute(
-        &self, _params: Value,
+        &self,
+        _params: Value,
         _ctx: &mut ExecutionContext,
     ) -> Result<Value, ActionError> {
         capture_monitors_impl().await
@@ -131,7 +134,8 @@ impl Action for CaptureOcr {
     }
 
     async fn execute(
-        &self, params: Value,
+        &self,
+        params: Value,
         ctx: &mut ExecutionContext,
     ) -> Result<Value, ActionError> {
         let mut map = require_map(&params)?.clone();
@@ -192,10 +196,7 @@ impl Action for CaptureFind {
         let map = require_map(&params)?;
         let haystack = confine_path(ctx, &require_path(map, "haystack")?)?;
         let needle = confine_path(ctx, &require_path(map, "needle")?)?;
-        let threshold = map
-            .get("threshold")
-            .and_then(|v| v.as_f64())
-            .unwrap_or(0.9);
+        let threshold = map.get("threshold").and_then(|v| v.as_f64()).unwrap_or(0.9);
         let step = opt_i64(map, "step", 2).max(1) as u32;
         let region = match (
             map.get("x").and_then(|v| v.as_i64()),
@@ -251,8 +252,8 @@ mod win {
 
     fn screenshot_to_file(to: &std::path::Path, _format: &str) -> Result<(), ActionError> {
         use screenshots::Screen;
-        let screens = Screen::all()
-            .map_err(|e| ActionError::execution(format!("枚举显示器失败: {e}")))?;
+        let screens =
+            Screen::all().map_err(|e| ActionError::execution(format!("枚举显示器失败: {e}")))?;
         let screen = screens
             .into_iter()
             .next()
@@ -276,14 +277,8 @@ mod win {
                 .map(|(i, s)| {
                     let mut m = BTreeMap::new();
                     m.insert("index".into(), Value::Int(i as i64));
-                    m.insert(
-                        "width".into(),
-                        Value::Int(s.display_info.width as i64),
-                    );
-                    m.insert(
-                        "height".into(),
-                        Value::Int(s.display_info.height as i64),
-                    );
+                    m.insert("width".into(), Value::Int(s.display_info.width as i64));
+                    m.insert("height".into(), Value::Int(s.display_info.height as i64));
                     Value::Map(m)
                 })
                 .collect();
@@ -306,11 +301,11 @@ mod win {
     }
 
     fn ocr_file(path: &std::path::Path, _language: Option<&str>) -> Result<Value, ActionError> {
-        use windows::core::HSTRING;
         use windows::Graphics::Imaging::BitmapDecoder;
         use windows::Media::Ocr::OcrEngine;
         use windows::Storage::FileAccessMode;
         use windows::Storage::StorageFile;
+        use windows::core::HSTRING;
 
         let path_str = path.to_string_lossy();
         let file = StorageFile::GetFileFromPathAsync(&HSTRING::from(path_str.as_ref()))

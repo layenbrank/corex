@@ -1,10 +1,8 @@
 //! `shell.run` — general process launcher (facade over process_launch).
 
-use crate::builtin::process_launch::{
-    launch, launch_spec_from_command_params, TargetKind,
-};
-use crate::builtin::util::{confine_path, require_map, require_str};
 use crate::ActionRegistry;
+use crate::builtin::process_launch::{TargetKind, launch, launch_spec_from_command_params};
+use crate::builtin::util::{confine_path, require_map, require_str};
 use async_trait::async_trait;
 use corex_core::{
     Action, ActionCategory, ActionError, ActionMeta, ExecutionContext, ParamSchema, SchemaType,
@@ -44,8 +42,9 @@ impl Action for ShellRun {
             ParamSchema::new("if_running", SchemaType::Str, false)
                 .with_default("launch")
                 .with_description("launch | skip | fail"),
-            ParamSchema::new("if_running_window", SchemaType::Map, false)
-                .with_description("窗口已存在则 skip：title_contains, title_excludes?, prefer_largest?"),
+            ParamSchema::new("if_running_window", SchemaType::Map, false).with_description(
+                "窗口已存在则 skip：title_contains, title_excludes?, prefer_largest?",
+            ),
         ])
     }
 
@@ -57,11 +56,8 @@ impl Action for ShellRun {
         let map = require_map(&params)?;
         let command = require_str(map, "command")?;
         // `command` is not path-confined (PATH lookup); only `cwd` is.
-        let mut spec = launch_spec_from_command_params(
-            map,
-            PathBuf::from(command),
-            TargetKind::Command,
-        )?;
+        let mut spec =
+            launch_spec_from_command_params(map, PathBuf::from(command), TargetKind::Command)?;
         if let Some(cwd) = spec.cwd.take() {
             spec.cwd = Some(confine_path(ctx, &cwd)?);
         }
@@ -91,10 +87,7 @@ mod tests {
             m.insert("command".into(), Value::Str("cmd".into()));
             m.insert(
                 "args".into(),
-                Value::List(vec![
-                    Value::Str("/C".into()),
-                    Value::Str("exit 1".into()),
-                ]),
+                Value::List(vec![Value::Str("/C".into()), Value::Str("exit 1".into())]),
             );
         }
         if allow_nonzero {
@@ -111,10 +104,7 @@ mod tests {
             .await
             .expect_err("non-zero exit must Err without allow_nonzero");
         let msg = err.to_string();
-        assert!(
-            msg.contains("非零") || msg.contains("exit"),
-            "got: {msg}"
-        );
+        assert!(msg.contains("非零") || msg.contains("exit"), "got: {msg}");
     }
 
     #[tokio::test]
@@ -176,10 +166,7 @@ mod tests {
                 Value::List(vec![Value::Str("/C".into()), Value::Str("echo ok".into())]),
             );
         }
-        m.insert(
-            "cwd".into(),
-            Value::Str(outside.to_string_lossy().into()),
-        );
+        m.insert("cwd".into(), Value::Str(outside.to_string_lossy().into()));
         let err = ShellRun
             .execute(Value::Map(m), &mut ctx)
             .await

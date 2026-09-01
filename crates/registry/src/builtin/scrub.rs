@@ -1,7 +1,7 @@
 //! `scrub.run` — delete named targets under a source tree.
 
-use crate::builtin::util::{confine_path, opt_bool, require_map, require_path, require_str};
 use crate::ActionRegistry;
+use crate::builtin::util::{confine_path, opt_bool, require_map, require_path, require_str};
 use async_trait::async_trait;
 use corex_core::{
     Action, ActionCategory, ActionError, ActionMeta, ExecutionContext, ParamSchema, SchemaType,
@@ -30,7 +30,8 @@ impl Action for ScrubRun {
     }
 
     async fn execute(
-        &self, params: Value,
+        &self,
+        params: Value,
         ctx: &mut ExecutionContext,
     ) -> Result<Value, ActionError> {
         let map = require_map(&params)?;

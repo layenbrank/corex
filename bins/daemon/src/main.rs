@@ -1,26 +1,26 @@
 //! Corex daemon — loads config, registers builtins, serves IPC.
 
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result, bail};
 use clap::Parser;
 use corex_core::{
-    check_runtime_allowed, DaemonConfig, ExecutionContext, LoggingConfig, RuntimeConfig, Value,
+    DaemonConfig, ExecutionContext, LoggingConfig, RuntimeConfig, Value, check_runtime_allowed,
 };
-use corex_engine::{AuditEntry, ExecutionAudit, ExecutionHistory, Pipeline, Directive};
+use corex_engine::{AuditEntry, Directive, ExecutionAudit, ExecutionHistory, Pipeline};
 use corex_ipc::protocol::{Request, Response, RpcError};
-use corex_ipc::{data_dir, ipc_endpoint, config_paths, serve_ipc};
+use corex_ipc::{config_paths, data_dir, ipc_endpoint, serve_ipc};
 use corex_registry::ActionRegistry;
 use fs2::FileExt;
 use rand::RngExt;
 use std::collections::BTreeMap;
+use std::fs::File;
 #[cfg(unix)]
 use std::io::Write;
-use std::fs::File;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
-use tracing::{info, warn};
+use std::sync::atomic::{AtomicBool, Ordering};
 #[cfg(unix)]
 use tracing::error;
+use tracing::{info, warn};
 
 #[derive(Parser, Debug)]
 #[command(name = "corex-daemon", version, about = "Corex background daemon")]
@@ -58,9 +58,7 @@ async fn main() -> Result<()> {
 
     let endpoint = resolve_endpoint(args.socket, &config.daemon, &data);
     let lock_path = resolve_lock_path(&config.daemon, &data);
-    let directives_dir = args
-        .directives
-        .unwrap_or_else(|| data.join("directives"));
+    let directives_dir = args.directives.unwrap_or_else(|| data.join("directives"));
     std::fs::create_dir_all(&directives_dir)?;
 
     let auth_token = resolve_auth_token(&data, &config.daemon)?;
@@ -184,10 +182,7 @@ async fn handle_request(state: &DaemonState, req: Request) -> Response {
             }
         },
         Request::Invoke {
-            id,
-            action,
-            params,
-            ..
+            id, action, params, ..
         } => match invoke_action(state, &action, params).await {
             Ok(v) => Response::ok(id, v),
             Err(e) => {
@@ -557,9 +552,8 @@ impl ConfigFile {
 fn init_tracing(logging: &LoggingConfig) {
     let filter = tracing_subscriber::EnvFilter::try_from_default_env()
         .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new(&logging.level));
-    let timer = tracing_subscriber::fmt::time::ChronoLocal::new(
-        "%Y-%m-%d %H:%M:%S%.3f".to_string(),
-    );
+    let timer =
+        tracing_subscriber::fmt::time::ChronoLocal::new("%Y-%m-%d %H:%M:%S%.3f".to_string());
     if logging.json {
         let _ = tracing_subscriber::fmt()
             .json()
@@ -581,7 +575,7 @@ async fn shutdown_signal() {
 
     #[cfg(unix)]
     {
-        use tokio::signal::unix::{signal, SignalKind};
+        use tokio::signal::unix::{SignalKind, signal};
         let mut sigterm = match signal(SignalKind::terminate()) {
             Ok(s) => s,
             Err(e) => {

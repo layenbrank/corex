@@ -1,15 +1,15 @@
 //! Morph PDF actions — export/merge/split via lopdf; meta/render soft-fail without pdfium.
 
+use crate::ActionRegistry;
 use crate::builtin::util::{
     confine_path, ensure_parent, opt_i64, opt_str_list, require_map, require_path, require_str,
 };
-use crate::ActionRegistry;
 use async_trait::async_trait;
 use corex_core::{
     Action, ActionCategory, ActionError, ActionMeta, ExecutionContext, ParamSchema, SchemaType,
     Value,
 };
-use lopdf::{dictionary, Document as LopdfDoc, Object as LopdfObj, ObjectId as LopdfId};
+use lopdf::{Document as LopdfDoc, Object as LopdfObj, ObjectId as LopdfId, dictionary};
 use std::collections::{HashSet, VecDeque};
 use std::path::Path;
 use std::sync::Arc;
@@ -33,7 +33,8 @@ impl Action for MorphMeta {
     }
 
     async fn execute(
-        &self, _params: Value,
+        &self,
+        _params: Value,
         _ctx: &mut ExecutionContext,
     ) -> Result<Value, ActionError> {
         Err(ActionError::execution(
@@ -59,7 +60,8 @@ impl Action for MorphRender {
     }
 
     async fn execute(
-        &self, _params: Value,
+        &self,
+        _params: Value,
         _ctx: &mut ExecutionContext,
     ) -> Result<Value, ActionError> {
         Err(ActionError::execution(
@@ -84,7 +86,8 @@ impl Action for MorphExport {
     }
 
     async fn execute(
-        &self, params: Value,
+        &self,
+        params: Value,
         ctx: &mut ExecutionContext,
     ) -> Result<Value, ActionError> {
         let map = require_map(&params)?;
@@ -112,13 +115,16 @@ impl Action for MorphMerge {
     }
 
     async fn execute(
-        &self, params: Value,
+        &self,
+        params: Value,
         ctx: &mut ExecutionContext,
     ) -> Result<Value, ActionError> {
         let map = require_map(&params)?;
         let paths = opt_str_list(map, "paths");
         if paths.is_empty() {
-            return Err(ActionError::InvalidParams("至少需要一个输入文件".to_string()));
+            return Err(ActionError::InvalidParams(
+                "至少需要一个输入文件".to_string(),
+            ));
         }
         let mut confined = Vec::with_capacity(paths.len());
         for path in &paths {
@@ -197,7 +203,8 @@ impl Action for MorphSplit {
     }
 
     async fn execute(
-        &self, params: Value,
+        &self,
+        params: Value,
         ctx: &mut ExecutionContext,
     ) -> Result<Value, ActionError> {
         let map = require_map(&params)?;
@@ -213,9 +220,7 @@ impl Action for MorphSplit {
                 })?;
                 let parts: Vec<&str> = s.split('-').collect();
                 if parts.len() != 2 {
-                    return Err(ActionError::InvalidParams(format!(
-                        "无效页码范围: {s}"
-                    )));
+                    return Err(ActionError::InvalidParams(format!("无效页码范围: {s}")));
                 }
                 let start: u32 = parts[0]
                     .trim()
@@ -247,11 +252,7 @@ impl Action for MorphSplit {
             ranges
         };
 
-        let paths = split_pdf(
-            &path.to_string_lossy(),
-            ranges,
-            &dir.to_string_lossy(),
-        )?;
+        let paths = split_pdf(&path.to_string_lossy(), ranges, &dir.to_string_lossy())?;
         Ok(Value::List(
             paths.into_iter().map(|p| Value::File(p.into())).collect(),
         ))
@@ -352,8 +353,8 @@ fn write_pages(source: &LopdfDoc, page_ids: &[LopdfId], dest: &str) -> Result<()
 }
 
 fn split_pdf(path: &str, ranges: Vec<[u32; 2]>, dir: &str) -> Result<Vec<String>, ActionError> {
-    let source = LopdfDoc::load(path)
-        .map_err(|e| ActionError::execution(format!("加载 PDF 失败: {e}")))?;
+    let source =
+        LopdfDoc::load(path).map_err(|e| ActionError::execution(format!("加载 PDF 失败: {e}")))?;
     let pages_map = source.get_pages();
     let page_count = pages_map.len() as u32;
     let stem = Path::new(path)

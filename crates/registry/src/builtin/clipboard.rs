@@ -1,9 +1,9 @@
 //! `clipboard.get` / `clipboard.set` via arboard (text and image).
 
-use crate::builtin::util::{opt_str, require_map, require_str};
 use crate::ActionRegistry;
-use async_trait::async_trait;
+use crate::builtin::util::{opt_str, require_map, require_str};
 use arboard::{Clipboard, ImageData};
+use async_trait::async_trait;
 use corex_core::{
     Action, ActionCategory, ActionError, ActionMeta, ExecutionContext, ParamSchema, SchemaType,
     Value,
@@ -48,7 +48,8 @@ impl Action for ClipboardGet {
     }
 
     async fn execute(
-        &self, params: Value,
+        &self,
+        params: Value,
         _ctx: &mut ExecutionContext,
     ) -> Result<Value, ActionError> {
         let map = require_map(&params)?;
@@ -97,7 +98,8 @@ impl Action for ClipboardSet {
     }
 
     async fn execute(
-        &self, params: Value,
+        &self,
+        params: Value,
         _ctx: &mut ExecutionContext,
     ) -> Result<Value, ActionError> {
         let map = require_map(&params)?;
@@ -111,8 +113,8 @@ impl Action for ClipboardSet {
                     .map_err(|e| ActionError::execution(format!("写入剪贴板文本失败: {e}")))?;
             }
             "image" => {
-                let path = opt_str(map, "file")
-                    .ok_or_else(|| ActionError::MissingParam("file".into()))?;
+                let path =
+                    opt_str(map, "file").ok_or_else(|| ActionError::MissingParam("file".into()))?;
                 let (rgba, width, height) = load_rgba_image(&path)?;
                 let data = ImageData {
                     width: width as usize,

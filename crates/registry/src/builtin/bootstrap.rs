@@ -2,9 +2,7 @@
 
 use crate::ActionRegistry;
 use async_trait::async_trait;
-use corex_core::{
-    Action, ActionCategory, ActionError, ActionMeta, ExecutionContext, Value,
-};
+use corex_core::{Action, ActionCategory, ActionError, ActionMeta, ExecutionContext, Value};
 use std::collections::BTreeMap;
 use std::env;
 use std::path::{Path, PathBuf};
@@ -66,9 +64,9 @@ fn run_ps_script(action: &str, target: &str) -> Result<(), ActionError> {
 fn inspect_path(exe_dir: &str) -> Result<Value, ActionError> {
     let current_path = env::var("PATH").unwrap_or_default();
     let sep = if cfg!(windows) { ';' } else { ':' };
-    let contains = current_path.split(sep).any(|path| {
-        Path::new(path).canonicalize().ok() == Path::new(exe_dir).canonicalize().ok()
-    });
+    let contains = current_path
+        .split(sep)
+        .any(|path| Path::new(path).canonicalize().ok() == Path::new(exe_dir).canonicalize().ok());
     let mut out = BTreeMap::new();
     out.insert("in_path".into(), Value::Bool(contains));
     out.insert("exe_dir".into(), Value::Str(exe_dir.into()));
@@ -91,16 +89,15 @@ impl Action for BootstrapEnv {
     }
 
     async fn execute(
-        &self, _params: Value,
+        &self,
+        _params: Value,
         _ctx: &mut ExecutionContext,
     ) -> Result<Value, ActionError> {
         let dir = exe_dir()?;
         if cfg!(windows) {
             run_ps_script("insert", &dir)?;
         } else {
-            return Err(ActionError::execution(
-                "bootstrap.env 当前仅支持 Windows",
-            ));
+            return Err(ActionError::execution("bootstrap.env 当前仅支持 Windows"));
         }
         let mut out = BTreeMap::new();
         out.insert("exe_dir".into(), Value::Str(dir));
@@ -121,7 +118,8 @@ impl Action for BootstrapInspect {
     }
 
     async fn execute(
-        &self, _params: Value,
+        &self,
+        _params: Value,
         _ctx: &mut ExecutionContext,
     ) -> Result<Value, ActionError> {
         let dir = exe_dir()?;
@@ -141,16 +139,15 @@ impl Action for BootstrapForce {
     }
 
     async fn execute(
-        &self, _params: Value,
+        &self,
+        _params: Value,
         _ctx: &mut ExecutionContext,
     ) -> Result<Value, ActionError> {
         let dir = exe_dir()?;
         if cfg!(windows) {
             run_ps_script("force", &dir)?;
         } else {
-            return Err(ActionError::execution(
-                "bootstrap.force 当前仅支持 Windows",
-            ));
+            return Err(ActionError::execution("bootstrap.force 当前仅支持 Windows"));
         }
         let mut out = BTreeMap::new();
         out.insert("exe_dir".into(), Value::Str(dir));

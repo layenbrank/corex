@@ -19,7 +19,9 @@ mod windows {
     #[tokio::test]
     #[ignore = "requires Windows desktop session"]
     async fn probe_desktop_returns_icons_field() {
-        let v = ui_probe::probe_desktop_icons().await.expect("desktop icons");
+        let v = ui_probe::probe_desktop_icons()
+            .await
+            .expect("desktop icons");
         if let Value::Map(m) = v {
             assert!(m.contains_key("icons"));
         }

@@ -129,10 +129,7 @@ impl ExecutionHistory {
             std::fs::create_dir_all(parent)?;
         }
         // Touch the file so missing parents / permissions fail early.
-        let _ = OpenOptions::new()
-            .create(true)
-            .append(true)
-            .open(&path)?;
+        let _ = OpenOptions::new().create(true).append(true).open(&path)?;
         Ok(Self { path })
     }
 
@@ -152,9 +149,8 @@ impl ExecutionHistory {
             .create(true)
             .append(true)
             .open(&self.path)?;
-        serde_json::to_writer(&mut file, entry).map_err(|e| {
-            std::io::Error::new(std::io::ErrorKind::Other, e)
-        })?;
+        serde_json::to_writer(&mut file, entry)
+            .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
         file.write_all(b"\n")?;
         file.flush()?;
         debug!(
@@ -234,9 +230,7 @@ mod tests {
         assert!(s.contains("<path>"), "{s}");
         assert!(!s.contains("/tmp/secret.txt"), "{s}");
 
-        let perm = EngineError::Action(ActionError::PermissionDenied(
-            "strict_permissions".into(),
-        ));
+        let perm = EngineError::Action(ActionError::PermissionDenied("strict_permissions".into()));
         let s = sanitize_history_error(&perm);
         assert!(s.starts_with("permission_denied:"), "{s}");
     }

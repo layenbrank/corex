@@ -1,7 +1,7 @@
 //! Parallel partial-failure behavior with on_error abort vs continue.
 
 use corex_core::{ExecutionContext, RuntimeConfig, Value};
-use corex_engine::{Pipeline, Directive};
+use corex_engine::{Directive, Pipeline};
 use corex_registry::ActionRegistry;
 use std::sync::Arc;
 

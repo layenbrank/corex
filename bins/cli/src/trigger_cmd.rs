@@ -1,11 +1,11 @@
 //! Shared helpers for watch/cron CLI commands.
 
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result, bail};
 use corex_core::RuntimeConfig;
 use corex_engine::{
-    child_supervisor_identity, current_supervisor_identity, supervise_cron_job,
-    supervise_watch_job, kill_process_tree, send_control, spawn_detached, ControlMsg, JobKind,
-    JobMeta, Directive,
+    ControlMsg, Directive, JobKind, JobMeta, child_supervisor_identity,
+    current_supervisor_identity, kill_process_tree, send_control, spawn_detached,
+    supervise_cron_job, supervise_watch_job,
 };
 use corex_ipc::data_dir;
 use corex_registry::ActionRegistry;
@@ -133,7 +133,11 @@ pub async fn start_job(
     if immediate && kind == JobKind::Watch {
         args.push("--immediate".to_string());
     }
-    let pid = spawn_detached(&exe, &args.iter().map(String::as_str).collect::<Vec<_>>(), Some(&log_path))?;
+    let pid = spawn_detached(
+        &exe,
+        &args.iter().map(String::as_str).collect::<Vec<_>>(),
+        Some(&log_path),
+    )?;
     let (supervisor_exe, started_at_ms) = child_supervisor_identity(pid, &exe);
     let meta = JobMeta {
         id: id.clone(),
@@ -195,7 +199,10 @@ pub fn cmd_ps(kind: JobKind) -> Result<()> {
         return Ok(());
     }
     let color = io::stdout().is_terminal();
-    println!("{:<20} {:<10} {:<8} {}", "NAME", "STATUS", "PID", "DIRECTIVE");
+    println!(
+        "{:<20} {:<10} {:<8} {}",
+        "NAME", "STATUS", "PID", "DIRECTIVE"
+    );
     for j in jobs {
         let online = j.is_supervisor_alive();
         let status = if online { "online" } else { "stopped" };
@@ -251,7 +258,10 @@ pub async fn cmd_stop(kind: JobKind, name: &str, force: bool) -> Result<()> {
         println!("已强制停止 → {}", meta.directive_name);
     } else {
         send_control(&job_dir, ControlMsg::Stop)?;
-        println!("已发送 STOP → {}（优雅停止，进行中的构建会跑完）", meta.directive_name);
+        println!(
+            "已发送 STOP → {}（优雅停止，进行中的构建会跑完）",
+            meta.directive_name
+        );
     }
     Ok(())
 }
@@ -328,10 +338,7 @@ async fn tail_log(path: &Path, follow: bool, lines: usize) -> Result<()> {
     if !follow {
         return Ok(());
     }
-    let mut file = tokio::fs::OpenOptions::new()
-        .read(true)
-        .open(path)
-        .await?;
+    let mut file = tokio::fs::OpenOptions::new().read(true).open(path).await?;
     file.seek(std::io::SeekFrom::End(0)).await?;
     let mut buf = vec![0u8; 4096];
     loop {

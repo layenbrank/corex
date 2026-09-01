@@ -1,11 +1,11 @@
 //! Generate actions: path list, uuid, cvid.
 
+use crate::ActionRegistry;
 use crate::builtin::filter::Filter;
 use crate::builtin::util::{
-    confine_path, ensure_parent, opt_bool, opt_i64, opt_str, opt_str_list, require_map, require_path,
-    require_str,
+    confine_path, ensure_parent, opt_bool, opt_i64, opt_str, opt_str_list, require_map,
+    require_path, require_str,
 };
-use crate::ActionRegistry;
 use async_trait::async_trait;
 use corex_core::{
     Action, ActionCategory, ActionError, ActionMeta, ExecutionContext, ParamSchema, SchemaType,
@@ -48,7 +48,8 @@ impl Action for GenerateUuid {
     }
 
     async fn execute(
-        &self, params: Value,
+        &self,
+        params: Value,
         _ctx: &mut ExecutionContext,
     ) -> Result<Value, ActionError> {
         let empty = BTreeMap::new();
@@ -58,18 +59,11 @@ impl Action for GenerateUuid {
         let mut list = Vec::with_capacity(count);
         for _ in 0..count {
             let id = Uuid::new_v4().to_string();
-            list.push(Value::Str(if uppercase {
-                id.to_uppercase()
-            } else {
-                id
-            }));
+            list.push(Value::Str(if uppercase { id.to_uppercase() } else { id }));
         }
         let mut out = BTreeMap::new();
         out.insert("items".into(), Value::List(list.clone()));
-        out.insert(
-            "value".into(),
-            list.first().cloned().unwrap_or(Value::Null),
-        );
+        out.insert("value".into(), list.first().cloned().unwrap_or(Value::Null));
         Ok(Value::Map(out))
     }
 }
@@ -86,7 +80,8 @@ impl Action for GenerateCvid {
     }
 
     async fn execute(
-        &self, _params: Value,
+        &self,
+        _params: Value,
         _ctx: &mut ExecutionContext,
     ) -> Result<Value, ActionError> {
         Ok(Value::Str(generate_secure_cvid()))
@@ -115,7 +110,8 @@ impl Action for GeneratePath {
     }
 
     async fn execute(
-        &self, params: Value,
+        &self,
+        params: Value,
         ctx: &mut ExecutionContext,
     ) -> Result<Value, ActionError> {
         let map = require_map(&params)?;
@@ -265,14 +261,14 @@ impl Action for GenerateTimestamp {
             ActionCategory::Data,
         )
         .with_params(vec![
-            ParamSchema::new("format", SchemaType::Str, false)
-                .with_default("%Y-%m-%d %H:%M:%S"),
+            ParamSchema::new("format", SchemaType::Str, false).with_default("%Y-%m-%d %H:%M:%S"),
             ParamSchema::new("utc", SchemaType::Bool, false).with_default(false),
         ])
     }
 
     async fn execute(
-        &self, params: Value,
+        &self,
+        params: Value,
         _ctx: &mut ExecutionContext,
     ) -> Result<Value, ActionError> {
         use chrono::{Local, Utc};
@@ -335,8 +331,9 @@ mod tests {
         let cvid = GenerateCvid.execute(Value::Null, &mut ctx).await.unwrap();
         let s = cvid.as_str().unwrap();
         assert_eq!(s.len(), 32);
-        assert!(s
-            .chars()
-            .all(|c| c.is_ascii_hexdigit() && !c.is_ascii_lowercase()));
+        assert!(
+            s.chars()
+                .all(|c| c.is_ascii_hexdigit() && !c.is_ascii_lowercase())
+        );
     }
 }

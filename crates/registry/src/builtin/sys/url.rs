@@ -59,12 +59,15 @@ mod win {
     use super::*;
     use std::ffi::OsStr;
     use std::os::windows::ffi::OsStrExt;
-    use windows::core::PCWSTR;
     use windows::Win32::UI::Shell::ShellExecuteW;
     use windows::Win32::UI::WindowsAndMessaging::SW_SHOWNORMAL;
+    use windows::core::PCWSTR;
 
     pub fn shell_open(url: &str) -> Result<(), ActionError> {
-        let wide: Vec<u16> = OsStr::new(url).encode_wide().chain(std::iter::once(0)).collect();
+        let wide: Vec<u16> = OsStr::new(url)
+            .encode_wide()
+            .chain(std::iter::once(0))
+            .collect();
         let op: Vec<u16> = OsStr::new("open")
             .encode_wide()
             .chain(std::iter::once(0))

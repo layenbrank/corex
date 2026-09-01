@@ -1,8 +1,8 @@
 //! `corex ui` — interactive element probe commands.
 
-use anyhow::{bail, Result};
 #[cfg(windows)]
 use anyhow::Context;
+use anyhow::{Result, bail};
 use clap::{Subcommand, ValueEnum};
 use corex_core::{RuntimeConfig, Value};
 use corex_engine::{AuditEntry, ExecutionAudit};
@@ -270,7 +270,12 @@ where
     let t0 = Instant::now();
     let result = f.await;
     let duration_ms = t0.elapsed().as_millis() as u64;
-    record_probe_audit(data_dir, action_id, duration_ms, result.as_ref().map(|_| ()));
+    record_probe_audit(
+        data_dir,
+        action_id,
+        duration_ms,
+        result.as_ref().map(|_| ()),
+    );
     result.map_err(|e| anyhow::anyhow!("{e}"))
 }
 
@@ -406,10 +411,7 @@ mod tests {
         redact_value(&mut v);
         if let Value::Map(m) = v {
             assert_eq!(m.get("name").and_then(|v| v.as_str()), Some("***"));
-            assert_eq!(
-                m.get("automation_id").and_then(|v| v.as_str()),
-                Some("***")
-            );
+            assert_eq!(m.get("automation_id").and_then(|v| v.as_str()), Some("***"));
         }
     }
 }

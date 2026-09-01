@@ -1,7 +1,7 @@
 //! Directory actions: write / read / update / remove.
 
-use crate::builtin::util::{confine_path, opt_bool, opt_i64, opt_str, require_map};
 use crate::ActionRegistry;
+use crate::builtin::util::{confine_path, opt_bool, opt_i64, opt_str, require_map};
 use async_trait::async_trait;
 use corex_core::{
     Action, ActionCategory, ActionError, ActionMeta, ExecutionContext, ParamSchema, SchemaType,
@@ -71,9 +71,9 @@ async fn read_dir_bounded(
     max_entries: usize,
     as_tree: bool,
 ) -> Result<Value, ActionError> {
-    let root_meta = tokio::fs::metadata(root).await.map_err(|e| {
-        ActionError::execution(format!("读取目录失败 {}: {e}", root.display()))
-    })?;
+    let root_meta = tokio::fs::metadata(root)
+        .await
+        .map_err(|e| ActionError::execution(format!("读取目录失败 {}: {e}", root.display())))?;
     if !root_meta.is_dir() {
         return Err(ActionError::execution(format!(
             "不是目录: {}",
@@ -198,21 +198,18 @@ pub struct DirRemove;
 #[async_trait]
 impl Action for DirWrite {
     fn meta(&self) -> ActionMeta {
-        ActionMeta::new(
-            "dir.write",
-            "Dir Write",
-            "创建目录",
-            ActionCategory::Data,
+        ActionMeta::new("dir.write", "Dir Write", "创建目录", ActionCategory::Data).with_params(
+            vec![
+                ParamSchema::new("path", SchemaType::File, true),
+                ParamSchema::new("parents", SchemaType::Bool, false).with_default(true),
+                ParamSchema::new("exist_ok", SchemaType::Bool, false).with_default(true),
+            ],
         )
-        .with_params(vec![
-            ParamSchema::new("path", SchemaType::File, true),
-            ParamSchema::new("parents", SchemaType::Bool, false).with_default(true),
-            ParamSchema::new("exist_ok", SchemaType::Bool, false).with_default(true),
-        ])
     }
 
     async fn execute(
-        &self, params: Value,
+        &self,
+        params: Value,
         ctx: &mut ExecutionContext,
     ) -> Result<Value, ActionError> {
         let map = require_map(&params)?;
@@ -259,12 +256,14 @@ impl Action for DirRead {
                 .with_default("flat")
                 .with_description("flat | tree"),
             ParamSchema::new("max_depth", SchemaType::Int, false),
-            ParamSchema::new("max_entries", SchemaType::Int, false).with_default(MAX_ENTRIES_DEFAULT),
+            ParamSchema::new("max_entries", SchemaType::Int, false)
+                .with_default(MAX_ENTRIES_DEFAULT),
         ])
     }
 
     async fn execute(
-        &self, params: Value,
+        &self,
+        params: Value,
         ctx: &mut ExecutionContext,
     ) -> Result<Value, ActionError> {
         let map = require_map(&params)?;
@@ -282,8 +281,8 @@ impl Action for DirRead {
         };
         let default_depth = if as_tree { 8 } else { 1 };
         let max_depth = opt_i64(map, "max_depth", default_depth).clamp(0, MAX_DEPTH_HARD) as usize;
-        let max_entries = opt_i64(map, "max_entries", MAX_ENTRIES_DEFAULT)
-            .clamp(1, MAX_ENTRIES_HARD) as usize;
+        let max_entries =
+            opt_i64(map, "max_entries", MAX_ENTRIES_DEFAULT).clamp(1, MAX_ENTRIES_HARD) as usize;
 
         read_dir_bounded(&path, max_depth, max_entries, as_tree).await
     }
@@ -306,7 +305,8 @@ impl Action for DirUpdate {
     }
 
     async fn execute(
-        &self, params: Value,
+        &self,
+        params: Value,
         ctx: &mut ExecutionContext,
     ) -> Result<Value, ActionError> {
         let map = require_map(&params)?;
@@ -345,7 +345,8 @@ impl Action for DirRemove {
     }
 
     async fn execute(
-        &self, params: Value,
+        &self,
+        params: Value,
         ctx: &mut ExecutionContext,
     ) -> Result<Value, ActionError> {
         let map = require_map(&params)?;
@@ -399,10 +400,7 @@ mod tests {
         let mut params = BTreeMap::new();
         params.insert("path".into(), Value::Str(root.display().to_string()));
         params.insert("mode".into(), Value::Str("flat".into()));
-        let flat = DirRead
-            .execute(Value::Map(params), &mut ctx)
-            .await
-            .unwrap();
+        let flat = DirRead.execute(Value::Map(params), &mut ctx).await.unwrap();
         let list = flat.as_list().unwrap();
         assert_eq!(list.len(), 2); // a.txt + sub (depth 1)
 
@@ -410,10 +408,7 @@ mod tests {
         params.insert("path".into(), Value::Str(root.display().to_string()));
         params.insert("mode".into(), Value::Str("tree".into()));
         params.insert("max_depth".into(), Value::Int(8));
-        let tree = DirRead
-            .execute(Value::Map(params), &mut ctx)
-            .await
-            .unwrap();
+        let tree = DirRead.execute(Value::Map(params), &mut ctx).await.unwrap();
         let tm = tree.as_map().unwrap();
         assert_eq!(tm.get("kind").unwrap().as_str().unwrap(), "dir");
         let children = tm.get("children").unwrap().as_list().unwrap();
@@ -430,10 +425,12 @@ mod tests {
 
         let mut params = BTreeMap::new();
         params.insert("path".into(), Value::Str(renamed.display().to_string()));
-        assert!(DirRemove
-            .execute(Value::Map(params.clone()), &mut ctx)
-            .await
-            .is_err());
+        assert!(
+            DirRemove
+                .execute(Value::Map(params.clone()), &mut ctx)
+                .await
+                .is_err()
+        );
 
         params.insert("recursive".into(), Value::Bool(true));
         DirRemove

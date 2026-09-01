@@ -546,7 +546,9 @@ fn trailing_after_run(
     if !saw {
         return throttle.lock().ok().and_then(|g| {
             if g.has_trailing() {
-                g.window_end().filter(|&e| e > Instant::now()).or(Some(Instant::now()))
+                g.window_end()
+                    .filter(|&e| e > Instant::now())
+                    .or(Some(Instant::now()))
             } else {
                 None
             }

@@ -64,10 +64,7 @@ impl InvokeThrottle {
     pub fn note_trigger(&mut self, now: Instant, is_busy: bool) -> TriggerDecision {
         if is_busy {
             self.trailing_pending = true;
-            let until = self
-                .window_end()
-                .filter(|&end| end > now)
-                .unwrap_or(now);
+            let until = self.window_end().filter(|&end| end > now).unwrap_or(now);
             return TriggerDecision::ArmTrailing { until };
         }
         if self.is_outside_window(now) {
@@ -75,7 +72,9 @@ impl InvokeThrottle {
         } else {
             self.trailing_pending = true;
             TriggerDecision::ArmTrailing {
-                until: self.window_end().expect("inside window implies last_invoke set"),
+                until: self
+                    .window_end()
+                    .expect("inside window implies last_invoke set"),
             }
         }
     }
@@ -537,7 +536,9 @@ mod tests {
         assert!(w.throttle.has_trailing() || w.trailing_deadline.is_some());
         assert_eq!(w.channel.len(), 0);
 
-        let deadline = w.trailing_deadline.expect("expected trailing after coalesce");
+        let deadline = w
+            .trailing_deadline
+            .expect("expected trailing after coalesce");
         assert!(w.try_trailing(deadline.max(t0 + ms(80))));
         assert_eq!(w.invoke_starts, ["leading", "trailing"]);
         w.finish_run(deadline + ms(1));

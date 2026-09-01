@@ -92,9 +92,11 @@ pub async fn run(cmd: WatchCommands, global_dir: Option<&std::path::Path>) -> Re
         }
         WatchCommands::Ps => trigger_cmd::cmd_ps(JobKind::Watch),
         WatchCommands::Attach { name } => trigger_cmd::cmd_attach(JobKind::Watch, &name).await,
-        WatchCommands::Logs { name, lines, follow } => {
-            trigger_cmd::cmd_logs(JobKind::Watch, name.as_deref(), lines, follow).await
-        }
+        WatchCommands::Logs {
+            name,
+            lines,
+            follow,
+        } => trigger_cmd::cmd_logs(JobKind::Watch, name.as_deref(), lines, follow).await,
         WatchCommands::Send { name, msg } => trigger_cmd::cmd_send(JobKind::Watch, &name, &msg),
         WatchCommands::Stop { name, force } => {
             trigger_cmd::cmd_stop(JobKind::Watch, &name, force).await

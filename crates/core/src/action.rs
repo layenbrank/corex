@@ -108,9 +108,7 @@ pub trait Action: Send + Sync {
             Value::Map(m) => m,
             Value::Null => &BTreeMap::new(),
             _ => {
-                return Err(ActionError::InvalidParams(
-                    "参数必须是对象（map）".into(),
-                ));
+                return Err(ActionError::InvalidParams("参数必须是对象（map）".into()));
             }
         };
         for p in &meta.params {
@@ -122,7 +120,8 @@ pub trait Action: Send + Sync {
     }
 
     async fn execute(
-        &self, params: Value,
+        &self,
+        params: Value,
         ctx: &mut ExecutionContext,
     ) -> Result<Value, ActionError>;
 }

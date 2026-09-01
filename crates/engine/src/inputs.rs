@@ -24,7 +24,10 @@ pub fn apply_input_defaults(
     Ok(())
 }
 
-fn apply_one_input_default(decl: &InputDecl, ctx: &mut ExecutionContext) -> Result<(), EngineError> {
+fn apply_one_input_default(
+    decl: &InputDecl,
+    ctx: &mut ExecutionContext,
+) -> Result<(), EngineError> {
     let existing = ctx.input.get(&decl.name);
     let needs_default = match existing {
         None => true,
@@ -43,7 +46,10 @@ fn apply_one_input_default(decl: &InputDecl, ctx: &mut ExecutionContext) -> Resu
     }
 
     if decl.required {
-        return Err(EngineError::UndefinedVariable(format!("input.{}", decl.name)));
+        return Err(EngineError::UndefinedVariable(format!(
+            "input.{}",
+            decl.name
+        )));
     }
 
     Ok(())

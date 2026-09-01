@@ -7,14 +7,12 @@ mod trigger_cmd;
 mod ui_cmd;
 mod watch_cmd;
 
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result, bail};
 use clap::{Parser, Subcommand};
 use corex_core::{DaemonConfig, ExecutionContext, LoggingConfig, RuntimeConfig, Value};
-use corex_engine::{validate_permissions, ExecutionAudit, ExecutionHistory, Pipeline, Directive};
+use corex_engine::{Directive, ExecutionAudit, ExecutionHistory, Pipeline, validate_permissions};
 use corex_ipc::protocol::{Request, Response};
-use corex_ipc::{
-    data_dir, ipc_endpoint, ipc_connect, config_paths, Transport,
-};
+use corex_ipc::{Transport, config_paths, data_dir, ipc_connect, ipc_endpoint};
 use corex_registry::ActionRegistry;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -22,7 +20,11 @@ use std::process::Command;
 use std::sync::Arc;
 
 #[derive(Parser, Debug)]
-#[command(name = "corex", version, about = "Corex — composable directives & actions")]
+#[command(
+    name = "corex",
+    version,
+    about = "Corex — composable directives & actions"
+)]
 struct Cli {
     /// Directive / config search directory
     #[arg(long, global = true)]
@@ -137,9 +139,8 @@ fn init_tracing(verbose: u8) {
         1 => "debug",
         _ => "trace",
     };
-    let timer = tracing_subscriber::fmt::time::ChronoLocal::new(
-        "%Y-%m-%d %H:%M:%S%.3f".to_string(),
-    );
+    let timer =
+        tracing_subscriber::fmt::time::ChronoLocal::new("%Y-%m-%d %H:%M:%S%.3f".to_string());
     let _ = tracing_subscriber::fmt()
         .with_timer(timer)
         .with_env_filter(

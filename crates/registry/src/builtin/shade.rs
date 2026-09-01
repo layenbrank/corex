@@ -1,9 +1,9 @@
 //! `shade.convert` — image format conversion / compression.
 
+use crate::ActionRegistry;
 use crate::builtin::util::{
     confine_path, ensure_parent, opt_i64, opt_str, require_map, require_path,
 };
-use crate::ActionRegistry;
 use async_trait::async_trait;
 use corex_core::{
     Action, ActionCategory, ActionError, ActionMeta, ExecutionContext, ParamSchema, SchemaType,
@@ -42,7 +42,8 @@ impl Action for ShadeConvert {
     }
 
     async fn execute(
-        &self, params: Value,
+        &self,
+        params: Value,
         ctx: &mut ExecutionContext,
     ) -> Result<Value, ActionError> {
         let map = require_map(&params)?;

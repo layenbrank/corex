@@ -22,16 +22,16 @@ impl Action for CronSchedule {
         )
         .with_params(vec![
             ParamSchema::new("expr", SchemaType::Str, true).with_description("cron 表达式"),
-            ParamSchema::new("timezone", SchemaType::Str, false).with_description(
-                "时区：local / utc / ±HH:MM（默认用 runtime.cron_timezone）",
-            ),
+            ParamSchema::new("timezone", SchemaType::Str, false)
+                .with_description("时区：local / utc / ±HH:MM（默认用 runtime.cron_timezone）"),
             ParamSchema::new("directive", SchemaType::Str, false)
                 .with_description("关联的指令名或路径"),
         ])
     }
 
     async fn execute(
-        &self, params: Value,
+        &self,
+        params: Value,
         ctx: &mut ExecutionContext,
     ) -> Result<Value, ActionError> {
         let map = params
@@ -52,12 +52,16 @@ impl Action for CronSchedule {
             .get("directive")
             .and_then(|v| v.as_str())
             .map(str::to_string)
-            .or_else(|| ctx.variables.get("directive_name").and_then(|v| v.as_str().map(str::to_string)))
+            .or_else(|| {
+                ctx.variables
+                    .get("directive_name")
+                    .and_then(|v| v.as_str().map(str::to_string))
+            })
             .ok_or_else(|| ActionError::MissingParam("directive".to_string()))?;
 
         #[cfg(feature = "act-cron")]
         {
-            use corex_engine::{effective_cron_timezone, find_cron_engine, CronJobSpec};
+            use corex_engine::{CronJobSpec, effective_cron_timezone, find_cron_engine};
             let engine = find_cron_engine().ok_or_else(|| {
                 ActionError::execution("cron 守护未运行：请先执行 corex cron run")
             })?;
@@ -96,8 +100,8 @@ fn resolve_directive_path(name: &str) -> Result<std::path::PathBuf, ActionError>
     if as_path.exists() {
         return Ok(as_path);
     }
-    let data = corex_ipc::data_dir()
-        .map_err(|e| ActionError::execution(format!("data dir: {e}")))?;
+    let data =
+        corex_ipc::data_dir().map_err(|e| ActionError::execution(format!("data dir: {e}")))?;
     let base = data.join("directives");
     for ext in ["yaml", "yml"] {
         let p = base.join(format!("{name}.{ext}"));

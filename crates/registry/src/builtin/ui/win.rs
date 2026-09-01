@@ -1,8 +1,8 @@
 //! Windows UIAutomation / Win32 platform adapter for ui.* actions.
 
 use crate::builtin::ui_kernel::{
-    poll_interval_ms, selector_chain_from_params, wait_state_from_params, window_query_from_params,
-    ElementSelector, WaitState, WindowQuery,
+    ElementSelector, WaitState, WindowQuery, poll_interval_ms, selector_chain_from_params,
+    wait_state_from_params, window_query_from_params,
 };
 use crate::builtin::util::{opt_bool, opt_i64, require_map, require_str};
 use corex_core::{ActionError, ExecutionContext, Value};
@@ -10,18 +10,18 @@ use std::collections::BTreeMap;
 use std::ffi::OsString;
 use std::os::windows::ffi::OsStringExt;
 use std::time::{Duration, Instant};
-use windows::core::BOOL;
 use windows::Win32::Foundation::{HWND, LPARAM, RECT};
 use windows::Win32::UI::Input::KeyboardAndMouse::{
-    SendInput, INPUT, INPUT_0, INPUT_KEYBOARD, INPUT_MOUSE, KEYBDINPUT, KEYEVENTF_KEYUP,
-    KEYEVENTF_UNICODE, KEYBD_EVENT_FLAGS, MOUSEEVENTF_LEFTDOWN, MOUSEEVENTF_LEFTUP,
+    INPUT, INPUT_0, INPUT_KEYBOARD, INPUT_MOUSE, KEYBD_EVENT_FLAGS, KEYBDINPUT, KEYEVENTF_KEYUP,
+    KEYEVENTF_UNICODE, MOUSEEVENTF_HWHEEL, MOUSEEVENTF_LEFTDOWN, MOUSEEVENTF_LEFTUP,
     MOUSEEVENTF_MIDDLEDOWN, MOUSEEVENTF_MIDDLEUP, MOUSEEVENTF_RIGHTDOWN, MOUSEEVENTF_RIGHTUP,
-    MOUSEEVENTF_WHEEL, MOUSEEVENTF_HWHEEL, MOUSEINPUT, VIRTUAL_KEY,
+    MOUSEEVENTF_WHEEL, MOUSEINPUT, SendInput, VIRTUAL_KEY,
 };
 use windows::Win32::UI::WindowsAndMessaging::{
     EnumWindows, FindWindowExW, GetClassNameW, GetWindowRect, GetWindowTextLengthW, GetWindowTextW,
     GetWindowThreadProcessId, IsWindow, IsWindowVisible, SetCursorPos, SetForegroundWindow,
 };
+use windows::core::BOOL;
 
 fn hwnd_to_i64(hwnd: HWND) -> i64 {
     hwnd.0 as isize as i64
@@ -160,7 +160,10 @@ fn resolve_scope_hwnd(
 ) -> Result<HWND, ActionError> {
     let mut q = window_query_from_params(map, ctx)?;
     if q.title_contains.is_none() && map.get("name").and_then(|v| v.as_str()).is_some() {
-        q.title_contains = map.get("name").and_then(|v| v.as_str()).map(|s| s.to_string());
+        q.title_contains = map
+            .get("name")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string());
     }
     find_window(&q).ok_or_else(|| {
         ActionError::ui(
@@ -179,8 +182,14 @@ fn resolve_probe_scope_hwnd(map: &BTreeMap<String, Value>) -> Result<HWND, Actio
     probe_scope_explicit(map)?;
     let q = WindowQuery {
         hwnd: map.get("hwnd").and_then(|v| v.as_i64()),
-        title_contains: map.get("title_contains").and_then(|v| v.as_str()).map(|s| s.to_string()),
-        class_name: map.get("class_name").and_then(|v| v.as_str()).map(|s| s.to_string()),
+        title_contains: map
+            .get("title_contains")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string()),
+        class_name: map
+            .get("class_name")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string()),
         visible_only: map
             .get("visible_only")
             .and_then(|v| v.as_bool())
@@ -193,7 +202,8 @@ fn resolve_probe_scope_hwnd(map: &BTreeMap<String, Value>) -> Result<HWND, Actio
             "ui_wrong_window",
             format!(
                 "未找到窗口: {}",
-                q.title_contains.unwrap_or_else(|| format!("hwnd={:?}", q.hwnd))
+                q.title_contains
+                    .unwrap_or_else(|| format!("hwnd={:?}", q.hwnd))
             ),
         )
     })
@@ -287,8 +297,8 @@ pub async fn ui_window_focus_impl(
 ) -> Result<Value, ActionError> {
     let map = require_map(&params)?.clone();
     let exec_ctx = ctx.clone();
-    let out: BTreeMap<String, Value> = tokio::task::spawn_blocking(
-        move || -> Result<BTreeMap<String, Value>, ActionError> {
+    let out: BTreeMap<String, Value> =
+        tokio::task::spawn_blocking(move || -> Result<BTreeMap<String, Value>, ActionError> {
             let hwnd = resolve_scope_hwnd(&map, &exec_ctx)?;
             unsafe {
                 if !SetForegroundWindow(hwnd).as_bool() {
@@ -296,13 +306,14 @@ pub async fn ui_window_focus_impl(
                 }
             }
             Ok(hwnd_map(hwnd))
-        },
-    )
-    .await
-    .map_err(|e| ActionError::execution(format!("ui.window.focus 失败: {e}")))?
-    ?;
+        })
+        .await
+        .map_err(|e| ActionError::execution(format!("ui.window.focus 失败: {e}")))??;
     if let Some(id) = out.get("hwnd").and_then(|v| v.as_i64()) {
-        let title = out.get("title").and_then(|v| v.as_str()).map(|s| s.to_string());
+        let title = out
+            .get("title")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string());
         ctx.set_ui_scope(id, title);
     }
     Ok(Value::Map(out))
@@ -314,17 +325,18 @@ pub async fn ui_window_find_impl(
 ) -> Result<Value, ActionError> {
     let map = require_map(&params)?.clone();
     let exec_ctx = ctx.clone();
-    let out: BTreeMap<String, Value> = tokio::task::spawn_blocking(
-        move || -> Result<BTreeMap<String, Value>, ActionError> {
+    let out: BTreeMap<String, Value> =
+        tokio::task::spawn_blocking(move || -> Result<BTreeMap<String, Value>, ActionError> {
             let hwnd = resolve_scope_hwnd(&map, &exec_ctx)?;
             Ok(hwnd_map(hwnd))
-        },
-    )
-    .await
-    .map_err(|e| ActionError::execution(format!("ui.window.find 失败: {e}")))?
-    ?;
+        })
+        .await
+        .map_err(|e| ActionError::execution(format!("ui.window.find 失败: {e}")))??;
     if let Some(id) = out.get("hwnd").and_then(|v| v.as_i64()) {
-        let title = out.get("title").and_then(|v| v.as_str()).map(|s| s.to_string());
+        let title = out
+            .get("title")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string());
         ctx.set_ui_scope(id, title);
     }
     Ok(Value::Map(out))
@@ -338,8 +350,8 @@ pub async fn ui_window_wait_impl(
     let exec_ctx = ctx.clone();
     let timeout_ms = opt_i64(&map, "timeout_ms", 5000).max(1) as u64;
     let poll = poll_interval_ms(&map, 200);
-    let out: BTreeMap<String, Value> = tokio::task::spawn_blocking(
-        move || -> Result<BTreeMap<String, Value>, ActionError> {
+    let out: BTreeMap<String, Value> =
+        tokio::task::spawn_blocking(move || -> Result<BTreeMap<String, Value>, ActionError> {
             let q = window_query_from_params(&map, &exec_ctx)?;
             if q.title_contains.is_none() && q.hwnd.is_none() {
                 return Err(ActionError::MissingParam(
@@ -361,13 +373,14 @@ pub async fn ui_window_wait_impl(
                 }
                 std::thread::sleep(Duration::from_millis(poll));
             }
-        },
-    )
-    .await
-    .map_err(|e| ActionError::execution(format!("ui.window.wait 失败: {e}")))?
-    ?;
+        })
+        .await
+        .map_err(|e| ActionError::execution(format!("ui.window.wait 失败: {e}")))??;
     if let Some(id) = out.get("hwnd").and_then(|v| v.as_i64()) {
-        let title = out.get("title").and_then(|v| v.as_str()).map(|s| s.to_string());
+        let title = out
+            .get("title")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string());
         ctx.set_ui_scope(id, title);
     }
     Ok(Value::Map(out))
@@ -380,9 +393,7 @@ fn format_control_type(el: &uiautomation::UIElement) -> Option<String> {
             return Some(s.to_ascii_lowercase());
         }
     }
-    el.get_control_type()
-        .ok()
-        .map(control_type_enum_name)
+    el.get_control_type().ok().map(control_type_enum_name)
 }
 
 fn control_type_enum_name(ct: uiautomation::types::ControlType) -> String {
@@ -464,10 +475,7 @@ pub(crate) fn elem_to_map_with_options(
     let offscreen = el.is_offscreen().unwrap_or(true);
     m.insert("clickable".into(), Value::Bool(enabled && !offscreen));
     if include_ancestors {
-        let ancestors: Vec<Value> = collect_ancestors(el)
-            .into_iter()
-            .map(Value::Map)
-            .collect();
+        let ancestors: Vec<Value> = collect_ancestors(el).into_iter().map(Value::Map).collect();
         if !ancestors.is_empty() {
             m.insert("ancestors".into(), Value::List(ancestors));
         }
@@ -509,9 +517,7 @@ pub(crate) fn element_in_scope(
     Ok(false)
 }
 
-pub(crate) fn element_map_with_selectors(
-    el: &uiautomation::UIElement,
-) -> BTreeMap<String, Value> {
+pub(crate) fn element_map_with_selectors(el: &uiautomation::UIElement) -> BTreeMap<String, Value> {
     use crate::builtin::ui_kernel::{selector_chain_to_yaml, suggest_selectors};
     let mut m = elem_to_map(el);
     let aid = m.get("automation_id").and_then(|v| v.as_str());
@@ -619,10 +625,7 @@ fn build_matcher_for(
 ) -> Result<uiautomation::UIMatcher, ActionError> {
     let auto = uiautomation::UIAutomation::new()
         .map_err(|e| ActionError::execution(format!("UIAutomation 初始化失败: {e}")))?;
-    let mut matcher = auto
-        .create_matcher()
-        .timeout(timeout_ms)
-        .depth(sel.depth);
+    let mut matcher = auto.create_matcher().timeout(timeout_ms).depth(sel.depth);
     let hwnd = resolve_scope_hwnd(map, ctx)?;
     let handle = uiautomation::types::Handle::from(hwnd.0 as isize);
     let root = auto
@@ -639,10 +642,7 @@ fn build_matcher_for_probe(
 ) -> Result<uiautomation::UIMatcher, ActionError> {
     let auto = uiautomation::UIAutomation::new()
         .map_err(|e| ActionError::execution(format!("UIAutomation 初始化失败: {e}")))?;
-    let mut matcher = auto
-        .create_matcher()
-        .timeout(timeout_ms)
-        .depth(sel.depth);
+    let mut matcher = auto.create_matcher().timeout(timeout_ms).depth(sel.depth);
     let hwnd = resolve_probe_scope_hwnd(map)?;
     let handle = uiautomation::types::Handle::from(hwnd.0 as isize);
     let root = auto
@@ -667,7 +667,10 @@ fn find_with_chain_probe(
             Err(e) => last_err = e.to_string(),
         }
     }
-    let hint = chain.first().map(|s| s.hint()).unwrap_or_else(|| "selector".into());
+    let hint = chain
+        .first()
+        .map(|s| s.hint())
+        .unwrap_or_else(|| "selector".into());
     Err(ActionError::ui_with_hint(
         "ui_selector_not_found",
         &hint,
@@ -691,7 +694,10 @@ fn find_with_chain(
             Err(e) => last_err = e.to_string(),
         }
     }
-    let hint = chain.first().map(|s| s.hint()).unwrap_or_else(|| "selector".into());
+    let hint = chain
+        .first()
+        .map(|s| s.hint())
+        .unwrap_or_else(|| "selector".into());
     Err(ActionError::ui_with_hint(
         "ui_selector_not_found",
         &hint,
@@ -721,7 +727,10 @@ fn wait_element_state(
     poll_ms: u64,
 ) -> Result<uiautomation::UIElement, ActionError> {
     let deadline = Instant::now() + Duration::from_millis(timeout_ms);
-    let hint = chain.first().map(|s| s.hint()).unwrap_or_else(|| "selector".into());
+    let hint = chain
+        .first()
+        .map(|s| s.hint())
+        .unwrap_or_else(|| "selector".into());
     loop {
         match state {
             WaitState::Present | WaitState::Enabled => {
@@ -760,11 +769,7 @@ pub async fn ui_element_list_impl(
         let root = auto
             .element_from_handle(handle)
             .map_err(|e| ActionError::execution(format!("ElementFromHandle 失败: {e}")))?;
-        let matcher = auto
-            .create_matcher()
-            .from(root)
-            .depth(depth)
-            .timeout(500);
+        let matcher = auto.create_matcher().from(root).depth(depth).timeout(500);
         let found = matcher.find_all().unwrap_or_default();
         let list: Vec<Value> = found
             .iter()
@@ -793,11 +798,7 @@ pub async fn ui_element_list_probe_impl(
         let root = auto
             .element_from_handle(handle)
             .map_err(|e| ActionError::execution(format!("ElementFromHandle 失败: {e}")))?;
-        let matcher = auto
-            .create_matcher()
-            .from(root)
-            .depth(depth)
-            .timeout(500);
+        let matcher = auto.create_matcher().from(root).depth(depth).timeout(500);
         let found = matcher.find_all().unwrap_or_default();
         let list: Vec<Value> = found
             .iter()
@@ -841,11 +842,11 @@ fn hosts_shell_defview(parent: HWND) -> bool {
 
 /// Resolve the UIA root for desktop ListItem icons (Progman or WorkerW + DefView).
 fn find_desktop_hwnd() -> Option<HWND> {
-    use windows::core::BOOL;
     use windows::Win32::Foundation::{LPARAM, WPARAM};
     use windows::Win32::UI::WindowsAndMessaging::{
-        EnumWindows, FindWindowW, SendMessageTimeoutW, SMTO_NORMAL,
+        EnumWindows, FindWindowW, SMTO_NORMAL, SendMessageTimeoutW,
     };
+    use windows::core::BOOL;
 
     struct EnumState {
         found: Option<HWND>,
@@ -891,9 +892,8 @@ pub async fn ui_desktop_icons_impl() -> Result<Value, ActionError> {
     tokio::task::spawn_blocking(move || {
         let auto = uiautomation::UIAutomation::new()
             .map_err(|e| ActionError::execution(format!("UIAutomation 初始化失败: {e}")))?;
-        let hwnd = find_desktop_hwnd().ok_or_else(|| {
-            ActionError::ui("ui_desktop_not_found", "未找到桌面 Shell 窗口")
-        })?;
+        let hwnd = find_desktop_hwnd()
+            .ok_or_else(|| ActionError::ui("ui_desktop_not_found", "未找到桌面 Shell 窗口"))?;
         let handle = uiautomation::types::Handle::from(hwnd.0 as isize);
         let root = auto
             .element_from_handle(handle)
@@ -947,7 +947,10 @@ pub async fn ui_element_exists_impl(
         match found {
             Ok(el) => {
                 out.insert("found".into(), Value::Bool(true));
-                out.insert("element".into(), Value::Map(element_map_with_selectors(&el)));
+                out.insert(
+                    "element".into(),
+                    Value::Map(element_map_with_selectors(&el)),
+                );
             }
             Err(_) => {
                 out.insert("found".into(), Value::Bool(false));
@@ -982,8 +985,15 @@ pub async fn ui_element_click_impl(
             find_with_chain(&map, &exec_ctx, &chain, timeout_ms)?
         };
         if safe && !element_enabled(&el) {
-            let hint = chain.first().map(|s| s.hint()).unwrap_or_else(|| "selector".into());
-            return Err(ActionError::ui_with_hint("ui_not_clickable", &hint, "元素不可点击"));
+            let hint = chain
+                .first()
+                .map(|s| s.hint())
+                .unwrap_or_else(|| "selector".into());
+            return Err(ActionError::ui_with_hint(
+                "ui_not_clickable",
+                &hint,
+                "元素不可点击",
+            ));
         }
         el.click()
             .map_err(|e| ActionError::execution(format!("元素点击失败: {e}")))?;
@@ -1010,7 +1020,10 @@ pub async fn ui_element_wait_impl(
     tokio::task::spawn_blocking(move || {
         if state == WaitState::Absent {
             let deadline = Instant::now() + Duration::from_millis(timeout_ms);
-            let hint = chain.first().map(|s| s.hint()).unwrap_or_else(|| "selector".into());
+            let hint = chain
+                .first()
+                .map(|s| s.hint())
+                .unwrap_or_else(|| "selector".into());
             loop {
                 if !element_present(&map, &exec_ctx, &chain, poll.min(500)) {
                     let mut m = BTreeMap::new();
@@ -1035,18 +1048,14 @@ pub async fn ui_element_wait_impl(
     .map_err(|e| ActionError::execution(format!("ui.element.wait 失败: {e}")))?
 }
 
-pub async fn ui_wait_impl(
-    params: Value,
-    ctx: &mut ExecutionContext,
-) -> Result<Value, ActionError> {
+pub async fn ui_wait_impl(params: Value, ctx: &mut ExecutionContext) -> Result<Value, ActionError> {
     let map = require_map(&params)?;
     let ms = map
         .get("ms")
         .and_then(|v| v.as_i64())
         .ok_or_else(|| ActionError::MissingParam("ms".into()))?
         .max(0) as u64;
-    ctx.add_ui_settle_ms(ms)
-        .map_err(ActionError::execution)?;
+    ctx.add_ui_settle_ms(ms).map_err(ActionError::execution)?;
     tokio::time::sleep(Duration::from_millis(ms)).await;
     Ok(Value::Bool(true))
 }
@@ -1066,7 +1075,8 @@ fn mouse_click_at(x: i32, y: i32, button: &str, clicks: i64) -> Result<(), Actio
     let (down_f, up_f) = mouse_button_flags(button)?;
     let clicks = clicks.clamp(1, 10) as usize;
     unsafe {
-        SetCursorPos(x, y).map_err(|e| ActionError::execution(format!("SetCursorPos 失败: {e}")))?;
+        SetCursorPos(x, y)
+            .map_err(|e| ActionError::execution(format!("SetCursorPos 失败: {e}")))?;
     }
     for _ in 0..clicks {
         let down = INPUT {
@@ -1268,7 +1278,10 @@ pub async fn ui_element_get_impl(
         let value = element_value_text(&el);
         let mut out = BTreeMap::new();
         out.insert("value".into(), Value::Str(value));
-        out.insert("element".into(), Value::Map(element_map_with_selectors(&el)));
+        out.insert(
+            "element".into(),
+            Value::Map(element_map_with_selectors(&el)),
+        );
         Ok(Value::Map(out))
     })
     .await
@@ -1425,15 +1438,18 @@ pub async fn ui_key_impl(params: Value) -> Result<Value, ActionError> {
     let map = require_map(&params)?;
     let keys = require_str(map, "keys")?;
     tokio::task::spawn_blocking(move || {
-        let parts: Vec<&str> = keys.split('+').map(|s| s.trim()).filter(|s| !s.is_empty()).collect();
+        let parts: Vec<&str> = keys
+            .split('+')
+            .map(|s| s.trim())
+            .filter(|s| !s.is_empty())
+            .collect();
         if parts.is_empty() {
             return Err(ActionError::InvalidParams("keys 为空".into()));
         }
         let mut vks = Vec::new();
         for p in &parts {
-            let vk = vk_from_token(p).ok_or_else(|| {
-                ActionError::InvalidParams(format!("不支持的 keys 片段: {p}"))
-            })?;
+            let vk = vk_from_token(p)
+                .ok_or_else(|| ActionError::InvalidParams(format!("不支持的 keys 片段: {p}")))?;
             vks.push(vk);
         }
         for vk in &vks {

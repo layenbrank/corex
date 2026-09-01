@@ -128,9 +128,9 @@ pub fn selector_chain_from_params(
         }
         let mut out = Vec::with_capacity(list.len());
         for item in list {
-            let m = item.as_map().ok_or_else(|| {
-                ActionError::InvalidParams("selectors[] 每项必须为 map".into())
-            })?;
+            let m = item
+                .as_map()
+                .ok_or_else(|| ActionError::InvalidParams("selectors[] 每项必须为 map".into()))?;
             out.push(ElementSelector::from_map(m)?);
         }
         return Ok(out);
@@ -163,9 +163,7 @@ pub fn poll_interval_ms(map: &BTreeMap<String, Value>, default: u64) -> u64 {
 }
 
 pub fn opt_bool(map: &BTreeMap<String, Value>, key: &str, default: bool) -> bool {
-    map.get(key)
-        .and_then(|v| v.as_bool())
-        .unwrap_or(default)
+    map.get(key).and_then(|v| v.as_bool()).unwrap_or(default)
 }
 
 fn opt_str(map: &BTreeMap<String, Value>, key: &str) -> Option<String> {
@@ -282,11 +280,7 @@ pub fn elements_flat_to_tree(elements: &[BTreeMap<String, Value>]) -> Value {
         fn to_value(&self) -> Value {
             let mut m = self.fields.clone();
             if !self.children.is_empty() {
-                let kids: Vec<Value> = self
-                    .children
-                    .values()
-                    .map(|c| c.to_value())
-                    .collect();
+                let kids: Vec<Value> = self.children.values().map(|c| c.to_value()).collect();
                 m.insert("children".into(), Value::List(kids));
             }
             Value::Map(m)
@@ -298,11 +292,7 @@ pub fn elements_flat_to_tree(elements: &[BTreeMap<String, Value>]) -> Value {
         let mut path: Vec<BTreeMap<String, Value>> = el
             .get("ancestors")
             .and_then(|v| v.as_list())
-            .map(|list| {
-                list.iter()
-                    .filter_map(|v| v.as_map().cloned())
-                    .collect()
-            })
+            .map(|list| list.iter().filter_map(|v| v.as_map().cloned()).collect())
             .unwrap_or_default();
         let mut leaf = el.clone();
         leaf.remove("ancestors");
@@ -323,12 +313,7 @@ pub fn elements_flat_to_tree(elements: &[BTreeMap<String, Value>]) -> Value {
     } else if root.children.len() == 1 {
         root.children.values().next().unwrap().to_value()
     } else {
-        Value::List(
-            root.children
-                .values()
-                .map(|c| c.to_value())
-                .collect(),
-        )
+        Value::List(root.children.values().map(|c| c.to_value()).collect())
     }
 }
 
@@ -499,10 +484,7 @@ mod tests {
                 ("height".into(), Value::Int(10)),
             ])),
         );
-        b.insert(
-            "ancestors".into(),
-            Value::List(vec![Value::Map(parent)]),
-        );
+        b.insert("ancestors".into(), Value::List(vec![Value::Map(parent)]));
 
         let tree = elements_flat_to_tree(&[a, b]);
         let json = tree.to_json();

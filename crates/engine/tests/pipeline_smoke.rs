@@ -1,7 +1,7 @@
 //! End-to-end smoke: resolver + template/file pipeline.
 
 use corex_core::{ExecutionContext, RuntimeConfig, Value};
-use corex_engine::{Pipeline, Resolver, Directive};
+use corex_engine::{Directive, Pipeline, Resolver};
 use corex_registry::ActionRegistry;
 use std::sync::Arc;
 

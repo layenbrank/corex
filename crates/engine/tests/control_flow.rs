@@ -1,7 +1,7 @@
 //! Control-flow tests: if / repeat / parallel.
 
 use corex_core::{ExecutionContext, RuntimeConfig};
-use corex_engine::{Pipeline, Directive};
+use corex_engine::{Directive, Pipeline};
 use corex_registry::ActionRegistry;
 use std::sync::Arc;
 

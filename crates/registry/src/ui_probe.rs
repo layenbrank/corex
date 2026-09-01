@@ -1,8 +1,8 @@
 //! Interactive UI probe API for `corex ui` CLI (Windows UIAutomation).
 
-use corex_core::{ActionError, ExecutionContext, RuntimeConfig, Value};
 #[cfg(windows)]
 use crate::builtin::ui_kernel::{elements_flat_to_tree, probe_scope_explicit};
+use corex_core::{ActionError, ExecutionContext, RuntimeConfig, Value};
 use std::collections::BTreeMap;
 
 #[cfg(not(windows))]

@@ -175,13 +175,16 @@ mod win {
     use super::*;
     use std::ffi::OsStr;
     use std::os::windows::ffi::OsStrExt;
-    use windows::core::PCWSTR;
     use windows::Win32::UI::WindowsAndMessaging::{
-        MessageBoxW, IDYES, MB_OK, MB_YESNO, MESSAGEBOX_RESULT, MESSAGEBOX_STYLE,
+        IDYES, MB_OK, MB_YESNO, MESSAGEBOX_RESULT, MESSAGEBOX_STYLE, MessageBoxW,
     };
+    use windows::core::PCWSTR;
 
     fn wide(s: &str) -> Vec<u16> {
-        OsStr::new(s).encode_wide().chain(std::iter::once(0)).collect()
+        OsStr::new(s)
+            .encode_wide()
+            .chain(std::iter::once(0))
+            .collect()
     }
 
     pub fn message_box(title: &str, message: &str, yes_no: bool) -> Result<bool, ActionError> {
@@ -190,11 +193,7 @@ mod win {
         let style: MESSAGEBOX_STYLE = if yes_no { MB_YESNO } else { MB_OK };
         let r: MESSAGEBOX_RESULT =
             unsafe { MessageBoxW(None, PCWSTR(m.as_ptr()), PCWSTR(t.as_ptr()), style) };
-        if yes_no {
-            Ok(r == IDYES)
-        } else {
-            Ok(true)
-        }
+        if yes_no { Ok(r == IDYES) } else { Ok(true) }
     }
 
     /// Minimal prompt: show message with default text hint; user confirms via Yes to accept default,
@@ -211,7 +210,11 @@ mod win {
         out.insert("ok".into(), Value::Bool(ok));
         out.insert(
             "text".into(),
-            Value::Str(if ok { default.to_string() } else { String::new() }),
+            Value::Str(if ok {
+                default.to_string()
+            } else {
+                String::new()
+            }),
         );
         Ok(Value::Map(out))
     }

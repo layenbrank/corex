@@ -149,9 +149,7 @@ impl<'de> serde::Deserialize<'de> for Trigger {
 
 fn parse_watch_fields(raw: RawTrigger) -> Result<WatchConfig, String> {
     if raw.cooldown_ms.is_some() {
-        return Err(
-            "watch.cooldown_ms 已移除，请改用 throttle_ms（无兼容 alias）".into(),
-        );
+        return Err("watch.cooldown_ms 已移除，请改用 throttle_ms（无兼容 alias）".into());
     }
     let paths = raw.paths.unwrap_or_default();
     if paths.is_empty() {

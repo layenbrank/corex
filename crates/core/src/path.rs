@@ -16,23 +16,22 @@ impl std::error::Error for PathConfineError {}
 
 /// Returns true when `path` contains a `..` component (before canonicalization).
 pub fn path_has_traversal(path: &Path) -> bool {
-    path.components()
-        .any(|c| matches!(c, Component::ParentDir))
+    path.components().any(|c| matches!(c, Component::ParentDir))
 }
 
 /// Ensure `path` resolves under `root` (after joining relative paths).
 pub fn confine_under(root: &Path, path: &Path) -> Result<PathBuf, PathConfineError> {
-    let root_canon = root.canonicalize().map_err(|e| {
-        PathConfineError(format!("无法解析根目录 {}: {e}", root.display()))
-    })?;
+    let root_canon = root
+        .canonicalize()
+        .map_err(|e| PathConfineError(format!("无法解析根目录 {}: {e}", root.display())))?;
     let candidate = if path.is_absolute() {
         path.to_path_buf()
     } else {
         root.join(path)
     };
-    let cand_canon = candidate.canonicalize().map_err(|e| {
-        PathConfineError(format!("无法解析路径 {}: {e}", candidate.display()))
-    })?;
+    let cand_canon = candidate
+        .canonicalize()
+        .map_err(|e| PathConfineError(format!("无法解析路径 {}: {e}", candidate.display())))?;
     if !cand_canon.starts_with(&root_canon) {
         return Err(PathConfineError(format!(
             "路径越界: {} 不在 {} 下",
@@ -117,9 +116,9 @@ pub fn for_external_process(path: PathBuf) -> PathBuf {
 
 /// Confine a possibly non-existent path under `root`.
 fn confine_missing(root: &Path, path: &Path) -> Result<PathBuf, PathConfineError> {
-    let root_canon = root.canonicalize().map_err(|e| {
-        PathConfineError(format!("无法解析根目录 {}: {e}", root.display()))
-    })?;
+    let root_canon = root
+        .canonicalize()
+        .map_err(|e| PathConfineError(format!("无法解析根目录 {}: {e}", root.display())))?;
     let candidate = if path.is_absolute() {
         path.to_path_buf()
     } else {
@@ -139,9 +138,9 @@ fn confine_missing(root: &Path, path: &Path) -> Result<PathBuf, PathConfineError
             .ok_or_else(|| PathConfineError(format!("无法解析路径 {}", candidate.display())))?
             .to_path_buf();
     }
-    let mut resolved = cur.canonicalize().map_err(|e| {
-        PathConfineError(format!("无法解析路径 {}: {e}", cur.display()))
-    })?;
+    let mut resolved = cur
+        .canonicalize()
+        .map_err(|e| PathConfineError(format!("无法解析路径 {}: {e}", cur.display())))?;
     for part in missing.into_iter().rev() {
         resolved.push(part);
     }

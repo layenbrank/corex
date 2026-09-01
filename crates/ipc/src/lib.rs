@@ -3,13 +3,13 @@
 pub mod protocol;
 pub mod transport;
 
-pub use protocol::{Request, Response, RpcError, MAX_LINE_BYTES};
+pub use protocol::{MAX_LINE_BYTES, Request, Response, RpcError};
 pub use transport::{
-    config_paths, data_dir, ipc_connect, ipc_endpoint, serve_ipc, PlatformTransport, Transport,
-    TransportError,
+    PlatformTransport, Transport, TransportError, config_paths, data_dir, ipc_connect,
+    ipc_endpoint, serve_ipc,
 };
 
-#[cfg(unix)]
-pub use transport::UnixSocketTransport;
 #[cfg(windows)]
 pub use transport::NamedPipeTransport;
+#[cfg(unix)]
+pub use transport::UnixSocketTransport;

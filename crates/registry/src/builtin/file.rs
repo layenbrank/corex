@@ -1,7 +1,7 @@
 //! File actions: write / read / update / remove (+ copy).
 
-use crate::builtin::util::{confine_path, opt_bool, opt_str, require_map, require_str};
 use crate::ActionRegistry;
+use crate::builtin::util::{confine_path, opt_bool, opt_str, require_map, require_str};
 use async_trait::async_trait;
 use corex_core::{
     Action, ActionCategory, ActionError, ActionMeta, ExecutionContext, ParamSchema, SchemaType,
@@ -31,9 +31,9 @@ fn opt_usize(map: &BTreeMap<String, Value>, key: &str) -> Result<Option<usize>, 
     match map.get(key) {
         None => Ok(None),
         Some(v) => {
-            let n = v.as_i64().ok_or_else(|| {
-                ActionError::InvalidParams(format!("{key} 须为整数"))
-            })?;
+            let n = v
+                .as_i64()
+                .ok_or_else(|| ActionError::InvalidParams(format!("{key} 须为整数")))?;
             if n < 0 {
                 return Err(ActionError::InvalidParams(format!("{key} 不能为负")));
             }
@@ -51,13 +51,11 @@ async fn atomic_write(path: &Path, content: &[u8], backup: bool) -> Result<(), A
     if backup && path.is_file() {
         let bak = path.with_extension(format!(
             "{}.bak",
-            path.extension()
-                .and_then(|e| e.to_str())
-                .unwrap_or("")
+            path.extension().and_then(|e| e.to_str()).unwrap_or("")
         ));
-        tokio::fs::copy(path, &bak).await.map_err(|e| {
-            ActionError::execution(format!("创建备份失败 {}: {e}", bak.display()))
-        })?;
+        tokio::fs::copy(path, &bak)
+            .await
+            .map_err(|e| ActionError::execution(format!("创建备份失败 {}: {e}", bak.display())))?;
     }
     let parent = path.parent().unwrap_or(Path::new("."));
     let tmp = parent.join(format!(".corex-write-{}", uuid::Uuid::new_v4()));
@@ -70,16 +68,20 @@ async fn atomic_write(path: &Path, content: &[u8], backup: bool) -> Result<(), A
 }
 
 fn detect_newline(s: &str) -> &'static str {
-    if s.contains("\r\n") {
-        "crlf"
-    } else {
-        "lf"
-    }
+    if s.contains("\r\n") { "crlf" } else { "lf" }
 }
 
-fn apply_newline(content: String, mode: &str, original: &str) -> Result<(String, String), ActionError> {
+fn apply_newline(
+    content: String,
+    mode: &str,
+    original: &str,
+) -> Result<(String, String), ActionError> {
     let style = match mode {
-        "preserve" => detect_newline(if original.is_empty() { &content } else { original }),
+        "preserve" => detect_newline(if original.is_empty() {
+            &content
+        } else {
+            original
+        }),
         "lf" | "crlf" => mode,
         other => {
             return Err(ActionError::InvalidParams(format!(
@@ -295,14 +297,18 @@ fn str_replace_exact(
     Ok((out, matches))
 }
 
-fn apply_regex(content: &str, pattern: &str, replacement: &str) -> Result<(String, usize), ActionError> {
+fn apply_regex(
+    content: &str,
+    pattern: &str,
+    replacement: &str,
+) -> Result<(String, usize), ActionError> {
     if pattern.len() > MAX_REGEX_PATTERN_LEN {
         return Err(ActionError::InvalidParams(format!(
             "regex pattern 超过 {MAX_REGEX_PATTERN_LEN} 字符"
         )));
     }
-    let re = Regex::new(pattern)
-        .map_err(|e| ActionError::InvalidParams(format!("无效 regex: {e}")))?;
+    let re =
+        Regex::new(pattern).map_err(|e| ActionError::InvalidParams(format!("无效 regex: {e}")))?;
     let matches = re.find_iter(content).count();
     let out = re.replace_all(content, replacement).into_owned();
     if out.len() > MAX_REGEX_REPLACE_BYTES {
@@ -333,7 +339,9 @@ fn set_dot_path(val: &mut Value, path: &str, new_value: Value) -> Result<(), Act
         return Ok(());
     }
     let mut parts: Vec<&str> = path.split('.').collect();
-    let last = parts.pop().ok_or_else(|| ActionError::InvalidParams("空 pointer".into()))?;
+    let last = parts
+        .pop()
+        .ok_or_else(|| ActionError::InvalidParams("空 pointer".into()))?;
     let mut current = val;
     for segment in parts {
         match current {
@@ -367,17 +375,14 @@ fn set_dot_path(val: &mut Value, path: &str, new_value: Value) -> Result<(), Act
             l[idx] = new_value;
             Ok(())
         }
-        _ => Err(ActionError::execution(format!(
-            "无法在路径 {path} 设置值"
-        ))),
+        _ => Err(ActionError::execution(format!("无法在路径 {path} 设置值"))),
     }
 }
 
 fn apply_unified_patch(base: &str, diff: &str) -> Result<String, ActionError> {
     let patch = diffy::Patch::from_str(diff)
         .map_err(|e| ActionError::InvalidParams(format!("无效 patch: {e}")))?;
-    diffy::apply(base, &patch)
-        .map_err(|e| ActionError::execution(format!("应用 patch 失败: {e}")))
+    diffy::apply(base, &patch).map_err(|e| ActionError::execution(format!("应用 patch 失败: {e}")))
 }
 
 fn line_char_range(
@@ -522,7 +527,10 @@ fn stat_value(path: PathBuf, meta: std::fs::Metadata) -> Value {
     m.insert("path".into(), Value::File(path));
     m.insert("kind".into(), Value::Str(entry_kind(&meta).into()));
     m.insert("size".into(), Value::Int(meta.len() as i64));
-    m.insert("readonly".into(), Value::Bool(meta.permissions().readonly()));
+    m.insert(
+        "readonly".into(),
+        Value::Bool(meta.permissions().readonly()),
+    );
     if let Some(ts) = modified_unix(&meta) {
         m.insert("modified".into(), Value::Int(ts));
     }
@@ -577,14 +585,14 @@ impl Action for FileRead {
                 let start_line = opt_usize(map, "start_line")?;
                 let end_line = opt_usize(map, "end_line")?;
                 let limit = opt_usize(map, "limit")?;
-                let (start0, end0) = if start_line.is_some() || end_line.is_some() || limit.is_some()
-                {
-                    line_window(&rope, start_line, end_line, limit)?
-                } else if mode == "lines" {
-                    line_window(&rope, Some(1), None, None)?
-                } else {
-                    (0, 0)
-                };
+                let (start0, end0) =
+                    if start_line.is_some() || end_line.is_some() || limit.is_some() {
+                        line_window(&rope, start_line, end_line, limit)?
+                    } else if mode == "lines" {
+                        line_window(&rope, Some(1), None, None)?
+                    } else {
+                        (0, 0)
+                    };
 
                 if mode == "lines" {
                     Ok(lines_value(&rope, start0, end0))
@@ -970,13 +978,14 @@ mod tests {
             .execute(Value::Map(params), &mut ctx)
             .await
             .unwrap();
-        assert!(out
-            .as_map()
-            .unwrap()
-            .get("changed")
-            .unwrap()
-            .as_bool()
-            .unwrap());
+        assert!(
+            out.as_map()
+                .unwrap()
+                .get("changed")
+                .unwrap()
+                .as_bool()
+                .unwrap()
+        );
 
         let text = tokio::fs::read_to_string(&path).await.unwrap();
         assert_eq!(text, "<!--START-->new<!--END-->");
@@ -1014,13 +1023,14 @@ mod tests {
             .execute(Value::Map(params), &mut ctx)
             .await
             .unwrap();
-        assert!(!out
-            .as_map()
-            .unwrap()
-            .get("changed")
-            .unwrap()
-            .as_bool()
-            .unwrap());
+        assert!(
+            !out.as_map()
+                .unwrap()
+                .get("changed")
+                .unwrap()
+                .as_bool()
+                .unwrap()
+        );
     }
 
     #[tokio::test]
@@ -1145,11 +1155,23 @@ mod tests {
         let lines = m.get("lines").unwrap().as_list().unwrap();
         assert_eq!(lines.len(), 2);
         assert_eq!(
-            lines[0].as_map().unwrap().get("text").unwrap().as_str().unwrap(),
+            lines[0]
+                .as_map()
+                .unwrap()
+                .get("text")
+                .unwrap()
+                .as_str()
+                .unwrap(),
             "b"
         );
         assert_eq!(
-            lines[1].as_map().unwrap().get("text").unwrap().as_str().unwrap(),
+            lines[1]
+                .as_map()
+                .unwrap()
+                .get("text")
+                .unwrap()
+                .as_str()
+                .unwrap(),
             "c"
         );
     }

@@ -1,7 +1,7 @@
 //! Notify event kind classification for watch triggers.
 
-use notify::event::{EventKind, EventKindMask};
 use notify::Event;
+use notify::event::{EventKind, EventKindMask};
 use std::path::{Path, PathBuf};
 
 /// What to do with a debounced filesystem event.
@@ -49,11 +49,7 @@ impl EventFilter {
 }
 
 /// Classify a notify event before path glob filtering.
-pub fn classify_event(
-    event: &Event,
-    mount_roots: &[PathBuf],
-    filter: &EventFilter,
-) -> EventAction {
+pub fn classify_event(event: &Event, mount_roots: &[PathBuf], filter: &EventFilter) -> EventAction {
     if event.need_rescan() {
         return EventAction::Remount;
     }
@@ -85,21 +81,15 @@ mod tests {
     #[test]
     fn default_filter_skips_access() {
         let filter = EventFilter::from_events(&[]);
-        assert!(!filter.matches(&EventKind::Access(
-            notify::event::AccessKind::Read,
-        )));
+        assert!(!filter.matches(&EventKind::Access(notify::event::AccessKind::Read,)));
         assert!(filter.matches(&EventKind::Create(CreateKind::Any)));
-        assert!(filter.matches(&EventKind::Modify(ModifyKind::Data(
-            DataChange::Any
-        ))));
+        assert!(filter.matches(&EventKind::Modify(ModifyKind::Data(DataChange::Any))));
     }
 
     #[test]
     fn custom_events_create_only() {
         let filter = EventFilter::from_events(&["create".into()]);
         assert!(filter.matches(&EventKind::Create(CreateKind::File)));
-        assert!(!filter.matches(&EventKind::Modify(ModifyKind::Data(
-            DataChange::Any
-        ))));
+        assert!(!filter.matches(&EventKind::Modify(ModifyKind::Data(DataChange::Any))));
     }
 }

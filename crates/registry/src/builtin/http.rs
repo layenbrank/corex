@@ -1,13 +1,13 @@
 //! `http.send` — HTTP client (curl / fetch style).
 
-use crate::builtin::util::{opt_bool, opt_i64, require_map, require_str};
 use crate::ActionRegistry;
+use crate::builtin::util::{opt_bool, opt_i64, require_map, require_str};
 use async_trait::async_trait;
 use corex_core::{
     Action, ActionCategory, ActionError, ActionMeta, ExecutionContext, ParamSchema, SchemaType,
     Value,
 };
-use reqwest::header::{HeaderName, HeaderValue, CONTENT_TYPE};
+use reqwest::header::{CONTENT_TYPE, HeaderName, HeaderValue};
 use reqwest::{Client, Method, RequestBuilder};
 use std::collections::BTreeMap;
 use std::sync::Arc;
@@ -25,21 +25,19 @@ impl Action for HttpSend {
             ActionCategory::Network,
         )
         .with_params(vec![
-            ParamSchema::new("url", SchemaType::Str, true)
-                .with_description("请求 URL"),
+            ParamSchema::new("url", SchemaType::Str, true).with_description("请求 URL"),
             ParamSchema::new("method", SchemaType::Str, false)
                 .with_default("GET")
                 .with_description("HTTP 方法：GET POST PUT PATCH DELETE HEAD OPTIONS …"),
             ParamSchema::new("params", SchemaType::Map, false)
                 .with_description("URL 查询参数（同 fetch URLSearchParams / axios params）"),
-            ParamSchema::new("query", SchemaType::Map, false)
-                .with_description("params 的别名"),
-            ParamSchema::new("headers", SchemaType::Map, false)
-                .with_description("请求头"),
+            ParamSchema::new("query", SchemaType::Map, false).with_description("params 的别名"),
+            ParamSchema::new("headers", SchemaType::Map, false).with_description("请求头"),
             ParamSchema::new("token", SchemaType::Str, false)
                 .with_description("Bearer Token 简写，等价 Authorization: Bearer <token>"),
-            ParamSchema::new("auth", SchemaType::Map, false)
-                .with_description("认证：type=bearer|basic|header + token 或 username/password 或 header/value"),
+            ParamSchema::new("auth", SchemaType::Map, false).with_description(
+                "认证：type=bearer|basic|header + token 或 username/password 或 header/value",
+            ),
             ParamSchema::new("body", SchemaType::Any, false)
                 .with_description("原始请求体（字符串或 bytes）"),
             ParamSchema::new("json", SchemaType::Map, false)
@@ -126,12 +124,10 @@ fn apply_headers(
         return Ok(builder);
     };
     for (key, value) in headers {
-        let name = HeaderName::from_bytes(key.as_bytes()).map_err(|_| {
-            ActionError::InvalidParams(format!("无效请求头名称: {key}"))
-        })?;
-        let val = HeaderValue::from_str(&value_to_string(value)).map_err(|_| {
-            ActionError::InvalidParams(format!("无效请求头值: {key}"))
-        })?;
+        let name = HeaderName::from_bytes(key.as_bytes())
+            .map_err(|_| ActionError::InvalidParams(format!("无效请求头名称: {key}")))?;
+        let val = HeaderValue::from_str(&value_to_string(value))
+            .map_err(|_| ActionError::InvalidParams(format!("无效请求头值: {key}")))?;
         builder = builder.header(name, val);
     }
     Ok(builder)
@@ -353,7 +349,11 @@ mod tests {
 
     #[tokio::test]
     async fn bearer_token_shorthand() {
-        let url = serve_once(Some("authorization: bearer secret-token"), r#"{"auth":true}"#).await;
+        let url = serve_once(
+            Some("authorization: bearer secret-token"),
+            r#"{"auth":true}"#,
+        )
+        .await;
         let mut ctx = ExecutionContext::default();
         let mut m = BTreeMap::new();
         m.insert("url".into(), Value::Str(url));
@@ -362,10 +362,7 @@ mod tests {
             .execute(Value::Map(m), &mut ctx)
             .await
             .expect("token send");
-        assert_eq!(
-            out.as_map().unwrap().get("ok"),
-            Some(&Value::Bool(true))
-        );
+        assert_eq!(out.as_map().unwrap().get("ok"), Some(&Value::Bool(true)));
     }
 
     #[tokio::test]
@@ -378,7 +375,10 @@ mod tests {
             let n = sock.read(&mut buf).await.unwrap_or(0);
             let req = String::from_utf8_lossy(&buf[..n]);
             assert!(req.contains("POST"), "expected POST: {req}");
-            assert!(req.contains(r#""name":"corex""#), "json body missing: {req}");
+            assert!(
+                req.contains(r#""name":"corex""#),
+                "json body missing: {req}"
+            );
             let body = r#"{"saved":true}"#;
             let resp = format!(
                 "HTTP/1.1 201 Created\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
@@ -413,8 +413,7 @@ mod tests {
         let mut m = BTreeMap::new();
         m.insert("json".into(), Value::Map(BTreeMap::new()));
         m.insert("body".into(), Value::Str("x".into()));
-        let err = apply_body(Client::new().get("http://example.com"), &m)
-            .expect_err("conflict");
+        let err = apply_body(Client::new().get("http://example.com"), &m).expect_err("conflict");
         assert!(err.to_string().contains("只能指定其一"));
     }
 }

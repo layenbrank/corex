@@ -40,10 +40,7 @@ pub enum CronCommands {
         follow: bool,
     },
     /// Send control message: run-now | status | stop
-    Send {
-        name: String,
-        msg: String,
-    },
+    Send { name: String, msg: String },
     /// Stop a cron job (use --force to kill in-flight builds)
     Stop {
         /// Directive name
@@ -84,9 +81,11 @@ pub async fn run(cmd: CronCommands, global_dir: Option<&std::path::Path>) -> Res
         }
         CronCommands::Ps => trigger_cmd::cmd_ps(JobKind::Cron),
         CronCommands::Attach { name } => trigger_cmd::cmd_attach(JobKind::Cron, &name).await,
-        CronCommands::Logs { name, lines, follow } => {
-            trigger_cmd::cmd_logs(JobKind::Cron, name.as_deref(), lines, follow).await
-        }
+        CronCommands::Logs {
+            name,
+            lines,
+            follow,
+        } => trigger_cmd::cmd_logs(JobKind::Cron, name.as_deref(), lines, follow).await,
         CronCommands::Send { name, msg } => trigger_cmd::cmd_send(JobKind::Cron, &name, &msg),
         CronCommands::Stop { name, force } => {
             trigger_cmd::cmd_stop(JobKind::Cron, &name, force).await

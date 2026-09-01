@@ -172,7 +172,9 @@ fn unix_boot_time_ms() -> Option<u64> {
 #[cfg(windows)]
 fn win_process_started_at_ms(pid: u32) -> Option<u64> {
     use windows::Win32::Foundation::{CloseHandle, FILETIME};
-    use windows::Win32::System::Threading::{GetProcessTimes, OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION};
+    use windows::Win32::System::Threading::{
+        GetProcessTimes, OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION,
+    };
 
     unsafe {
         let handle = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, pid).ok()?;
@@ -195,12 +197,12 @@ fn win_process_started_at_ms(pid: u32) -> Option<u64> {
 
 #[cfg(windows)]
 fn win_process_exe_path(pid: u32) -> Option<PathBuf> {
-    use windows::core::PWSTR;
     use windows::Win32::Foundation::{CloseHandle, MAX_PATH};
     use windows::Win32::System::Threading::{
-        OpenProcess, QueryFullProcessImageNameW, PROCESS_NAME_WIN32,
-        PROCESS_QUERY_LIMITED_INFORMATION, PROCESS_VM_READ,
+        OpenProcess, PROCESS_NAME_WIN32, PROCESS_QUERY_LIMITED_INFORMATION, PROCESS_VM_READ,
+        QueryFullProcessImageNameW,
     };
+    use windows::core::PWSTR;
 
     unsafe {
         let handle = OpenProcess(
@@ -211,20 +213,29 @@ fn win_process_exe_path(pid: u32) -> Option<PathBuf> {
         .ok()?;
         let mut buf = vec![0u16; MAX_PATH as usize];
         let mut size = buf.len() as u32;
-        let ok = QueryFullProcessImageNameW(handle, PROCESS_NAME_WIN32, PWSTR(buf.as_mut_ptr()), &mut size)
-            .is_ok();
+        let ok = QueryFullProcessImageNameW(
+            handle,
+            PROCESS_NAME_WIN32,
+            PWSTR(buf.as_mut_ptr()),
+            &mut size,
+        )
+        .is_ok();
         let _ = CloseHandle(handle);
         if !ok {
             return None;
         }
-        Some(PathBuf::from(String::from_utf16_lossy(&buf[..size as usize])))
+        Some(PathBuf::from(String::from_utf16_lossy(
+            &buf[..size as usize],
+        )))
     }
 }
 
 #[cfg(windows)]
 fn filetime_to_unix_ms(ft: &windows::Win32::Foundation::FILETIME) -> u64 {
     let ticks = ((ft.dwHighDateTime as u64) << 32) | (ft.dwLowDateTime as u64);
-    ticks.saturating_div(10_000).saturating_sub(11_644_473_600_000)
+    ticks
+        .saturating_div(10_000)
+        .saturating_sub(11_644_473_600_000)
 }
 
 /// Terminate `pid` and its child process tree.

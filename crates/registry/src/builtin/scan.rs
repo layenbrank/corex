@@ -2,9 +2,7 @@
 
 use crate::ActionRegistry;
 use async_trait::async_trait;
-use corex_core::{
-    Action, ActionCategory, ActionError, ActionMeta, ExecutionContext, Value,
-};
+use corex_core::{Action, ActionCategory, ActionError, ActionMeta, ExecutionContext, Value};
 use std::collections::BTreeMap;
 use std::sync::Arc;
 use sysinfo::System;
@@ -23,7 +21,8 @@ impl Action for ScanOs {
     }
 
     async fn execute(
-        &self, _params: Value,
+        &self,
+        _params: Value,
         _ctx: &mut ExecutionContext,
     ) -> Result<Value, ActionError> {
         let mut sys = System::new_all();

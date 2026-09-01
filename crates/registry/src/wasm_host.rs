@@ -32,10 +32,7 @@ impl WasiView for HostState {
 impl HostState {
     /// Build default WASI state (stdio inherited; no preopens yet).
     pub fn new() -> Self {
-        let ctx = WasiCtxBuilder::new()
-            .inherit_stdio()
-            .inherit_env()
-            .build();
+        let ctx = WasiCtxBuilder::new().inherit_stdio().inherit_env().build();
         Self {
             ctx,
             table: ResourceTable::new(),
@@ -59,9 +56,8 @@ impl WasmPluginHost {
     pub fn new() -> Result<Self, ActionError> {
         let mut config = Config::new();
         config.wasm_component_model(true);
-        let engine = Engine::new(&config).map_err(|e| {
-            ActionError::other(format!("wasmtime Engine 初始化失败: {e}"))
-        })?;
+        let engine = Engine::new(&config)
+            .map_err(|e| ActionError::other(format!("wasmtime Engine 初始化失败: {e}")))?;
         Ok(Self { engine })
     }
 
@@ -78,9 +74,8 @@ impl WasmPluginHost {
     /// Build a linker and attach WASI Preview 2 host functions.
     pub fn new_linker(&self) -> Result<Linker<HostState>, ActionError> {
         let mut linker = Linker::new(&self.engine);
-        add_to_linker_async(&mut linker).map_err(|e| {
-            ActionError::other(format!("WASI linker 配置失败: {e}"))
-        })?;
+        add_to_linker_async(&mut linker)
+            .map_err(|e| ActionError::other(format!("WASI linker 配置失败: {e}")))?;
         Ok(linker)
     }
 

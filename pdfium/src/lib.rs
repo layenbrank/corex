@@ -32,8 +32,8 @@ pub fn copy(manifest_dir: &Path) {
 
     // 与 Cargo.toml `pdfium_7881` 对齐；升绑定 feature 时同步改 VERSION 与此常量
     const PDFIUM_BIND_VERSION: &str = "7881";
-    let version_text = fs::read_to_string(&version)
-        .unwrap_or_else(|e| panic!("read {}: {e}", version.display()));
+    let version_text =
+        fs::read_to_string(&version).unwrap_or_else(|e| panic!("read {}: {e}", version.display()));
     let version_text = version_text.trim();
     if version_text != PDFIUM_BIND_VERSION {
         panic!(

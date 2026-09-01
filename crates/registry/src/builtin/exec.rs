@@ -1,10 +1,8 @@
 //! `exec.run` — script-file runner (facade over process_launch).
 
-use crate::builtin::process_launch::{
-    launch, launch_spec_from_command_params, TargetKind,
-};
-use crate::builtin::util::{confine_path, require_map, require_str};
 use crate::ActionRegistry;
+use crate::builtin::process_launch::{TargetKind, launch, launch_spec_from_command_params};
+use crate::builtin::util::{confine_path, require_map, require_str};
 use async_trait::async_trait;
 use corex_core::{
     Action, ActionCategory, ActionError, ActionMeta, ExecutionContext, ParamSchema, SchemaType,
@@ -116,10 +114,7 @@ mod tests {
         };
         let mut ctx = ExecutionContext::default();
         let mut m = BTreeMap::new();
-        m.insert(
-            "script".into(),
-            Value::Str(path.to_string_lossy().into()),
-        );
+        m.insert("script".into(), Value::Str(path.to_string_lossy().into()));
         m.insert("host".into(), Value::Str("auto".into()));
         let out = ExecRun
             .execute(Value::Map(m), &mut ctx)
@@ -161,10 +156,7 @@ mod tests {
         cfg.filesystem_roots = vec![root];
         let mut ctx = ExecutionContext::new(cfg);
         let mut m = BTreeMap::new();
-        m.insert(
-            "script".into(),
-            Value::Str(script.to_string_lossy().into()),
-        );
+        m.insert("script".into(), Value::Str(script.to_string_lossy().into()));
         let err = ExecRun
             .execute(Value::Map(m), &mut ctx)
             .await
@@ -204,10 +196,7 @@ mod tests {
         cfg.filesystem_roots = vec![root.clone()];
         let mut ctx = ExecutionContext::new(cfg);
         let mut m = BTreeMap::new();
-        m.insert(
-            "script".into(),
-            Value::Str(script.to_string_lossy().into()),
-        );
+        m.insert("script".into(), Value::Str(script.to_string_lossy().into()));
         m.insert("host".into(), Value::Str("auto".into()));
         let out = ExecRun
             .execute(Value::Map(m), &mut ctx)
@@ -249,14 +238,8 @@ mod tests {
         cfg.filesystem_roots = vec![root];
         let mut ctx = ExecutionContext::new(cfg);
         let mut m = BTreeMap::new();
-        m.insert(
-            "script".into(),
-            Value::Str(script.to_string_lossy().into()),
-        );
-        m.insert(
-            "cwd".into(),
-            Value::Str(outside.to_string_lossy().into()),
-        );
+        m.insert("script".into(), Value::Str(script.to_string_lossy().into()));
+        m.insert("cwd".into(), Value::Str(outside.to_string_lossy().into()));
         let err = ExecRun
             .execute(Value::Map(m), &mut ctx)
             .await

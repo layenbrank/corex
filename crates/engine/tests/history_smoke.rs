@@ -1,7 +1,7 @@
 //! History recording smoke test.
 
 use corex_core::{ExecutionContext, RuntimeConfig};
-use corex_engine::{ExecutionHistory, Pipeline, Directive};
+use corex_engine::{Directive, ExecutionHistory, Pipeline};
 use corex_registry::ActionRegistry;
 use std::sync::Arc;
 

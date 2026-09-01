@@ -1,7 +1,7 @@
 //! Windows named pipe transport via `interprocess` (newline-delimited JSON).
 
 use super::{Transport, TransportError};
-use crate::protocol::{Request, Response, RpcError, MAX_LINE_BYTES};
+use crate::protocol::{MAX_LINE_BYTES, Request, Response, RpcError};
 use async_trait::async_trait;
 use std::path::{Path, PathBuf};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
@@ -32,7 +32,7 @@ impl NamedPipeTransport {
         F: FnMut(Request) -> Fut + Send,
         Fut: std::future::Future<Output = Response> + Send,
     {
-        use interprocess::os::windows::named_pipe::{pipe_mode, PipeListenerOptions};
+        use interprocess::os::windows::named_pipe::{PipeListenerOptions, pipe_mode};
 
         // Default security: current-user accessible pipe (OS default for named pipes
         // created without an explicit SD is typically local-only).
@@ -60,19 +60,14 @@ impl NamedPipeTransport {
                 if line.len() > MAX_LINE_BYTES {
                     let resp = Response::error(
                         0,
-                        RpcError::invalid(format!(
-                            "请求超过最大长度 {MAX_LINE_BYTES} 字节"
-                        )),
+                        RpcError::invalid(format!("请求超过最大长度 {MAX_LINE_BYTES} 字节")),
                     );
                     write_response(&mut writer, &resp).await?;
                     continue;
                 }
                 let resp = match serde_json::from_str::<Request>(&line) {
                     Ok(req) => handler(req).await,
-                    Err(e) => Response::error(
-                        0,
-                        RpcError::invalid(format!("请求解析失败: {e}")),
-                    ),
+                    Err(e) => Response::error(0, RpcError::invalid(format!("请求解析失败: {e}"))),
                 };
                 write_response(&mut writer, &resp).await?;
 
@@ -106,8 +101,8 @@ impl Transport for NamedPipeTransport {
             .map_err(|e| TransportError::Connect(format!("{}: {e}", self.path.display())))?;
 
         let [reader_half, mut writer] = [&conn; 2];
-        let mut payload = serde_json::to_string(request)
-            .map_err(|e| TransportError::Protocol(e.to_string()))?;
+        let mut payload =
+            serde_json::to_string(request).map_err(|e| TransportError::Protocol(e.to_string()))?;
         if payload.len() > MAX_LINE_BYTES {
             return Err(TransportError::Protocol(format!(
                 "请求超过最大长度 {MAX_LINE_BYTES} 字节"

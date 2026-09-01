@@ -101,11 +101,11 @@ mod tests {
             PermissionKind::Capture
         );
         assert_eq!(permission_kind_for("keyring.get"), PermissionKind::Secret);
+        assert_eq!(permission_kind_for("template.render"), PermissionKind::None);
         assert_eq!(
-            permission_kind_for("template.render"),
-            PermissionKind::None
+            permission_kind_for("file.write"),
+            PermissionKind::Filesystem
         );
-        assert_eq!(permission_kind_for("file.write"), PermissionKind::Filesystem);
         assert_eq!(permission_kind_for("dir.read"), PermissionKind::Filesystem);
     }
 

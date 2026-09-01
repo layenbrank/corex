@@ -28,9 +28,8 @@ pub struct Directive {
 
 impl Directive {
     pub fn from_yaml_str(s: &str) -> Result<Self, corex_core::EngineError> {
-        serde_yml::from_str(s).map_err(|e| {
-            corex_core::EngineError::ParseError(format!("YAML 解析失败: {e}"))
-        })
+        serde_yml::from_str(s)
+            .map_err(|e| corex_core::EngineError::ParseError(format!("YAML 解析失败: {e}")))
     }
 
     pub fn from_yaml_file(path: &Path) -> Result<Self, corex_core::EngineError> {
@@ -136,13 +135,27 @@ pub struct ParallelStep {
 pub enum Condition {
     /// Truthy expression string, e.g. `"{{variables.enabled}}"`.
     Expr(String),
-    Eq { eq: [Value; 2] },
-    Ne { ne: [Value; 2] },
-    Gt { gt: [Value; 2] },
-    Lt { lt: [Value; 2] },
-    And { and: Vec<Condition> },
-    Or { or: Vec<Condition> },
-    Not { not: Box<Condition> },
+    Eq {
+        eq: [Value; 2],
+    },
+    Ne {
+        ne: [Value; 2],
+    },
+    Gt {
+        gt: [Value; 2],
+    },
+    Lt {
+        lt: [Value; 2],
+    },
+    And {
+        and: Vec<Condition>,
+    },
+    Or {
+        or: Vec<Condition>,
+    },
+    Not {
+        not: Box<Condition>,
+    },
 }
 
 /// How to react when a step fails.
@@ -223,9 +236,7 @@ impl Permissions {
 /// Validate that declared permissions cover all action steps (enterprise `--strict`).
 pub fn validate_permissions(directive: &Directive) -> Result<(), String> {
     if directive.permissions.is_unrestricted() {
-        return Err(
-            "strict: 必须声明 permissions（当前为 unrestricted / allow-all）".into(),
-        );
+        return Err("strict: 必须声明 permissions（当前为 unrestricted / allow-all）".into());
     }
     fn walk(steps: &[Step], perms: &Permissions, errs: &mut Vec<String>) {
         for step in steps {

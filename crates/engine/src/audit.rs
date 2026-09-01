@@ -173,10 +173,7 @@ impl ExecutionAudit {
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent)?;
         }
-        let _ = OpenOptions::new()
-            .create(true)
-            .append(true)
-            .open(&path)?;
+        let _ = OpenOptions::new().create(true).append(true).open(&path)?;
         Ok(Self { path })
     }
 
@@ -193,9 +190,8 @@ impl ExecutionAudit {
             .create(true)
             .append(true)
             .open(&self.path)?;
-        serde_json::to_writer(&mut file, entry).map_err(|e| {
-            std::io::Error::new(std::io::ErrorKind::Other, e)
-        })?;
+        serde_json::to_writer(&mut file, entry)
+            .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
         file.write_all(b"\n")?;
         file.flush()?;
         debug!(
@@ -288,13 +284,8 @@ mod tests {
         let err = ActionError::execution(msg);
         assert_eq!(err.ui_code(), Some("ui_login_pending"));
         assert_eq!(err.selector_hint(), Some("name=进入微信"));
-        let entry = AuditEntry::from_action(
-            "wechat",
-            "wait_login",
-            "ui.element.wait",
-            100,
-            Err(&err),
-        );
+        let entry =
+            AuditEntry::from_action("wechat", "wait_login", "ui.element.wait", 100, Err(&err));
         assert_eq!(entry.error_code.as_deref(), Some("ui_login_pending"));
         assert_eq!(entry.selector_hint.as_deref(), Some("name=进入微信"));
         assert_eq!(entry.ui_phase.as_deref(), Some("login"));

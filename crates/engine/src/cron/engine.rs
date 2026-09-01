@@ -1,15 +1,15 @@
 //! Cron job scheduling engine.
 
 use super::expr::parse_cron_expr;
-use super::tz::{parse_cron_timezone, ResolvedCronTz};
+use super::tz::{ResolvedCronTz, parse_cron_timezone};
 use crate::run::run_directive_file;
 use corex_core::{ActionStore, EngineError, RuntimeConfig};
 use std::collections::HashMap;
 use std::future::Future;
 use std::path::{Path, PathBuf};
 use std::pin::Pin;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use tokio::sync::Mutex;
 use tracing::{info, warn};
 use uuid::Uuid;
@@ -195,10 +195,7 @@ fn build_timezone_job<F>(
     run: F,
 ) -> Result<tokio_cron_scheduler::Job, EngineError>
 where
-    F: FnMut(
-            Uuid,
-            tokio_cron_scheduler::JobScheduler,
-        ) -> Pin<Box<dyn Future<Output = ()> + Send>>
+    F: FnMut(Uuid, tokio_cron_scheduler::JobScheduler) -> Pin<Box<dyn Future<Output = ()> + Send>>
         + Send
         + Sync
         + 'static,
@@ -206,9 +203,7 @@ where
     let job = match tz {
         ResolvedCronTz::Utc => tokio_cron_scheduler::Job::new_async_tz(expr, chrono::Utc, run),
         ResolvedCronTz::Local => tokio_cron_scheduler::Job::new_async_tz(expr, chrono::Local, run),
-        ResolvedCronTz::Fixed(offset) => {
-            tokio_cron_scheduler::Job::new_async_tz(expr, offset, run)
-        }
+        ResolvedCronTz::Fixed(offset) => tokio_cron_scheduler::Job::new_async_tz(expr, offset, run),
     };
     job.map_err(|e| EngineError::ParseError(format!("cron expr 无效: {e}")))
 }

@@ -27,16 +27,16 @@ pub fn evaluate_condition(
         Condition::Gt { gt } => {
             let a = Resolver::resolve_value(&gt[0], ctx)?;
             let b = Resolver::resolve_value(&gt[1], ctx)?;
-            cmp_num(&a, &b).map(|o| o.is_gt()).ok_or_else(|| {
-                EngineError::ConditionError("gt 需要数值比较".into())
-            })
+            cmp_num(&a, &b)
+                .map(|o| o.is_gt())
+                .ok_or_else(|| EngineError::ConditionError("gt 需要数值比较".into()))
         }
         Condition::Lt { lt } => {
             let a = Resolver::resolve_value(&lt[0], ctx)?;
             let b = Resolver::resolve_value(&lt[1], ctx)?;
-            cmp_num(&a, &b).map(|o| o.is_lt()).ok_or_else(|| {
-                EngineError::ConditionError("lt 需要数值比较".into())
-            })
+            cmp_num(&a, &b)
+                .map(|o| o.is_lt())
+                .ok_or_else(|| EngineError::ConditionError("lt 需要数值比较".into()))
         }
         Condition::And { and } => {
             for c in and {

@@ -17,9 +17,7 @@ pub fn watch_relative_path(event_path: &Path, watch_roots: &[String]) -> String 
             return String::new();
         }
         let prefix = format!("{root_prefix}/");
-        if event.len() >= prefix.len()
-            && event[..prefix.len()].eq_ignore_ascii_case(&prefix)
-        {
+        if event.len() >= prefix.len() && event[..prefix.len()].eq_ignore_ascii_case(&prefix) {
             return event[prefix.len()..].to_string();
         }
     }
@@ -94,17 +92,18 @@ mod tests {
             &[],
             &["**/node_modules/**".into()]
         ));
-        assert!(path_matches("src/main.rs", &[], &["**/node_modules/**".into()]));
+        assert!(path_matches(
+            "src/main.rs",
+            &[],
+            &["**/node_modules/**".into()]
+        ));
     }
 
     #[test]
     fn watch_relative_path_strips_root() {
         let root = r"C:\proj\iwellnew".to_string();
         let event = PathBuf::from(r"C:\proj\iwellnew\src\App.tsx");
-        assert_eq!(
-            watch_relative_path(&event, &[root]),
-            "src/App.tsx"
-        );
+        assert_eq!(watch_relative_path(&event, &[root]), "src/App.tsx");
     }
 
     #[test]
