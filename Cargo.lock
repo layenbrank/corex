@@ -772,7 +772,7 @@ dependencies = [
 
 [[package]]
 name = "corex"
-version = "5.3.1"
+version = "6.0.0"
 dependencies = [
  "anyhow",
  "clap",
@@ -791,7 +791,7 @@ dependencies = [
 
 [[package]]
 name = "corex-core"
-version = "5.3.1"
+version = "6.0.0"
 dependencies = [
  "async-trait",
  "serde",
@@ -803,7 +803,7 @@ dependencies = [
 
 [[package]]
 name = "corex-daemon"
-version = "5.3.1"
+version = "6.0.0"
 dependencies = [
  "anyhow",
  "clap",
@@ -823,7 +823,7 @@ dependencies = [
 
 [[package]]
 name = "corex-engine"
-version = "5.3.1"
+version = "6.0.0"
 dependencies = [
  "async-trait",
  "chrono",
@@ -850,7 +850,7 @@ dependencies = [
 
 [[package]]
 name = "corex-ipc"
-version = "5.3.1"
+version = "6.0.0"
 dependencies = [
  "async-trait",
  "corex-core",
@@ -865,7 +865,7 @@ dependencies = [
 
 [[package]]
 name = "corex-plugin-sdk"
-version = "5.3.1"
+version = "6.0.0"
 dependencies = [
  "serde",
  "serde_json",
@@ -873,7 +873,7 @@ dependencies = [
 
 [[package]]
 name = "corex-registry"
-version = "5.3.1"
+version = "6.0.0"
 dependencies = [
  "arboard",
  "async-trait",
@@ -3214,7 +3214,7 @@ checksum = "57c0d7b74b563b49d38dae00a0c37d4d6de9b432382b2892f0574ddcae73fd0a"
 
 [[package]]
 name = "pdfium"
-version = "5.3.1"
+version = "6.0.0"
 
 [[package]]
 name = "percent-encoding"
