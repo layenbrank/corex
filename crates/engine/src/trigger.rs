@@ -4,14 +4,10 @@ use crate::definition::Trigger;
 use serde::{Deserialize, Serialize, Serializer};
 
 pub const DEBOUNCE_MS: u64 = 300;
-pub const COOLDOWN_MS: u64 = 1_000;
+pub const THROTTLE_MS: u64 = 1_000;
 
 /// Default excludes (Vite-style): always skip VCS, deps, and test output unless overridden.
-pub const WATCH_EXCLUDES: &[&str] = &[
-    "**/.git/**",
-    "**/node_modules/**",
-    "**/test-results/**",
-];
+pub const WATCH_EXCLUDES: &[&str] = &["**/.git/**", "**/node_modules/**", "**/test-results/**"];
 
 /// Parsed watch trigger (paths may include files or directories).
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -19,8 +15,10 @@ pub struct WatchConfig {
     pub paths: Vec<String>,
     pub includes: Vec<String>,
     pub excludes: Vec<String>,
+    /// FS quiet-period debounce (`notify_debouncer_full`), not lodash debounce.
     pub debounce_ms: u64,
-    pub cooldown_ms: u64,
+    /// Throttle interval for pipeline runs (lodash-like leading+trailing).
+    pub throttle_ms: u64,
     #[serde(default)]
     pub immediate: bool,
     #[serde(default)]
@@ -52,6 +50,9 @@ struct RawTrigger {
     excludes: Option<Vec<String>>,
     #[serde(default)]
     debounce_ms: Option<u64>,
+    #[serde(default)]
+    throttle_ms: Option<u64>,
+    /// Removed field — present only so we can hard-fail (no alias).
     #[serde(default)]
     cooldown_ms: Option<u64>,
     #[serde(default)]
@@ -107,7 +108,7 @@ impl Serialize for Trigger {
                 s.serialize_field("includes", &w.includes)?;
                 s.serialize_field("excludes", &w.excludes)?;
                 s.serialize_field("debounce_ms", &w.debounce_ms)?;
-                s.serialize_field("cooldown_ms", &w.cooldown_ms)?;
+                s.serialize_field("throttle_ms", &w.throttle_ms)?;
                 s.serialize_field("immediate", &w.immediate)?;
                 s.serialize_field("poll", &w.poll)?;
                 s.serialize_field("events", &w.events)?;
@@ -147,14 +148,23 @@ impl<'de> serde::Deserialize<'de> for Trigger {
 }
 
 fn parse_watch_fields(raw: RawTrigger) -> Result<WatchConfig, String> {
+    if raw.cooldown_ms.is_some() {
+        return Err(
+            "watch.cooldown_ms 已移除，请改用 throttle_ms（无兼容 alias）".into(),
+        );
+    }
     let paths = raw.paths.unwrap_or_default();
     if paths.is_empty() {
         return Err("watch 需要 paths".into());
     }
     let debounce_ms = raw.debounce_ms.unwrap_or(DEBOUNCE_MS);
-    let cooldown_ms = raw
-        .cooldown_ms
-        .unwrap_or_else(|| debounce_ms.saturating_mul(2).max(COOLDOWN_MS));
+    let throttle_ms = match raw.throttle_ms {
+        Some(0) => {
+            return Err("watch.throttle_ms 必须大于 0".into());
+        }
+        Some(v) => v,
+        None => debounce_ms.saturating_mul(2).max(THROTTLE_MS),
+    };
     let mut excludes = raw.excludes.unwrap_or_default();
     for pat in WATCH_EXCLUDES {
         if !excludes.iter().any(|e| e == pat) {
@@ -166,14 +176,16 @@ fn parse_watch_fields(raw: RawTrigger) -> Result<WatchConfig, String> {
         includes: raw.includes.unwrap_or_default(),
         excludes,
         debounce_ms,
-        cooldown_ms,
+        throttle_ms,
         immediate: raw.immediate.unwrap_or(false),
         poll: raw.poll.unwrap_or(false),
         events: raw.events.unwrap_or_default(),
     })
 }
 
-pub fn find_watch_trigger(triggers: &[Trigger]) -> Result<Option<WatchConfig>, corex_core::EngineError> {
+pub fn find_watch_trigger(
+    triggers: &[Trigger],
+) -> Result<Option<WatchConfig>, corex_core::EngineError> {
     let mut iter = triggers.iter().filter_map(|t| t.parse_watch());
     let first = iter.next();
     if iter.next().is_some() {
@@ -184,7 +196,9 @@ pub fn find_watch_trigger(triggers: &[Trigger]) -> Result<Option<WatchConfig>, c
     Ok(first)
 }
 
-pub fn find_cron_trigger(triggers: &[Trigger]) -> Result<Option<CronConfig>, corex_core::EngineError> {
+pub fn find_cron_trigger(
+    triggers: &[Trigger],
+) -> Result<Option<CronConfig>, corex_core::EngineError> {
     let mut iter = triggers.iter().filter_map(|t| t.parse_cron());
     let first = iter.next();
     if iter.next().is_some() {
@@ -218,6 +232,87 @@ triggers:
         let w = find_watch_trigger(&d.triggers).unwrap().unwrap();
         assert_eq!(w.paths, vec!["./src"]);
         assert_eq!(w.debounce_ms, 500);
+        // Default throttle: max(debounce*2, 1000)
+        assert_eq!(w.throttle_ms, 1000);
+    }
+
+    #[test]
+    fn default_throttle_ms_is_max_debounce_times_two_or_1000() {
+        let yaml_small = r#"
+name: t
+steps:
+  - id: a
+    action: template.render
+    params:
+      template: ok
+triggers:
+  - type: watch
+    paths: ["./src"]
+    debounce_ms: 300
+"#;
+        let w = find_watch_trigger(&Directive::from_yaml_str(yaml_small).unwrap().triggers)
+            .unwrap()
+            .unwrap();
+        assert_eq!(w.throttle_ms, 1000);
+
+        let yaml_large = r#"
+name: t
+steps:
+  - id: a
+    action: template.render
+    params:
+      template: ok
+triggers:
+  - type: watch
+    paths: ["./src"]
+    debounce_ms: 800
+"#;
+        let w = find_watch_trigger(&Directive::from_yaml_str(yaml_large).unwrap().triggers)
+            .unwrap()
+            .unwrap();
+        assert_eq!(w.throttle_ms, 1600);
+    }
+
+    #[test]
+    fn reject_cooldown_ms_explicitly() {
+        let yaml = r#"
+name: t
+steps:
+  - id: a
+    action: template.render
+    params:
+      template: ok
+triggers:
+  - type: watch
+    paths: ["./src"]
+    cooldown_ms: 1000
+"#;
+        let err = Directive::from_yaml_str(yaml).unwrap_err().to_string();
+        assert!(
+            err.contains("cooldown_ms") && err.contains("throttle_ms"),
+            "expected hard fail mentioning cooldown_ms → throttle_ms, got: {err}"
+        );
+    }
+
+    #[test]
+    fn reject_throttle_ms_zero() {
+        let yaml = r#"
+name: t
+steps:
+  - id: a
+    action: template.render
+    params:
+      template: ok
+triggers:
+  - type: watch
+    paths: ["./src"]
+    throttle_ms: 0
+"#;
+        let err = Directive::from_yaml_str(yaml).unwrap_err().to_string();
+        assert!(
+            err.contains("throttle_ms") && err.contains("大于 0"),
+            "expected throttle_ms > 0 error, got: {err}"
+        );
     }
 
     #[test]
@@ -278,7 +373,11 @@ triggers:
 "#;
         let d = Directive::from_yaml_str(yaml).unwrap();
         assert_eq!(
-            find_watch_trigger(&d.triggers).unwrap().unwrap().paths.len(),
+            find_watch_trigger(&d.triggers)
+                .unwrap()
+                .unwrap()
+                .paths
+                .len(),
             2
         );
     }

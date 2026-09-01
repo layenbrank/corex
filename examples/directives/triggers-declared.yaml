@@ -20,7 +20,7 @@ triggers:
   - type: watch
     paths: ["./src"]
     debounce_ms: 500
-    cooldown_ms: 1200
+    throttle_ms: 1200
 
 steps:
   - id: doc

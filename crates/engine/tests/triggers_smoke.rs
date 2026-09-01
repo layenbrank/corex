@@ -1,6 +1,6 @@
 //! Trigger parsing and cron expr smoke tests.
 
-use corex_engine::{find_cron_trigger, find_watch_trigger, parse_cron_expr, Directive};
+use corex_engine::{Directive, find_cron_trigger, find_watch_trigger, parse_cron_expr};
 
 #[test]
 fn cron_expr_five_to_six_fields() {
@@ -25,6 +25,25 @@ triggers:
     let w = find_watch_trigger(&d.triggers).unwrap().unwrap();
     assert_eq!(w.paths, vec!["./src"]);
     assert_eq!(w.debounce_ms, 500);
+    assert_eq!(w.throttle_ms, 1000); // max(500*2, 1000)
+}
+
+#[test]
+fn reject_watch_cooldown_ms() {
+    let yaml = r#"
+name: t
+steps:
+  - id: a
+    action: template.render
+    params:
+      template: ok
+triggers:
+  - type: watch
+    paths: ["./src"]
+    cooldown_ms: 2000
+"#;
+    let err = Directive::from_yaml_str(yaml).unwrap_err().to_string();
+    assert!(err.contains("cooldown_ms") && err.contains("throttle_ms"));
 }
 
 #[test]
@@ -48,7 +67,7 @@ triggers:
 
 #[test]
 fn cron_trigger_timezone() {
-    use corex_engine::{effective_cron_timezone, parse_cron_timezone, ResolvedCronTz};
+    use corex_engine::{ResolvedCronTz, effective_cron_timezone, parse_cron_timezone};
     let yaml = r#"
 name: t
 steps:

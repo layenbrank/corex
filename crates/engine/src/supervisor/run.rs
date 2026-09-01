@@ -9,9 +9,9 @@ pub async fn supervise_watch_job(
     immediate_cli: bool,
 ) -> Result<(), corex_core::EngineError> {
     use crate::definition::Directive;
-    use crate::supervisor::resolve::resolve_watch_config;
     use crate::supervisor::process::kill_process_tree;
-    use crate::supervisor::{poll_control, ControlMsg, JobKind, JobMeta};
+    use crate::supervisor::resolve::resolve_watch_config;
+    use crate::supervisor::{ControlMsg, JobKind, JobMeta, poll_control};
     use crate::trigger::find_watch_trigger;
     use crate::watch::{WatchEngine, WatchJobSpec};
     use std::time::Duration;
@@ -20,10 +20,7 @@ pub async fn supervise_watch_job(
     let directive = Directive::from_yaml_file(&meta.directive_path)?;
     let engine = WatchEngine::new(data_dir.to_path_buf(), store, runtime.clone());
     let watch_raw = find_watch_trigger(&directive.triggers)?.ok_or_else(|| {
-        corex_core::EngineError::other(format!(
-            "指令 {} 未声明 watch 触发器",
-            meta.directive_name
-        ))
+        corex_core::EngineError::other(format!("指令 {} 未声明 watch 触发器", meta.directive_name))
     })?;
     let mut watch = resolve_watch_config(&directive, runtime, watch_raw)?;
     if immediate_cli {
@@ -38,7 +35,9 @@ pub async fn supervise_watch_job(
         })
         .await?;
     if watch.immediate {
-        let _ = engine.run_now(&meta.id).await;
+        if let Err(e) = engine.run_now(&meta.id).await {
+            tracing::warn!(job = %meta.id, error = %e, "watch immediate run_now 失败");
+        }
     }
     let job_dir = JobMeta::job_dir(data_dir, JobKind::Watch, &meta.id);
     info!(job = %meta.id, "watch supervisor 已启动");
@@ -57,7 +56,9 @@ pub async fn supervise_watch_job(
                     break;
                 }
                 ControlMsg::RunNow => {
-                    let _ = engine.run_now(&meta.id).await;
+                    if let Err(e) = engine.run_now(&meta.id).await {
+                        tracing::warn!(job = %meta.id, error = %e, "watch RUN_NOW 失败");
+                    }
                 }
                 ControlMsg::Status => {
                     let jobs = engine.list_jobs().await;
@@ -79,13 +80,11 @@ pub async fn supervise_cron_job(
     runtime: corex_core::RuntimeConfig,
     data_dir: &std::path::Path,
 ) -> Result<(), corex_core::EngineError> {
-    use crate::cron::{
-        bind_cron_engine, effective_cron_timezone, CronEngine, CronJobSpec,
-    };
+    use crate::cron::{CronEngine, CronJobSpec, bind_cron_engine, effective_cron_timezone};
     use crate::definition::Directive;
-    use crate::supervisor::resolve::resolve_cron_expr;
     use crate::supervisor::process::kill_process_tree;
-    use crate::supervisor::{poll_control, ControlMsg, JobKind, JobMeta};
+    use crate::supervisor::resolve::resolve_cron_expr;
+    use crate::supervisor::{ControlMsg, JobKind, JobMeta, poll_control};
     use crate::trigger::find_cron_trigger;
     use std::sync::Arc;
     use std::time::Duration;
@@ -95,10 +94,7 @@ pub async fn supervise_cron_job(
     let engine = CronEngine::new(data_dir.to_path_buf(), store, runtime.clone()).await?;
     bind_cron_engine(Arc::clone(&engine));
     let cron = find_cron_trigger(&directive.triggers)?.ok_or_else(|| {
-        corex_core::EngineError::other(format!(
-            "指令 {} 未声明 cron 触发器",
-            meta.directive_name
-        ))
+        corex_core::EngineError::other(format!("指令 {} 未声明 cron 触发器", meta.directive_name))
     })?;
     let expr = resolve_cron_expr(&directive, runtime.clone(), &cron.expr)?;
     let timezone = effective_cron_timezone(cron.timezone.as_deref(), &runtime.cron_timezone);

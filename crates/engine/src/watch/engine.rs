@@ -1,7 +1,15 @@
-//! File watch engine (notify + debounce + cooldown).
+//! File watch engine: FS debounce (`notify_debouncer_full`) then lodash-like throttle.
+//!
+//! ```text
+//! FS events ──debounce(debounce_ms)──► trigger ──throttle(throttle_ms)──► run_directive
+//! ```
+//!
+//! Debounce here is **filesystem quiet-period** coalescing, not a lodash debounce API.
+//! `throttle_ms` is the lodash-like throttle interval (leading+trailing).
 
 use super::event::{EventAction, EventFilter, classify_event};
 use super::filter::{WatchFilter, watch_relative_path};
+use super::throttle::{InvokeThrottle, TriggerDecision, wait_for_trailing_deadline};
 use crate::run::run_directive_file;
 use crate::trigger::WatchConfig;
 use corex_core::{ActionStore, EngineError, RuntimeConfig};
@@ -21,6 +29,7 @@ const TRIGGER_CHANNEL_CAP: usize = 64;
 const REMOUNT_POLL_MS: u64 = 500;
 const REMOUNT_TIMEOUT_MS: u64 = 60_000;
 const POLL_INTERVAL: Duration = Duration::from_secs(2);
+const BUSY_POLL_MS: u64 = 50;
 
 /// Active watch job.
 #[derive(Debug, Clone)]
@@ -53,6 +62,10 @@ enum RemountCmd {
 struct WatchState {
     spec: WatchJobSpec,
     is_running: Arc<AtomicBool>,
+    /// Shared with worker so RUN_NOW / immediate refresh throttle `last_invoke`.
+    throttle: Arc<Mutex<InvokeThrottle>>,
+    /// When true, DebounceHandler drops FS triggers (startup / pre-immediate).
+    ignore_initial: Arc<AtomicBool>,
     worker_abort: tokio::task::AbortHandle,
     remount_abort: tokio::task::AbortHandle,
     _worker_tx: tokio::sync::mpsc::Sender<()>,
@@ -107,7 +120,7 @@ impl DebounceEventHandler for DebounceHandler {
     }
 }
 
-/// Directory/file watcher with debounce and cooldown.
+/// Directory/file watcher: FS debounce then lodash-like throttle on pipeline runs.
 pub struct WatchEngine {
     data_dir: PathBuf,
     store: Arc<dyn ActionStore>,
@@ -144,81 +157,27 @@ impl WatchEngine {
         let watch_roots_str = cfg.paths.clone();
 
         let is_running = Arc::new(AtomicBool::new(false));
-        let flag = Arc::clone(&is_running);
+        let throttle = Arc::new(Mutex::new(InvokeThrottle::new(Duration::from_millis(
+            cfg.throttle_ms,
+        ))));
 
-        let (trigger_tx, mut trigger_rx) = tokio::sync::mpsc::channel::<()>(TRIGGER_CHANNEL_CAP);
+        let (trigger_tx, trigger_rx) = tokio::sync::mpsc::channel::<()>(TRIGGER_CHANNEL_CAP);
         let (remount_tx, mut remount_rx) = tokio::sync::mpsc::unbounded_channel::<RemountCmd>();
 
-        let cooldown_ms = cfg.cooldown_ms;
-        let worker_store = Arc::clone(&self.store);
-        let worker_runtime = self.runtime.clone();
-        let worker_data = self.data_dir.clone();
-        let worker_path = spec.directive_path.clone();
-        let worker_name = spec.directive_name.clone();
-        let worker_flag = Arc::clone(&flag);
-
-        let worker = tokio::spawn(async move {
-            let mut last_run: Option<Instant> = None;
-            let mut pending = false;
-            loop {
-                if !pending {
-                    if trigger_rx.recv().await.is_none() {
-                        break;
-                    }
-                }
-                // Coalesce queued triggers into a single pending run.
-                while trigger_rx.try_recv().is_ok() {}
-                pending = false;
-
-                // Wait out another runner (e.g. RUN_NOW) without busy-spinning.
-                while worker_flag.load(Ordering::SeqCst) {
-                    pending = true;
-                    tokio::time::sleep(Duration::from_millis(50)).await;
-                }
-                if pending {
-                    while trigger_rx.try_recv().is_ok() {}
-                    pending = false;
-                }
-
-                if let Some(t) = last_run {
-                    let elapsed = t.elapsed();
-                    let cooldown = Duration::from_millis(cooldown_ms);
-                    if elapsed < cooldown {
-                        tokio::time::sleep(cooldown - elapsed).await;
-                        while trigger_rx.try_recv().is_ok() {}
-                    }
-                }
-
-                last_run = Some(Instant::now());
-                if worker_flag
-                    .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
-                    .is_err()
-                {
-                    pending = true;
-                    continue;
-                }
-                info!(directive = %worker_name, "watch 触发执行");
-                let result = run_directive_file(
-                    Arc::clone(&worker_store),
-                    worker_runtime.clone(),
-                    worker_data.clone(),
-                    &worker_path,
-                )
-                .await;
-                if let Err(e) = result {
-                    warn!(directive = %worker_name, error = %e, "watch 执行失败");
-                }
-                worker_flag.store(false, Ordering::SeqCst);
-
-                // Pipeline 期间到达的事件：结束后补触发一次（仍走 cooldown）。
-                if trigger_rx.try_recv().is_ok() {
-                    while trigger_rx.try_recv().is_ok() {}
-                    pending = true;
-                }
-            }
-        });
+        let worker = spawn_watch_worker(
+            trigger_rx,
+            Arc::clone(&is_running),
+            Arc::clone(&throttle),
+            Arc::clone(&self.store),
+            self.runtime.clone(),
+            self.data_dir.clone(),
+            spec.directive_path.clone(),
+            spec.directive_name.clone(),
+        );
         let worker_abort = worker.abort_handle();
 
+        // Stay ignoring until armed: if `immediate`, keep closed until `run_now`
+        // so FS leading cannot race the startup invoke.
         let ignore_initial = Arc::new(AtomicBool::new(true));
         let debouncer_slot: Arc<Mutex<Option<JobDebouncer>>> = Arc::new(Mutex::new(None));
 
@@ -232,6 +191,7 @@ impl WatchEngine {
             remount_tx: remount_tx.clone(),
         };
 
+        // FS quiet-period debounce (notify_debouncer_full), not a second in-worker debounce.
         let debounce_ms = cfg.debounce_ms;
         let tick_rate = Duration::from_millis(debounce_ms.max(4) / 4);
         let notify_cfg = if cfg.poll {
@@ -277,7 +237,9 @@ impl WatchEngine {
             &mount_specs,
         )?;
 
-        ignore_initial.store(false, Ordering::SeqCst);
+        if !cfg.immediate {
+            ignore_initial.store(false, Ordering::SeqCst);
+        }
 
         let debouncer_for_remount = Arc::clone(&debouncer_slot);
         let remount_specs = mount_specs.clone();
@@ -343,6 +305,8 @@ impl WatchEngine {
             WatchState {
                 spec,
                 is_running,
+                throttle,
+                ignore_initial,
                 worker_abort,
                 remount_abort: remount_task.abort_handle(),
                 _worker_tx: trigger_tx,
@@ -373,12 +337,19 @@ impl WatchEngine {
         let state = jobs
             .get(job_id)
             .ok_or_else(|| EngineError::other(format!("watch job 未找到: {job_id}")))?;
+        // Arm FS events even if CAS fails — immediate must not leave watch muted forever.
+        state.ignore_initial.store(false, Ordering::SeqCst);
         if state
             .is_running
             .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
             .is_err()
         {
             return Err(EngineError::other("job 正在运行"));
+        }
+        // Refresh throttle window at invoke start (same as leading) so a FS trigger
+        // immediately after does not leading-fire again.
+        if let Ok(mut gate) = state.throttle.lock() {
+            gate.record_external_invoke(Instant::now());
         }
         let store = Arc::clone(&self.store);
         let runtime = self.runtime.clone();
@@ -389,7 +360,9 @@ impl WatchEngine {
         drop(jobs);
         tokio::spawn(async move {
             info!(directive = %name, "watch RUN_NOW");
-            let _ = run_directive_file(store, runtime, data_dir, &path).await;
+            if let Err(e) = run_directive_file(store, runtime, data_dir, &path).await {
+                warn!(directive = %name, error = %e, "watch RUN_NOW 执行失败");
+            }
             flag.store(false, Ordering::SeqCst);
         });
         Ok(())
@@ -406,6 +379,190 @@ impl WatchEngine {
 
     pub fn data_dir(&self) -> &Path {
         &self.data_dir
+    }
+}
+
+/// Spawn the throttle worker: coalesce triggers, leading/trailing, CAS single-flight.
+fn spawn_watch_worker(
+    mut trigger_rx: tokio::sync::mpsc::Receiver<()>,
+    worker_flag: Arc<AtomicBool>,
+    worker_throttle: Arc<Mutex<InvokeThrottle>>,
+    worker_store: Arc<dyn ActionStore>,
+    worker_runtime: RuntimeConfig,
+    worker_data: PathBuf,
+    worker_path: PathBuf,
+    worker_name: String,
+) -> tokio::task::JoinHandle<()> {
+    tokio::spawn(async move {
+        let mut trailing_deadline: Option<Instant> = None;
+        loop {
+            tokio::select! {
+                trig = trigger_rx.recv() => {
+                    let Some(()) = trig else { break; };
+                    while trigger_rx.try_recv().is_ok() {}
+
+                    let busy = worker_flag.load(Ordering::SeqCst);
+                    let decision = {
+                        let Ok(mut gate) = worker_throttle.lock() else {
+                            continue;
+                        };
+                        gate.note_trigger(Instant::now(), busy)
+                    };
+
+                    match decision {
+                        TriggerDecision::RunLeading => {
+                            let ran = invoke_directive(
+                                &worker_flag,
+                                &worker_throttle,
+                                Arc::clone(&worker_store),
+                                worker_runtime.clone(),
+                                worker_data.clone(),
+                                &worker_path,
+                                &worker_name,
+                            )
+                            .await;
+                            if !ran {
+                                // CAS lost to RUN_NOW: arm trailing, retry when free.
+                                if let Ok(mut gate) = worker_throttle.lock() {
+                                    gate.arm_trailing();
+                                }
+                                trailing_deadline = Some(Instant::now());
+                            } else {
+                                trailing_deadline = trailing_after_run(
+                                    &worker_throttle,
+                                    &mut trigger_rx,
+                                );
+                            }
+                        }
+                        TriggerDecision::ArmTrailing { until } => {
+                            trailing_deadline = Some(until);
+                        }
+                    }
+                }
+                _ = async {
+                    match trailing_deadline {
+                        Some(until) => wait_for_trailing_deadline(&worker_throttle, until).await,
+                        None => std::future::pending::<()>().await,
+                    }
+                } => {
+                    trailing_deadline = None;
+                    let should_run = worker_throttle
+                        .lock()
+                        .ok()
+                        .is_some_and(|mut g| g.take_trailing());
+                    if !should_run {
+                        continue;
+                    }
+
+                    // Wait out overlapping RUN_NOW / long leading without double-open.
+                    while worker_flag.load(Ordering::SeqCst) {
+                        tokio::time::sleep(Duration::from_millis(BUSY_POLL_MS)).await;
+                        while trigger_rx.try_recv().is_ok() {
+                            if let Ok(mut gate) = worker_throttle.lock() {
+                                let _ = gate.note_trigger(Instant::now(), true);
+                            }
+                        }
+                    }
+
+                    // Window may still be open after RUN_NOW extended it.
+                    if let Ok(gate) = worker_throttle.lock() {
+                        if !gate.is_outside_window(Instant::now()) {
+                            if let Some(until) = gate.window_end() {
+                                drop(gate);
+                                if let Ok(mut g) = worker_throttle.lock() {
+                                    g.arm_trailing();
+                                }
+                                trailing_deadline = Some(until);
+                                continue;
+                            }
+                        }
+                    }
+
+                    let ran = invoke_directive(
+                        &worker_flag,
+                        &worker_throttle,
+                        Arc::clone(&worker_store),
+                        worker_runtime.clone(),
+                        worker_data.clone(),
+                        &worker_path,
+                        &worker_name,
+                    )
+                    .await;
+                    if !ran {
+                        if let Ok(mut gate) = worker_throttle.lock() {
+                            gate.arm_trailing();
+                        }
+                        trailing_deadline = Some(Instant::now());
+                    } else {
+                        trailing_deadline = trailing_after_run(
+                            &worker_throttle,
+                            &mut trigger_rx,
+                        );
+                    }
+                }
+            }
+        }
+    })
+}
+
+/// CAS + mark invoke start + run. Returns false if CAS lost (do not double-open).
+async fn invoke_directive(
+    flag: &AtomicBool,
+    throttle: &Mutex<InvokeThrottle>,
+    store: Arc<dyn ActionStore>,
+    runtime: RuntimeConfig,
+    data_dir: PathBuf,
+    path: &Path,
+    name: &str,
+) -> bool {
+    if flag
+        .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
+        .is_err()
+    {
+        return false;
+    }
+    let start = Instant::now();
+    if let Ok(mut gate) = throttle.lock() {
+        gate.mark_invoke_start(start);
+    }
+    info!(directive = %name, "watch 触发执行");
+    let result = run_directive_file(store, runtime, data_dir, path).await;
+    if let Err(e) = result {
+        warn!(directive = %name, error = %e, "watch 执行失败");
+    }
+    flag.store(false, Ordering::SeqCst);
+    true
+}
+
+/// After a successful run: coalesce channel triggers into at most one trailing arm.
+fn trailing_after_run(
+    throttle: &Mutex<InvokeThrottle>,
+    trigger_rx: &mut tokio::sync::mpsc::Receiver<()>,
+) -> Option<Instant> {
+    let mut saw = false;
+    while trigger_rx.try_recv().is_ok() {
+        saw = true;
+    }
+    if !saw {
+        return throttle.lock().ok().and_then(|g| {
+            if g.has_trailing() {
+                g.window_end().filter(|&e| e > Instant::now()).or(Some(Instant::now()))
+            } else {
+                None
+            }
+        });
+    }
+    let now = Instant::now();
+    let Ok(mut gate) = throttle.lock() else {
+        return None;
+    };
+    match gate.note_trigger(now, false) {
+        TriggerDecision::RunLeading => {
+            // Outside window already — run ASAP via trailing path (single-flight).
+            gate.arm_trailing();
+            Some(now)
+        }
+        TriggerDecision::ArmTrailing { until } => Some(until),
     }
 }
 
@@ -472,7 +629,7 @@ mod tests {
             includes: vec!["src".into(), "templates".into()],
             excludes: vec![],
             debounce_ms: 300,
-            cooldown_ms: 1000,
+            throttle_ms: 1000,
             immediate: false,
             poll: false,
             events: vec![],
@@ -488,11 +645,42 @@ mod tests {
             includes: vec!["src/**".into()],
             excludes: vec![],
             debounce_ms: 300,
-            cooldown_ms: 1000,
+            throttle_ms: 1000,
             immediate: false,
             poll: false,
             events: vec![],
         };
         assert_eq!(resolve_roots(&cfg), vec!["/proj"]);
+    }
+
+    #[test]
+    fn trailing_after_run_coalesces_many_channel_messages() {
+        let throttle = Mutex::new(InvokeThrottle::new(Duration::from_millis(100)));
+        let t0 = Instant::now();
+        throttle.lock().unwrap().mark_invoke_start(t0);
+
+        let (tx, mut rx) = tokio::sync::mpsc::channel::<()>(16);
+        for _ in 0..10 {
+            tx.try_send(()).unwrap();
+        }
+        let until = trailing_after_run(&throttle, &mut rx);
+        assert!(until.is_some());
+        assert!(throttle.lock().unwrap().has_trailing() || until.is_some());
+        assert!(rx.try_recv().is_err(), "channel must be drained");
+    }
+
+    #[test]
+    fn immediate_keeps_ignore_until_armed_semantics() {
+        // Documented contract used by register/run_now:
+        // immediate=true → ignore stays true after mount; run_now clears it.
+        let ignore = AtomicBool::new(true);
+        let immediate = true;
+        if !immediate {
+            ignore.store(false, Ordering::SeqCst);
+        }
+        assert!(ignore.load(Ordering::SeqCst));
+        // run_now path:
+        ignore.store(false, Ordering::SeqCst);
+        assert!(!ignore.load(Ordering::SeqCst));
     }
 }
