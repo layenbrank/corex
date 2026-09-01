@@ -1,5 +1,6 @@
 //! Append-only JSONL execution history under the data directory.
 
+use corex_core::EngineError;
 use serde::{Deserialize, Serialize};
 use std::fs::OpenOptions;
 use std::io::Write;
@@ -30,7 +31,7 @@ impl HistoryEntry {
         directive: impl Into<String>,
         started: SystemTime,
         ended: SystemTime,
-        result: Result<(), String>,
+        result: Result<(), &EngineError>,
     ) -> Self {
         let started_at_ms = system_time_ms(started);
         let ended_at_ms = system_time_ms(ended);
@@ -40,7 +41,7 @@ impl HistoryEntry {
             .as_millis() as u64;
         let (ok, error) = match result {
             Ok(()) => (true, None),
-            Err(e) => (false, Some(sanitize_history_error(&e))),
+            Err(e) => (false, Some(sanitize_history_error(e))),
         };
         Self {
             directive: directive.into(),
@@ -56,33 +57,16 @@ impl HistoryEntry {
 /// Max length of history error text (after path redaction).
 const HISTORY_ERROR_MAX: usize = 200;
 
-/// Classify + redact paths + truncate for directive-level history.
+/// Classify from [`EngineError`] + redact paths + truncate.
 /// Full detail remains in `audit.jsonl` / process logs.
-pub fn sanitize_history_error(msg: &str) -> String {
-    let kind = classify_history_error(msg);
-    let redacted = redact_path_like(msg);
+pub fn sanitize_history_error(err: &EngineError) -> String {
+    let kind = err.kind();
+    let redacted = redact_path_like(&err.to_string());
     let body = truncate_chars(&redacted, HISTORY_ERROR_MAX);
     if body.is_empty() {
         kind
     } else {
         format!("{kind}: {body}")
-    }
-}
-
-fn classify_history_error(msg: &str) -> String {
-    let lower = msg.to_lowercase();
-    if lower.contains("permission") || msg.contains("权限") || lower.contains("runtime_denied") {
-        "permission_denied".into()
-    } else if lower.contains("timeout") || msg.contains("超时") {
-        "timeout".into()
-    } else if lower.contains("notregistered")
-        || lower.contains("not registered")
-        || msg.contains("未注册")
-        || msg.contains("ActionNotRegistered")
-    {
-        "not_registered".into()
-    } else {
-        "execution".into()
     }
 }
 
@@ -218,6 +202,7 @@ impl ExecutionHistory {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use corex_core::ActionError;
     use std::time::SystemTime;
 
     #[test]
@@ -228,13 +213,9 @@ mod tests {
         let end = start + Duration::from_millis(12);
         let entry = HistoryEntry::new("hello", start, end, Ok(()));
         hist.append(&entry).unwrap();
-        hist.append(&HistoryEntry::new(
-            "fail",
-            start,
-            end,
-            Err("boom".into()),
-        ))
-        .unwrap();
+        let boom = EngineError::other("boom");
+        hist.append(&HistoryEntry::new("fail", start, end, Err(&boom)))
+            .unwrap();
 
         let all = hist.read_all().unwrap();
         assert_eq!(all.len(), 2);
@@ -247,13 +228,16 @@ mod tests {
 
     #[test]
     fn sanitize_redacts_paths_and_classifies() {
-        let msg = "failed reading /tmp/secret.txt under root";
-        let s = sanitize_history_error(msg);
+        let err = EngineError::other("failed reading /tmp/secret.txt under root");
+        let s = sanitize_history_error(&err);
         assert!(s.starts_with("execution:"), "{s}");
         assert!(s.contains("<path>"), "{s}");
         assert!(!s.contains("/tmp/secret.txt"), "{s}");
 
-        let perm = sanitize_history_error("runtime_denied: strict_permissions");
-        assert!(perm.starts_with("permission_denied:"), "{perm}");
+        let perm = EngineError::Action(ActionError::PermissionDenied(
+            "strict_permissions".into(),
+        ));
+        let s = sanitize_history_error(&perm);
+        assert!(s.starts_with("permission_denied:"), "{s}");
     }
 }

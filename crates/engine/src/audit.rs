@@ -1,5 +1,6 @@
 //! Step-level audit log (redacted; no bodies / OCR / clipboard content).
 
+use corex_core::{ActionError, EngineError};
 use serde::{Deserialize, Serialize};
 use std::fs::OpenOptions;
 use std::io::Write;
@@ -18,51 +19,118 @@ pub struct AuditEntry {
     pub ok: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub error_kind: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub permission_denied: Option<bool>,
+    /// `true` when the step was rejected by permission / policy checks.
+    #[serde(default = "default_denied")]
+    pub denied: bool,
     /// UI automation phase hint (launch/login/act/verify).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub ui_phase: Option<String>,
     /// Structured error code (e.g. ui_login_pending).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub error_code: Option<String>,
-    /// Redacted selector hint (no PII); parsed from `[selector_hint=...]` in error text.
+    /// Redacted selector hint (no PII); from [`ActionError::selector_hint`].
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub selector_hint: Option<String>,
 }
 
 impl AuditEntry {
-    pub fn new(
+    /// Build from a typed [`EngineError`] (pipeline steps).
+    pub fn from_engine(
         name: impl Into<String>,
         step_id: impl Into<String>,
         action_id: impl Into<String>,
         duration_ms: u64,
-        result: Result<(), String>,
-        permission_denied: bool,
+        result: Result<(), &EngineError>,
+    ) -> Self {
+        match result {
+            Ok(()) => Self::success(name, step_id, action_id, duration_ms),
+            Err(err) => Self::failure(
+                name,
+                step_id,
+                action_id,
+                duration_ms,
+                err.kind(),
+                err.is_permission_denied(),
+                err.action_source(),
+            ),
+        }
+    }
+
+    /// Build from a typed [`ActionError`] (IPC invoke / UI probe).
+    pub fn from_action(
+        name: impl Into<String>,
+        step_id: impl Into<String>,
+        action_id: impl Into<String>,
+        duration_ms: u64,
+        result: Result<(), &ActionError>,
+    ) -> Self {
+        match result {
+            Ok(()) => Self::success(name, step_id, action_id, duration_ms),
+            Err(err) => Self::failure(
+                name,
+                step_id,
+                action_id,
+                duration_ms,
+                err.kind(),
+                err.is_permission_denied(),
+                Some(err),
+            ),
+        }
+    }
+
+    /// Whether this entry records a permission / policy denial.
+    pub fn is_denied(&self) -> bool {
+        self.denied
+    }
+
+    fn success(
+        name: impl Into<String>,
+        step_id: impl Into<String>,
+        action_id: impl Into<String>,
+        duration_ms: u64,
     ) -> Self {
         let action_id = action_id.into();
-        let (ok, error_kind, error_code, selector_hint) = match &result {
-            Ok(()) => (true, None, None, None),
-            Err(e) => (
-                false,
-                Some(classify_error(e)),
-                extract_ui_error_code(e),
-                extract_selector_hint(e),
-            ),
-        };
         Self {
             name: name.into(),
             step_id: step_id.into(),
             action_id: action_id.clone(),
             duration_ms,
-            ok,
-            error_kind,
-            permission_denied: if permission_denied { Some(true) } else { None },
+            ok: true,
+            error_kind: None,
+            denied: false,
             ui_phase: infer_ui_phase(&action_id),
-            error_code,
-            selector_hint,
+            error_code: None,
+            selector_hint: None,
         }
     }
+
+    fn failure(
+        name: impl Into<String>,
+        step_id: impl Into<String>,
+        action_id: impl Into<String>,
+        duration_ms: u64,
+        kind: String,
+        denied: bool,
+        action: Option<&ActionError>,
+    ) -> Self {
+        let action_id = action_id.into();
+        Self {
+            name: name.into(),
+            step_id: step_id.into(),
+            action_id: action_id.clone(),
+            duration_ms,
+            ok: false,
+            error_kind: Some(kind),
+            denied,
+            ui_phase: infer_ui_phase(&action_id),
+            error_code: action.and_then(|a| a.ui_code()).map(str::to_string),
+            selector_hint: action.and_then(|a| a.selector_hint()).map(str::to_string),
+        }
+    }
+}
+
+fn default_denied() -> bool {
+    false
 }
 
 fn infer_ui_phase(action_id: &str) -> Option<String> {
@@ -83,47 +151,6 @@ fn infer_ui_phase(action_id: &str) -> Option<String> {
         }
         .into(),
     )
-}
-
-fn extract_ui_error_code(msg: &str) -> Option<String> {
-    for segment in bracket_segments(msg) {
-        if segment.starts_with("ui_") {
-            return Some(segment.to_string());
-        }
-    }
-    None
-}
-
-fn extract_selector_hint(msg: &str) -> Option<String> {
-    for segment in bracket_segments(msg) {
-        if let Some(hint) = segment.strip_prefix("selector_hint=") {
-            if !hint.is_empty() {
-                return Some(hint.to_string());
-            }
-        }
-    }
-    None
-}
-
-fn bracket_segments(msg: &str) -> impl Iterator<Item = &str> {
-    msg.split(']').filter_map(|part| {
-        let start = part.rfind('[')?;
-        Some(&part[start + 1..])
-    })
-}
-
-fn classify_error(msg: &str) -> String {
-    if let Some(code) = extract_ui_error_code(msg) {
-        return code;
-    }
-    let lower = msg.to_lowercase();
-    if lower.contains("permission") || msg.contains("权限") {
-        "permission_denied".into()
-    } else if lower.contains("timeout") || msg.contains("超时") {
-        "timeout".into()
-    } else {
-        "execution".into()
-    }
 }
 
 /// Actions whose params must not appear in logs.
@@ -209,21 +236,21 @@ impl ExecutionAudit {
 /// Emit a redacted step log line (no body / OCR / clipboard payloads).
 pub fn log_step_start(name: &str, step_id: &str, action_id: &str) {
     info!(
-        directive_name = %name,
-        step_id = %step_id,
-        action_id = %action_id,
+        directive = %name,
+        step = %step_id,
+        action = %action_id,
         "执行步骤"
     );
 }
 
 pub fn log_step_end(entry: &AuditEntry) {
     info!(
-        directive_name = %entry.name,
-        step_id = %entry.step_id,
-        action_id = %entry.action_id,
-        duration_ms = entry.duration_ms,
+        directive = %entry.name,
+        step = %entry.step_id,
+        action = %entry.action_id,
+        duration = entry.duration_ms,
         ok = entry.ok,
-        permission_denied = entry.permission_denied.unwrap_or(false),
+        denied = entry.denied,
         "步骤完成"
     );
 }
@@ -249,28 +276,24 @@ mod tests {
 
     #[test]
     fn classify_ui_error_code() {
-        assert_eq!(
-            classify_error("[ui_login_pending] 等待元素消失超时"),
-            "ui_login_pending"
-        );
+        let err = ActionError::ui("ui_login_pending", "等待元素消失超时");
+        assert_eq!(err.ui_code(), Some("ui_login_pending"));
+        assert_eq!(err.kind(), "ui_login_pending");
         assert_eq!(infer_ui_phase("ui.element.wait"), Some("login".into()));
     }
 
     #[test]
     fn extract_selector_hint_from_ui_error() {
         let msg = "[ui_login_pending][selector_hint=name=进入微信] 等待元素消失超时";
-        assert_eq!(extract_ui_error_code(msg), Some("ui_login_pending".into()));
-        assert_eq!(
-            extract_selector_hint(msg),
-            Some("name=进入微信".into())
-        );
-        let entry = AuditEntry::new(
+        let err = ActionError::execution(msg);
+        assert_eq!(err.ui_code(), Some("ui_login_pending"));
+        assert_eq!(err.selector_hint(), Some("name=进入微信"));
+        let entry = AuditEntry::from_action(
             "wechat",
             "wait_login",
             "ui.element.wait",
             100,
-            Err(msg.into()),
-            false,
+            Err(&err),
         );
         assert_eq!(entry.error_code.as_deref(), Some("ui_login_pending"));
         assert_eq!(entry.selector_hint.as_deref(), Some("name=进入微信"));
@@ -278,10 +301,20 @@ mod tests {
     }
 
     #[test]
+    fn from_engine_sets_denied_on_permission_denied() {
+        let err = EngineError::Action(ActionError::PermissionDenied("shell".into()));
+        let entry = AuditEntry::from_engine("demo", "s1", "shell.run", 3, Err(&err));
+        assert!(!entry.ok);
+        assert!(entry.denied);
+        assert!(entry.is_denied());
+        assert_eq!(entry.error_kind.as_deref(), Some("permission_denied"));
+    }
+
+    #[test]
     fn append_audit_jsonl() {
         let dir = tempfile::tempdir().unwrap();
         let audit = ExecutionAudit::under_data_dir(dir.path()).unwrap();
-        let e = AuditEntry::new("demo", "s1", "file.write", 5, Ok(()), false);
+        let e = AuditEntry::from_engine("demo", "s1", "file.write", 5, Ok(()));
         audit.append(&e).unwrap();
         let all = audit.read_all().unwrap();
         assert_eq!(all.len(), 1);

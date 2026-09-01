@@ -67,7 +67,7 @@ impl Pipeline {
         }
 
         info!(
-            directive_name = %directive.name,
+            directive = %directive.name,
             steps = directive.steps.len(),
             "开始执行指令"
         );
@@ -89,12 +89,12 @@ impl Pipeline {
 
         match result {
             Ok(v) => {
-                info!(directive_name = %directive.name, "指令执行完成");
+                info!(directive = %directive.name, "指令执行完成");
                 pipeline.record_history(directive, started, Ok(()));
                 Ok(v)
             }
             Err(e) => {
-                error!(directive_name = %directive.name, error = %e, "指令执行失败");
+                error!(directive = %directive.name, error = %e, "指令执行失败");
                 pipeline.record_history(directive, started, Err(&e));
                 Err(e)
             }
@@ -110,8 +110,7 @@ impl Pipeline {
             return;
         };
         let ended = SystemTime::now();
-        let result = outcome.map_err(|e| e.to_string());
-        let entry = HistoryEntry::new(&directive.name, started, ended, result);
+        let entry = HistoryEntry::new(&directive.name, started, ended, outcome);
         history.record_best_effort(&entry);
     }
 
@@ -121,35 +120,17 @@ impl Pipeline {
         outcome: Result<(), &EngineError>,
     ) {
         let name = self.run_name.as_deref().unwrap_or("unknown");
-        let perm_denied = outcome
-            .as_ref()
-            .err()
-            .map(|e| {
-                let s = e.to_string();
-                s.contains("PermissionDenied") || s.contains("权限") || s.contains("permission")
-            })
-            .unwrap_or(false);
-        let entry = AuditEntry::new(
+        let entry = AuditEntry::from_engine(
             name,
             &step.id,
             &step.action,
             duration_ms,
-            outcome.map_err(|e| e.to_string()),
-            perm_denied,
+            outcome,
         );
         audit::log_step_end(&entry);
         if let Some(a) = &self.audit {
             a.record_best_effort(&entry);
         }
-    }
-
-    /// Alias of [`Self::execute`] (kept for API stability).
-    #[doc(hidden)]
-    pub async fn execute_with_resilience(
-        &self, directive: &Directive,
-        ctx: ExecutionContext,
-    ) -> Result<Value, EngineError> {
-        self.execute(directive, ctx).await
     }
 
     pub async fn execute_steps(
@@ -223,15 +204,15 @@ impl Pipeline {
                         warn!(id = %step.id, attempt, error = %e, "步骤失败，重试中");
                         continue;
                     }
-                    if is_permission_denied(&e) {
+                    if e.is_permission_denied() {
                         return Err(e);
                     }
-                    return match on_error {
-                        OnError::Abort => Err(e),
+                    match on_error {
+                        OnError::Abort => return Err(e),
                         OnError::Continue => {
                             warn!(id = %step.id, error = %e, "步骤失败，on_error=continue");
                             ctx.set_step_output(&step.id, Value::Null);
-                            Ok(Value::Null)
+                            return Ok(Value::Null);
                         }
                         OnError::Skip => {
                             warn!(
@@ -239,9 +220,9 @@ impl Pipeline {
                                 error = %e,
                                 "步骤失败，on_error=skip（不写入 step_outputs）"
                             );
-                            Ok(Value::Null)
+                            return Ok(Value::Null);
                         }
-                    };
+                    }
                 }
             }
         }
@@ -265,7 +246,7 @@ impl Pipeline {
             return Err(err);
         }
 
-        let action = match self.store.get_action(&step.action) {
+        let action = match self.store.find_action(&step.action) {
             Some(a) => a,
             None => {
                 let err = EngineError::ActionNotRegistered(step.action.clone());
@@ -290,8 +271,6 @@ impl Pipeline {
             return Err(err);
         }
 
-        // Sensitive actions: do not log param payloads (keys only if needed later).
-        let _ = audit::is_sensitive_action(&step.action);
         debug!(id = %step.id, action = %step.action, "执行动作");
         let timeout_secs = ctx.config.step_timeout_secs;
         let fut = action.execute(params, ctx);
@@ -440,26 +419,20 @@ impl Pipeline {
         .await;
 
         let mut successes: Vec<(usize, ExecutionContext, Value)> = Vec::new();
-        let mut first_err: Option<EngineError> = None;
+        let mut branch_err: Option<EngineError> = None;
         for item in collected {
             match item {
                 Ok(v) => successes.push(v),
-                Err(e) => {
-                    if first_err.is_none() {
-                        first_err = Some(e);
-                    }
-                }
+                Err(e) => branch_err = Some(prefer_branch_err(branch_err.take(), e)),
             }
         }
         successes.sort_by_key(|(idx, _, _)| *idx);
 
-        if let Some(e) = first_err {
-            match default_on_error {
-                OnError::Abort => return Err(e),
-                OnError::Continue | OnError::Skip => {
-                    warn!(id = %step.id, error = %e, "parallel 部分失败，按 on_error 继续");
-                }
+        if let Some(e) = branch_err {
+            if must_abort_step(&e, default_on_error) {
+                return Err(e);
             }
+            warn!(id = %step.id, error = %e, "parallel 部分失败，按 on_error 继续");
         }
 
         let mut outputs: Vec<Option<Value>> = vec![None; children];
@@ -487,16 +460,16 @@ impl Pipeline {
     }
 }
 
-fn is_permission_denied(err: &EngineError) -> bool {
-    match err {
-        EngineError::StepFailed {
-            source: ActionError::PermissionDenied(_),
-            ..
-        }
-        | EngineError::Action(ActionError::PermissionDenied(_)) => true,
-        other => {
-            let s = other.to_string();
-            s.contains("权限") || s.contains("PermissionDenied") || s.contains("permission denied")
-        }
+/// PermissionDenied always aborts; otherwise follow [`OnError`].
+fn must_abort_step(err: &EngineError, on_error: OnError) -> bool {
+    err.is_permission_denied() || matches!(on_error, OnError::Abort)
+}
+
+/// Prefer a permission-denied error over a later ordinary branch failure.
+fn prefer_branch_err(prev: Option<EngineError>, next: EngineError) -> EngineError {
+    match prev {
+        None => next,
+        Some(p) if next.is_permission_denied() && !p.is_permission_denied() => next,
+        Some(p) => p,
     }
 }
