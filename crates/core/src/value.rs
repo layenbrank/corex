@@ -118,7 +118,7 @@ impl Value {
     }
 
     /// Dot-path lookup, e.g. `"user.name"` or `"items.0"`.
-    pub fn get_path(&self, path: &str) -> Option<&Value> {
+    pub fn find_path(&self, path: &str) -> Option<&Value> {
         if path.is_empty() {
             return Some(self);
         }
@@ -136,8 +136,8 @@ impl Value {
         Some(current)
     }
 
-    /// Mutable variant of [`get_path`].
-    pub fn get_path_mut(&mut self, path: &str) -> Option<&mut Value> {
+    /// Mutable variant of [`find_path`].
+    pub fn find_path_mut(&mut self, path: &str) -> Option<&mut Value> {
         if path.is_empty() {
             return Some(self);
         }
@@ -200,14 +200,10 @@ impl Value {
             Value::Int(i) => serde_json::json!(*i),
             Value::Float(f) => serde_json::json!(*f),
             Value::Str(s) => serde_json::Value::String(s.clone()),
-            Value::List(l) => {
-                serde_json::Value::Array(l.iter().map(Value::to_json).collect())
+            Value::List(l) => serde_json::Value::Array(l.iter().map(Value::to_json).collect()),
+            Value::Map(m) => {
+                serde_json::Value::Object(m.iter().map(|(k, v)| (k.clone(), v.to_json())).collect())
             }
-            Value::Map(m) => serde_json::Value::Object(
-                m.iter()
-                    .map(|(k, v)| (k.clone(), v.to_json()))
-                    .collect(),
-            ),
             Value::File(p) => serde_json::Value::String(crate::path::display_path(&p)),
             Value::Bytes(b) => {
                 serde_json::Value::Array(b.iter().map(|x| serde_json::json!(*x)).collect())
@@ -351,13 +347,16 @@ mod tests {
     use super::*;
 
     #[test]
-    fn get_path_nested() {
+    fn find_path_nested() {
         let mut map = BTreeMap::new();
         let mut inner = BTreeMap::new();
         inner.insert("name".into(), Value::Str("corex".into()));
         map.insert("user".into(), Value::Map(inner));
         let v = Value::Map(map);
-        assert_eq!(v.get_path("user.name").and_then(|x| x.as_str()), Some("corex"));
+        assert_eq!(
+            v.find_path("user.name").and_then(|x| x.as_str()),
+            Some("corex")
+        );
     }
 
     #[test]

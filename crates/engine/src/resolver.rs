@@ -5,9 +5,8 @@ use once_cell::sync::Lazy;
 use regex::Regex;
 use serde_json::json;
 
-static VAR_RE: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r"\{\{\s*([^}]+?)\s*\}\}").expect("valid regex")
-});
+static VAR_RE: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r"\{\{\s*([^}]+?)\s*\}\}").expect("valid regex"));
 
 /// Resolves `{{input.x}}`, `{{directive_input}}`, `{{step.id.path}}`,
 /// `{{env.NAME}}`, and `{{variables.name}}` / bare `{{name}}`.
@@ -142,11 +141,10 @@ impl Resolver {
                     return Ok(Value::Map(map));
                 }
                 let (name, path) = split_first(rest);
-                let val = ctx
-                    .variables
-                    .get(name)
-                    .cloned()
-                    .ok_or_else(|| EngineError::UndefinedVariable(format!("variables.{name}")))?;
+                let val =
+                    ctx.variables.get(name).cloned().ok_or_else(|| {
+                        EngineError::UndefinedVariable(format!("variables.{name}"))
+                    })?;
                 get_required_path(val, path, expr)
             }
             // Bare name → variables, then input.
@@ -183,7 +181,7 @@ fn get_required_path(val: Value, path: &str, expr: &str) -> Result<Value, Engine
     if path.is_empty() {
         Ok(val)
     } else {
-        val.get_path(path)
+        val.find_path(path)
             .cloned()
             .ok_or_else(|| EngineError::UndefinedVariable(expr.to_string()))
     }
@@ -270,7 +268,10 @@ mod tests {
         let mut m = std::collections::BTreeMap::new();
         m.insert("msg".into(), Value::Str("{{name}}".into()));
         let resolved = Resolver::resolve_value(&Value::Map(m), &c).unwrap();
-        assert_eq!(resolved.get_path("msg").and_then(|v| v.as_str()), Some("corex"));
+        assert_eq!(
+            resolved.find_path("msg").and_then(|v| v.as_str()),
+            Some("corex")
+        );
         let _ = HashMap::<String, Value>::new();
     }
 

@@ -1,7 +1,7 @@
 //! HTTP directive integration: mock server + file.write / json.parse chain.
 
 use corex_core::{ExecutionContext, RuntimeConfig, Value};
-use corex_engine::{Pipeline, Directive};
+use corex_engine::{Directive, Pipeline};
 use corex_registry::ActionRegistry;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -65,7 +65,10 @@ steps:
     let ctx = ExecutionContext::new(RuntimeConfig::default());
     pipeline.execute(&directive, ctx).await.unwrap();
     let text = std::fs::read_to_string(&out).unwrap();
-    assert!(text.contains("\"ok\":true") || text.contains("ok"), "body={text}");
+    assert!(
+        text.contains("\"ok\":true") || text.contains("ok"),
+        "body={text}"
+    );
 }
 
 #[tokio::test]
@@ -96,7 +99,7 @@ steps:
         .await
         .unwrap();
     assert_eq!(
-        result.get_path("data.msg").and_then(|v| v.as_str()),
+        result.find_path("data.msg").and_then(|v| v.as_str()),
         Some("hi")
     );
 }

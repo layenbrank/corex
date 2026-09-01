@@ -216,11 +216,7 @@ impl RuntimeConfig {
     }
 
     /// Apply `ui_profile` preset; explicit overrides in `overrides` win.
-    pub fn apply_ui_profile(
-        &mut self,
-        profile: &str,
-        overrides: UiProfileOverrides,
-    ) {
+    pub fn apply_ui_profile(&mut self, profile: &str, overrides: UiProfileOverrides) {
         self.ui_profile = profile.to_string();
         let preset = UiProfilePreset::parse(profile);
         self.ui_max_selector_chain = overrides
@@ -308,7 +304,7 @@ impl ExecutionContext {
         self.step_outputs.insert(step_id.into(), value);
     }
 
-    pub fn get_variable(&self, name: &str) -> Option<&Value> {
+    pub fn find_variable(&self, name: &str) -> Option<&Value> {
         self.variables.get(name)
     }
 
@@ -321,9 +317,7 @@ impl ExecutionContext {
         let max = self.config.effective_ui_max_settle_ms();
         let next = self.ui_session.settle_ms_used.saturating_add(ms);
         if max > 0 && next > max {
-            return Err(format!(
-                "ui.wait 累计 {next}ms 超过 ui_max_settle_ms={max}"
-            ));
+            return Err(format!("ui.wait 累计 {next}ms 超过 ui_max_settle_ms={max}"));
         }
         self.ui_session.settle_ms_used = next;
         Ok(())
@@ -382,10 +376,13 @@ mod ui_profile_tests {
     #[test]
     fn explicit_chain_overrides_profile() {
         let mut cfg = RuntimeConfig::default();
-        cfg.apply_ui_profile("fast", UiProfileOverrides {
-            max_selector_chain: Some(10),
-            max_settle_ms: None,
-        });
+        cfg.apply_ui_profile(
+            "fast",
+            UiProfileOverrides {
+                max_selector_chain: Some(10),
+                max_settle_ms: None,
+            },
+        );
         assert_eq!(cfg.effective_ui_max_selector_chain(), 10);
     }
 }

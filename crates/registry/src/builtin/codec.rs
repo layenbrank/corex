@@ -1,9 +1,9 @@
 //! Codec actions: base64 encode/decode and md5 hash.
 
-use crate::builtin::util::{confine_path, ensure_parent, opt_str, require_map, require_str};
 use crate::ActionRegistry;
+use crate::builtin::util::{confine_path, ensure_parent, opt_str, require_map, require_str};
 use async_trait::async_trait;
-use base64::{engine::general_purpose::STANDARD, Engine};
+use base64::{Engine, engine::general_purpose::STANDARD};
 use corex_core::{
     Action, ActionCategory, ActionError, ActionMeta, ExecutionContext, ParamSchema, SchemaType,
     Value,
@@ -83,7 +83,8 @@ impl Action for CodecBase64Encode {
     }
 
     async fn execute(
-        &self, params: Value,
+        &self,
+        params: Value,
         ctx: &mut ExecutionContext,
     ) -> Result<Value, ActionError> {
         let map = require_map(&params)?;
@@ -111,7 +112,8 @@ impl Action for CodecBase64Decode {
     }
 
     async fn execute(
-        &self, params: Value,
+        &self,
+        params: Value,
         ctx: &mut ExecutionContext,
     ) -> Result<Value, ActionError> {
         let map = require_map(&params)?;
@@ -125,7 +127,7 @@ impl Action for CodecBase64Decode {
             _ => {
                 return Err(ActionError::InvalidParams(
                     "请只指定 input 或 file 之一".into(),
-                ))
+                ));
             }
         };
         let bytes = STANDARD
@@ -161,7 +163,8 @@ impl Action for CodecHashMd5 {
     }
 
     async fn execute(
-        &self, params: Value,
+        &self,
+        params: Value,
         ctx: &mut ExecutionContext,
     ) -> Result<Value, ActionError> {
         let map = require_map(&params)?;
@@ -186,7 +189,8 @@ impl Action for CodecJsonParse {
     }
 
     async fn execute(
-        &self, params: Value,
+        &self,
+        params: Value,
         _ctx: &mut ExecutionContext,
     ) -> Result<Value, ActionError> {
         let map = require_map(&params)?;
@@ -262,10 +266,7 @@ mod tests {
             .execute(Value::Map(params), &mut ctx)
             .await
             .unwrap();
-        assert_eq!(
-            out.get_path("a").and_then(|v| v.as_i64()),
-            Some(1)
-        );
+        assert_eq!(out.find_path("a").and_then(|v| v.as_i64()), Some(1));
     }
 
     #[test]
@@ -294,6 +295,11 @@ mod tests {
             .execute(Value::Map(params), &mut ctx)
             .await
             .unwrap_err();
-        assert!(err.to_string().contains("上限") || err.to_string().contains("limit") || err.to_string().contains("过大") || err.to_string().contains("10"));
+        assert!(
+            err.to_string().contains("上限")
+                || err.to_string().contains("limit")
+                || err.to_string().contains("过大")
+                || err.to_string().contains("10")
+        );
     }
 }
