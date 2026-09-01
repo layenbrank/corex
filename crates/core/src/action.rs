@@ -129,19 +129,19 @@ pub trait Action: Send + Sync {
 
 /// Lookup facade so the engine can resolve actions without depending on the registry crate.
 pub trait ActionStore: Send + Sync {
-    fn get_action(&self, id: &str) -> Option<Arc<dyn Action>>;
+    fn find_action(&self, id: &str) -> Option<Arc<dyn Action>>;
 
-    fn list_actions(&self) -> Vec<ActionMeta> {
+    fn actions(&self) -> Vec<ActionMeta> {
         Vec::new()
     }
 }
 
 impl ActionStore for HashMapStore {
-    fn get_action(&self, id: &str) -> Option<Arc<dyn Action>> {
+    fn find_action(&self, id: &str) -> Option<Arc<dyn Action>> {
         self.0.get(id).cloned()
     }
 
-    fn list_actions(&self) -> Vec<ActionMeta> {
+    fn actions(&self) -> Vec<ActionMeta> {
         self.0.values().map(|a| a.meta()).collect()
     }
 }

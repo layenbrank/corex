@@ -94,11 +94,11 @@ impl ActionRegistry {
 }
 
 impl ActionStore for ActionRegistry {
-    fn get_action(&self, id: &str) -> Option<Arc<dyn Action>> {
+    fn find_action(&self, id: &str) -> Option<Arc<dyn Action>> {
         self.get(id)
     }
 
-    fn list_actions(&self) -> Vec<ActionMeta> {
+    fn actions(&self) -> Vec<ActionMeta> {
         self.list()
     }
 }
