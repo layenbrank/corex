@@ -106,7 +106,7 @@ pipelines:
 | `includes` | glob 白名单；非空时仅匹配项触发 |
 | `excludes` | glob 黑名单；默认 `**/.git/**`、`**/node_modules/**` |
 | `debounce_ms` | 防抖毫秒，默认 300 |
-| `cooldown_ms` | 执行完成后的冷却毫秒；未设置时取 `max(debounce_ms * 2, 1000)` |
+| `throttle_ms` | throttle 间隔毫秒；未设置时取 `max(debounce_ms * 2, 1000)` |
 
 过滤逻辑复用 `utils/filter.rs`（与 copy / generate 的 `includes` / `excludes` 语义一致）。CLI 可追加 `--includes` / `--excludes` / `--debounce-ms` 覆盖。
 
@@ -121,9 +121,9 @@ Pipeline 运行期间可能向监听目录写入产物（例如 copy 步骤同�
 建议：
 
 1. **不要监听 Pipeline 会写入的路径**，或将其加入 `excludes`（如 `**/version.json`）
-2. 依赖内置 **post-run 冷却**（`cooldown_ms`）：执行完成后冷却窗口内忽略新触发
+2. 依赖内置 **throttle**（`throttle_ms`）：限制 pipeline 执行频率（leading+trailing）
 3. 开发时优先监听源码目录（如 `src/`），而非打包产物目录（如 `app/`）
-4. 若必须监听构建输出目录：把构建产物写入排除掉，并适当增大 `cooldown_ms`（建议 ≥ 构建收尾写入时长）
+4. 若必须监听构建输出目录：把构建产物写入排除掉，并适当增大 `throttle_ms`（建议 ≥ 构建收尾写入时长）
 
 ```yaml
 # 示例：H5+ 监听 app/，但排除 copy 步骤写入的 version.json
@@ -131,7 +131,7 @@ watch:
   paths: ['${var.h5_master}/app']
   excludes: ['**/node_modules/**', '**/.git/**', '**/version.json']
   debounce_ms: 600
-  cooldown_ms: 1200   # 可选；默认 max(debounce_ms * 2, 1000)
+  throttle_ms: 1200   # 可选；默认 max(debounce_ms * 2, 1000)
 ```
 
 ```powershell

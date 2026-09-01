@@ -4,7 +4,7 @@
 
 指令（directive）是由 `corex-engine` 执行的单个 YAML 文档。
 
-权威来源：[`crates/engine/src/definition.rs`](../../crates/engine/src/definition.rs)，解析器 [`crates/engine/src/resolver.rs`](../../crates/engine/src/resolver.rs)。  
+权威来源：[`crates/engine/src/definition.rs`](../../crates/engine/src/definition.rs)，解析器 [`crates/engine/src/resolver.rs`](../../crates/engine/src/resolver.rs)。
 编辑器 schema：[`schemas/directive.schema.json`](../../schemas/directive.schema.json)。
 
 ## 顶层结构
@@ -64,6 +64,8 @@ inputs:
 - **`action`**：Action ID（见 [actions.md](内置Action.md)）。
 - **`save_to`**：将步骤结果存入 `variables[<name>]`（亦可直接用 `{{name}}` 引用）。
 - 步骤输出始终记录在 `step.<id>` 下，供后续引用。
+- **`on_error`**：覆盖顶层策略。`continue` 失败时写入 `Null` 到 `step.<id>` 并继续；`skip` 不写入 `step_outputs`；`abort`（默认）中止流水线。
+- **权限拒绝例外**：无论 `on_error` 为何值，`PermissionDenied` **始终中止**该步骤（及整条流水线），避免用 `continue` 绕过门禁。
 
 ### If
 
@@ -121,6 +123,8 @@ repeat:
 
 并发度 = 若设置了 `max_concurrency` 则用其值，否则用配置中的 `runtime.max_parallel`（默认 8）。当有效最大值 **≤ 1**（或仅有一个子步骤）时，步骤 **顺序** 执行。当 **max > 1** 且有多个子步骤时，引擎 **并发** 执行（`buffer_unordered`）。
 
+并行分支若有多个错误，引擎 **优先保留权限拒绝**（`is_permission_denied`），再回退到先遇到的其它失败。
+
 ## 条件（`when` / `if`）
 
 无标签形式：
@@ -166,7 +170,7 @@ permissions:
 | 规则 | 行为 |
 |------|------|
 | **全部标志省略 / false** | **全部允许**（无限制）— 像 `hello.yaml` 这类简单指令无需声明 |
-| **任一标志为 `true`** | 仅允许已声明的类别；其余 → permission denied |
+| **任一标志为 `true`** | 仅允许已声明的类别；其余 → permission denied（`on_error: continue` **不能**吞掉） |
 
 类别映射（摘要）：`shell.run` / `exec.run` / bootstrap → shell；`http.send` → network；`clipboard.*` → clipboard；`notify.send` → notifications；`ui.*` → ui；`capture.screenshot` / `capture.monitors` / `capture.ocr` → capture；`keyring.*` → secret；file/copy/scrub/shade/compression/morph/generate.path/codec（除 `codec.json.parse` 外）/capture.crop → filesystem。
 
@@ -205,7 +209,7 @@ triggers:
     includes: []
     excludes: ["**/node_modules/**"]
     debounce_ms: 300
-    cooldown_ms: 1200
+    throttle_ms: 1200
     immediate: false          # 启动后立即跑一次 pipeline
     poll: false               # NFS/WSL 等不可靠 FS 时用 PollWatcher
     events: []                # 空 = create+modify+remove；可收紧为 ["create","modify"]
@@ -220,10 +224,13 @@ triggers:
 |------------|------|------|
 | `paths` | （必填） | 监听根路径（文件或目录） |
 | `includes` / `excludes` | `[]` / 内置 `.git`、`node_modules`、`test-results` | glob 过滤（与 copy.run 语义一致） |
-| `debounce_ms` / `cooldown_ms` | `300` / `max(debounce×2, 1000)` | 防抖与执行后冷却 |
-| `immediate` | `false` | 等价 v3 `--immediate`；supervisor 启动后立刻执行一次 |
+| `debounce_ms` | `300` | **FS debounce**：`notify_debouncer_full` 安静期后再发触发信号（不是 lodash debounce） |
+| `throttle_ms` | `max(debounce×2, 1000)` | **Throttle 间隔**（必须 `> 0`）。lodash 默认边沿：窗口外首次立即 run（leading），窗口内多次最多再 trailing 一次；窗口从 invoke **开始**计时。旧字段 `cooldown_ms` 会解析失败，请改用本字段 |
+| `immediate` | `false` | supervisor 启动后立刻执行一次，并刷新 throttle `last_invoke`；`immediate` 时 register 后至 `run_now` 完成前忽略 FS 事件，避免启动双跑 |
 | `poll` | `false` | 使用 PollWatcher 代替 OS 原生 watcher |
 | `events` | `[]`（全部内容变更 kind） | 可选白名单：`create`、`modify`、`remove`、`access` |
+
+流水线：`FS 事件 → debounce(debounce_ms) → 触发信号 → throttle(throttle_ms) → run_directive`。详见 [架构 · Watch 事件管道](./架构.md#watch-事件管道)。
 
 YAML `triggers` 规则：
 

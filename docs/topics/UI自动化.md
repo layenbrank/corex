@@ -59,7 +59,7 @@ corex ui element pick --copy-yaml
 | `ui_scope_required` | Probe 缺少 `--hwnd` / `--title` |
 | `ui_desktop_not_found` | 桌面 Shell 窗口未找到 |
 
-适用时，`audit.jsonl` 会包含 `ui_phase` 与 `error_code`。
+适用时，`audit.jsonl` 会包含 `ui_phase`、`error_code`，以及脱敏后的 `selector_hint`；权限拒绝步骤另有 `denied: true` 与 `error_kind`。
 
 ## 启动 GUI 应用
 

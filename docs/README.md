@@ -17,7 +17,7 @@
 | 跑示例 | [examples/directives](../examples/directives/README.md) · [examples/actions](../examples/actions/README.md) |
 | 接到 Tauri / 别的应用 | [integration/接入总览.md](./integration/接入总览.md) |
 | 配 `corex.toml` | [guide/运行时配置.md](./guide/运行时配置.md) |
-| 了解架构 / watch·cron | [reference/架构.md](./reference/架构.md) |
+| 了解架构 / watch·cron / 开发门禁 | [reference/架构.md](./reference/架构.md) |
 | 企业锁定 / 合规 | [ops/企业部署.md](./ops/企业部署.md) |
 | 升级迁移 | [changelog/破坏性变更-v5.md](./changelog/破坏性变更-v5.md) |
 
@@ -51,7 +51,7 @@ docs/
 | [指令 YAML](./reference/指令YAML.md) | DSL、triggers、schema |
 | [Cron 表达式](./reference/cron表达式.md) | tokio-cron-scheduler → croner 3 规则 |
 | [内置 Action](./reference/内置Action.md) | Action ID 与示例 |
-| [架构](./reference/架构.md) | crate 布局、Supervisor |
+| [架构](./reference/架构.md) | crate 布局、Supervisor、错误/审计 API、开发工具链 |
 | [IPC 协议](./reference/IPC协议.md) | NDJSON 请求/响应 |
 
 Schema：[schemas/directive.schema.json](../schemas/directive.schema.json)
@@ -85,7 +85,7 @@ Schema：[schemas/directive.schema.json](../schemas/directive.schema.json)
 
 | 文档 | 说明 |
 |------|------|
-| [破坏性变更 v5](./changelog/破坏性变更-v5.md) | Shortcut→Directive、CLI 等 |
+| [破坏性变更 v5](./changelog/破坏性变更-v5.md) | Shortcut→Directive、审计字段、`find_*` API 等 |
 | [破坏性变更 v4](./changelog/破坏性变更-v4.md) | v3→v4 重构 |
 | [archive/](./archive/) | ≤v3 与已 superseded 草稿 |
 

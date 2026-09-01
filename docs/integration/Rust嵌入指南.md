@@ -127,7 +127,11 @@ let audit = ExecutionAudit::open(audit_path)?;
 pipeline = pipeline.with_audit(audit);
 ```
 
+`AuditEntry` 由 typed error 填充：`denied`（权限拒绝）、`error_kind`，以及可选的 `error_code` / `selector_hint`。字段说明见 [运行时配置 — 审计日志](../guide/运行时配置.md#审计日志)。
+
 CLI 参考：`bins/cli/src/main.rs` 中 `cmd_run`。
+
+查找 Action 时使用 `ActionStore::find_action`；列举用 `actions()`。变量与路径用 `ExecutionContext::find_variable`、`Value::find_path`。
 
 ---
 
@@ -135,8 +139,8 @@ CLI 参考：`bins/cli/src/main.rs` 中 `cmd_run`。
 
 | Crate | 用途 |
 |-------|------|
-| `corex-core` | `Value`、`Action` trait、`ExecutionContext`、权限 |
-| `corex-engine` | `Directive`、`Pipeline`、解析器、控制流 |
+| `corex-core` | `Value`、`Action` / `ActionStore`、`ExecutionContext`、`ActionError`/`EngineError`、权限 |
+| `corex-engine` | `Directive`、`Pipeline`、解析器、控制流、`AuditEntry` |
 | `corex-registry` | 内置 Action、`register_builtins`、WASM host |
 | `corex-ipc` | Daemon 协议与传输（独立进程时用） |
 | `corex-plugin-sdk` | WASM 插件 WIT 契约 |
