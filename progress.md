@@ -1,27 +1,14 @@
 # Progress Log
 
-## 2026-09-01 — Architecture optimization
+## 2026-09-01 — Engineering toolchain (template-style)
 
-### Phase 1
-- 覆盖旧 task_plan；写入 findings
-- WIP：typed EngineError/ActionError → audit/history；denied；must_abort；watch CAS；cron unregister
+### Done
+- 新增：`.pre-commit-config.yaml`、`deny.toml`、`_typos.toml`、`cliff.toml`
+- 安装：`cargo-deny` 0.20.2、`typos` 1.50.0、`git-cliff` 2.13.1、`pre-commit` 4.6.2（uv tool）
+- `pre-commit install` → `.git/hooks/pre-commit`
+- 验证：`cargo deny check` ✅；`typos` ✅；`git-cliff -l` ✅；hooks typos/deny ✅
+- 未改：业务代码、CI workflow、README（无开发环境章节）
 
-### Phase 2–3
-- `ActionError::selector_hint` + 统一 `bracket_segments` / `ui_code`
-- `audit.rs` 删除 extract_* 二次解析；failure 只读 typed ActionError
-- pipeline：`find_action`；on_error 无死分支；`prefer_branch_err`
-- `ActionStore::find_action` / `actions`
-
-### Phase 4 verification
-- `cargo check -p corex-core -p corex-engine -p corex-registry -p corex -p corex-daemon` ✅
-- `cargo test -p corex-core --lib error` ✅ (2)
-- `cargo test -p corex-engine --lib` ✅ (40)
-- `cargo test -p corex-engine --test parallel_partial --test permissions_and_timeout` ✅ (13)
-- `cargo test -p corex-daemon --bin corex-daemon` ✅ (4)
-- nextest：未安装，跳过
-
-### Not done (intentional)
-- cargo-deny / pre-commit / git-cliff / typos 引入
-- pdfium / config 改动
-- Value::get_path / Context::get_variable 全局改名
-- JSONL writer 抽取
+### Known
+- `pre-commit run cargo-fmt` 当前因仓库既有格式漂移失败；需单独 `cargo fmt` 后再启用严格门禁
+- `chacha20@0.10.1` yanked：warn only

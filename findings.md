@@ -1,42 +1,37 @@
-# Findings: corex 架构优化调研
+# Findings: 工程化落地
 
-## Workspace 职责
-| 路径 | 职责 |
+## 本仓库现状（调研）
+| 项 | 状态 |
+|----|------|
+| `.pre-commit-config.yaml` | 无 → 已新增 |
+| `deny.toml` / `_typos.toml` / `cliff.toml` | 无 → 已新增 |
+| Git hooks | 仅 sample → `pre-commit install` 已写入 `.git/hooks/pre-commit` |
+| CI | `build-and-test.yml`、`publish-release.yml`；未改 CI |
+| README「开发环境」 | **无** → 未扩写文档 |
+| origin | `https://github.com/layenbrank/corex` |
+
+## 模板差异（已适配）
+| 模板项 | corex 决策 |
+|--------|------------|
+| `psf/black` | 跳过 |
+| `bash -c` | Windows 用 `language: system` + 直接 entry |
+| nextest / 重 clippy+test | 不进默认 commit；`cargo check` 放 `pre-push` |
+| deny graph | 仅 `x86_64-pc-windows-msvc`（避开 screenshots→wayland→quick-xml 的 Linux-only advisory） |
+| `BSL-1.0` | clipboard-win / error-code 需要，已 allow |
+| `display-info` | clarify Apache-2.0 + LICENSE hash `0xa6d4ed6` |
+| `RUSTSEC-2025-0068` (serde_yml) | ignore + reason（迁栈属业务变更） |
+| cliff `$REPO` | `https://github.com/layenbrank/corex` |
+
+## 验证结果
+| 命令 | 结果 |
 |------|------|
-| `crates/core` | Value / Action / Context / Error / Permission |
-| `crates/engine` | Pipeline / audit / history / watch / cron / supervisor |
-| `crates/registry` | Builtin actions + ActionStore 实现 |
-| `crates/ipc` | CLI↔daemon 协议与传输 |
-| `crates/plugin-sdk` | 插件 SDK |
-| `bins/cli` | CLI（含 ui probe） |
-| `bins/daemon` | 守护进程 IPC 服务 |
-| `pdfium` | 构建期复制 pdfium.dll（无问题） |
-| `config/` | TOML 样例配置（无架构债） |
-| `tests/` | 集成测试 |
+| `cargo deny check` | ✅ advisories/bans/licenses/sources ok（yanked chacha20 为 warn） |
+| `typos` | ✅ |
+| `git-cliff -l` | ✅ 可生成 unreleased/latest |
+| `pre-commit run typos/cargo-deny` | ✅ |
+| `pre-commit run cargo-fmt` | ❌ 仓库既有 rustfmt 漂移（未批量 fmt，避免大 diff） |
+| BOM on `.cursor/hooks/*.ps1` | 已用顶层 `exclude` 忽略 |
 
-## 进行中改动（WIP）主线 — 正确方向
-已把 audit/history 从**字符串启发式分类**迁到 **typed `EngineError`/`ActionError`**：
-- `ActionError::kind()` / `EngineError::kind()` / `is_permission_denied()` / `action_source()`
-- `AuditEntry::from_engine` / `from_action`；字段 `denied`（true = 权限拒绝）统一替代 `permission_denied` / `allowed`
-- 删除 `classify_error` / `classify_history_error` / `execute_with_resilience` 别名
-- pipeline：`must_abort_step`；parallel 优先保留 permission_denied
-- watch：`compare_exchange` 消除 is_running 竞态
-- cron supervisor 退出时 `unregister`（与 watch 对齐）
-- cli/daemon 调用方已切到 `from_action`
-
-## 仍存问题（按优先级）
-
-### 已处理（本会话）
-1. ~~UI 错误码 audit 二次字符串解析~~ → 并入 `ActionError::{ui_code,selector_hint}`
-2. ~~pipeline Abort 死分支~~ → `is_permission_denied` + 穷尽 match
-3. ~~from_engine/from_action 重复~~ → 共用 `failure(..., Option<&ActionError>)`
-4. ~~`get_action` / `list_actions`~~ → `find_action` / `actions`
-
-### 刻意保留 / 后续
-5. `check_probe_allowed` / `check_invoke_allowed`：域别名 + anyhow 转换，可接受
-6. `is_sensitive_action`：敏感清单工具函数，生产暂不强制调用
-7. `get_variable` / `get_path`：API 面大，另开任务
-8. 模板工具链（deny/pre-commit/nextest）：可选工程化，非本任务
-
-## 模板对照结论
-tyr-rust-bootcamp/template 主要是工具链脚手架。本次不引入；可用 nextest 作后续验证增强。
+## 工具安装（本机）
+- `cargo install cargo-deny typos-cli git-cliff --locked`
+- `uv tool install pre-commit`（pip 因 externally-managed 失败）

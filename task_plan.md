@@ -1,51 +1,53 @@
-# Task Plan: corex crates/bins 架构逻辑优化
+# Task Plan: corex 工程化落地（template 风格）
 
 ## Goal
-对 `crates/`、`bins/cli`、`bins/daemon`、`config/`、`pdfium/`、`tests/` 做可维护的架构级代码逻辑优化：合并双轨、去补丁叠层、统一错误/审计控制流。
+引入 tyr-rust-bootcamp/template 风格工具链：pre-commit、cargo-deny、typos、git-cliff；按 corex workspace 适配，不改业务逻辑。
 
 ## Next Step
-交付中文结构化报告。
+中文汇报交付。
 
 ## Current Phase
-Phase 5
+Phase 4
 
 ## Phases
 
-### Phase 1: 调研
+### Phase 1: 调研现有 CI/hooks
 - **Status:** complete
 
-### Phase 2: 合并双轨 / 删旧路径
-- [x] typed audit/history（工作区 WIP + 收尾）
-- [x] UI 码/selector 并入 ActionError
-- [x] pipeline on_error 控制流；prefer_branch_err
-- [x] ActionStore::find_action / actions
+### Phase 2: 拉取模板并适配配置
+- [x] `.pre-commit-config.yaml`
+- [x] `deny.toml`
+- [x] `_typos.toml`
+- [x] `cliff.toml`
+- [x] README 无「开发环境」→ 不扩写
 - **Status:** complete
 
-### Phase 3: 模块边界与控制流
-- [x] AuditEntry 收敛到 from_engine/from_action → failure(typed)
-- [x] cli/daemon 已对齐 typed audit
+### Phase 3: 安装工具并验证
+- [x] cargo-deny / typos / git-cliff / pre-commit 已装
+- [x] `cargo deny check` 通过
+- [x] typos / cliff 通过
+- [x] pre-commit install；typos+deny hooks 通过；fmt 既有失败保留
 - **Status:** complete
 
-### Phase 4: 测试与验证
-- [x] cargo check（core/engine/registry/cli/daemon）
-- [x] cargo test core error + engine lib + parallel/permissions + daemon
-- **Status:** complete
-
-### Phase 5: 交付报告
-- [x] 中文结构化报告
+### Phase 4: 中文汇报
+- [x] 文件清单、启用方式、验证结果
 - **Status:** complete
 
 ## Decisions Made
 | Decision | Rationale |
 |----------|-----------|
-| UI bracket 解析进 core | 单一来源，删 audit 二次解析 |
-| find_action / actions | 命名约束；调用点少 |
-| 不铺 deny/pre-commit | 与逻辑优化无关 |
-| 不改 pdfium/config | 无架构债 |
+| 不加 black | 非 Python |
+| system language hooks | Windows 无 bash |
+| deny 仅 Windows target | 避开 Linux-only quick-xml CVE 噪音 |
+| ignore serde_yml advisory | 迁栈非本任务 |
+| 不批量 cargo fmt | 避免无关大 diff |
+| 不改 CI / README | 任务范围 |
 
 ## Errors Encountered
 | Error | Attempt | Resolution |
 |-------|---------|------------|
-| session-catchup.py 缺失 | 1 | 跳过 |
-| package corex-cli 不存在 | 1 | 包名是 `corex` |
-| nextest 未安装 | 1 | 用 cargo test |
+| pip externally-managed | 1 | `uv tool install pre-commit` |
+| BSL-1.0 / display-info | 1 | allow + clarify |
+| quick-xml advisories | 1 | graph 限 Windows |
+| BOM in `.cursor/hooks` | 1 | exclude `.cursor/` |
+| cargo fmt drift | 1 | 保留 hook，不强制重排 |
