@@ -1,0 +1,30 @@
+# typos configuration for the corex workspace.
+# https://github.com/crate-ci/typos
+
+[default.extend-words]
+# Product / crate / protocol names.
+corex = "corex"
+pdfium = "pdfium"
+ndjson = "ndjson"
+Ndjson = "Ndjson"
+serde = "serde"
+# Windows / FFI identifiers that trip default dictionaries.
+hwnd = "hwnd"
+lparam = "lparam"
+wparam = "wparam"
+
+[files]
+extend-exclude = [
+    "CHANGELOG.md",
+    "Cargo.lock",
+    "target/**",
+    "assets/**",
+    "pdfium/**",
+    "deny-check-out*.txt",
+    "typos-out.txt",
+    "**/*.dll",
+    "**/*.exe",
+    "**/*.png",
+    "**/*.jpg",
+    "**/*.webp",
+]

@@ -1,0 +1,66 @@
+# cargo-deny configuration for the corex workspace.
+# Adapted from tyr-rust-bootcamp/template + current cargo-deny defaults.
+# Docs: https://embarkstudios.github.io/cargo-deny/
+
+[graph]
+# Primary shipping target is Windows x64; include it so Unix-only screenshot
+# deps (wayland / quick-xml) are not pulled into advisory checks by default.
+targets = [
+    "x86_64-pc-windows-msvc",
+]
+all-features = false
+
+[advisories]
+yanked = "warn"
+# Fail unmaintained advisories only when they hit workspace crates directly.
+unmaintained = "workspace"
+ignore = [
+    # Direct workspace dep today; migrating YAML crates is a separate product change.
+    { id = "RUSTSEC-2025-0068", reason = "serde_yml is the current directive YAML stack; tracked for future migration to a maintained fork (e.g. serde_norway)" },
+]
+
+[licenses]
+confidence-threshold = 0.8
+allow = [
+    "MIT",
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "BSL-1.0",
+    "ISC",
+    "Zlib",
+    "Unicode-3.0",
+    "CC0-1.0",
+    "MPL-2.0",
+    "0BSD",
+]
+exceptions = []
+
+# display-info publishes license-file only (Apache-2.0 text), not a license field.
+[[licenses.clarify]]
+crate = "display-info"
+expression = "Apache-2.0"
+license-files = [
+    { path = "LICENSE", hash = 0x0a6d4ed6 },
+]
+
+[licenses.private]
+# Workspace members are MIT-licensed but unpublished — skip private package license noise.
+ignore = true
+
+[bans]
+# Duplicate versions are common in large Windows/UI graphs; warn instead of deny.
+multiple-versions = "warn"
+wildcards = "allow"
+highlight = "all"
+allow = []
+deny = []
+skip = []
+skip-tree = []
+
+[sources]
+unknown-registry = "warn"
+unknown-git = "warn"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]
+allow-git = []
