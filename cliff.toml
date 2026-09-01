@@ -1,79 +1,258 @@
-# git-cliff ~ configuration file
-# https://git-cliff.org/docs/configuration
-# Adapted from tyr-rust-bootcamp/template for layenbrank/corex.
+# git-cliff ~ configuration for layenbrank/corex
+# Docs: https://git-cliff.org/docs/configuration
+# Templating: https://git-cliff.org/docs/templating
+# Tips: https://git-cliff.org/docs/tips-and-tricks
+#
+# 常用命令:
+#   git-cliff -l                         # 预览上一 tag → HEAD
+#   git-cliff -u                         # 仅未发布提交
+#   git-cliff -o CHANGELOG.md            # 全量写出
+#   git-cliff -u -p CHANGELOG.md         # 未发布变更前置追加
+#   git-cliff --bumped-version           # 按 [bump] 规则打印下一版本
+#   git-cliff --offline -o CHANGELOG.md  # 不访问 GitHub API（本地推荐）
+#   $env:GITHUB_TOKEN="…"; git-cliff -o CHANGELOG.md  # 带 PR/贡献者元数据
 
 [changelog]
+# https://git-cliff.org/docs/configuration/changelog
 header = """
 # Changelog\n
-All notable changes to this project will be documented in this file. See [conventional commits](https://www.conventionalcommits.org/) for commit guidelines.\n
+All notable changes to this project will be documented in this file.\n
+The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
+and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).\n
+See also [Conventional Commits](https://www.conventionalcommits.org/).\n
 """
+
+# 每个 release 渲染一次；可用变量见 https://git-cliff.org/docs/templating
 body = """
 ---
 {% if version %}\
     {% if previous.version %}\
-## [{{ version | trim_start_matches(pat="v") }}]($REPO/compare/{{ previous.version }}..{{ version }}) - {{ timestamp | date(format="%Y-%m-%d") }}
+## [{{ version | trim_start_matches(pat="v") }}](https://github.com/{{ remote.github.owner }}/{{ remote.github.repo }}/compare/{{ previous.version }}..{{ version }}) - {{ timestamp | date(format="%Y-%m-%d") }}
     {% else %}\
-## [{{ version | trim_start_matches(pat="v") }}] - {{ timestamp | date(format="%Y-%m-%d") }}
+## [{{ version | trim_start_matches(pat="v") }}](https://github.com/{{ remote.github.owner }}/{{ remote.github.repo }}/tree/{{ version }}) - {{ timestamp | date(format="%Y-%m-%d") }}
     {% endif %}\
 {% else %}\
-## [unreleased]
+    {% if previous.version %}\
+## [Unreleased](https://github.com/{{ remote.github.owner }}/{{ remote.github.repo }}/compare/{{ previous.version }}..HEAD)
+    {% else %}\
+## [Unreleased]
+    {% endif %}\
 {% endif %}\
-{% for group, commits in commits | group_by(attribute="group") %}
-    ### {{ group | striptags | trim | upper_first }}
-    {% for commit in commits
-    | filter(attribute="scope")
-    | sort(attribute="scope") %}
-        - **({{commit.scope}})**{% if commit.breaking %} [**breaking**]{% endif %} \
-            {{ commit.message | split(pat="\n") | first | trim }} - ([{{ commit.id | truncate(length=7, end="") }}]($REPO/commit/{{ commit.id }})) - {{ commit.author.name }}
-    {%- endfor -%}
-    {% raw %}\n{% endraw %}\
-    {%- for commit in commits %}
-        {%- if commit.scope -%}
-        {% else -%}
-            - {% if commit.breaking %} [**breaking**]{% endif %}\
-                {{ commit.message | split(pat="\n") | first | trim }} - ([{{ commit.id | truncate(length=7, end="") }}]($REPO/commit/{{ commit.id }})) - {{ commit.author.name }}
-        {% endif -%}
-    {% endfor -%}
-{% endfor %}\n
+
+{%- if commits | length == 0 %}
+_No conventional commits in this range._
+{% else -%}
+
+{%- set_global breaking_count = 0 -%}
+{%- for commit in commits -%}
+  {%- if commit.breaking -%}
+    {%- set_global breaking_count = breaking_count + 1 -%}
+  {%- endif -%}
+{%- endfor -%}
+
+{%- if breaking_count > 0 %}
+### 💥 Breaking Changes
+{% for commit in commits | filter(attribute="breaking", value=true) | unique(attribute="id") %}
+  - {% if commit.scope %}**({{ commit.scope }})** {% endif %}\
+    {{ commit.message | split(pat="\n") | first | trim }}\
+    {% for footer in commit.footers -%}
+      {%- if footer.breaking -%}
+        \n    > {{ footer.token }}{{ footer.separator }}{{ footer.value }}
+      {%- endif -%}
+    {% endfor %} \
+    · ([`{{ commit.id | truncate(length=7, end="") }}`](https://github.com/{{ remote.github.owner }}/{{ remote.github.repo }}/commit/{{ commit.id }}))\
+    {%- if commit.remote.username %} by @{{ commit.remote.username }}{% elif commit.author.name %} · {{ commit.author.name }}{% endif -%}
+    {%- if commit.remote.pr_number %} in [#{{ commit.remote.pr_number }}](https://github.com/{{ remote.github.owner }}/{{ remote.github.repo }}/pull/{{ commit.remote.pr_number }}){% endif %}
+{% endfor %}
+{% endif -%}
+
+{% for group, commits in commits
+   | filter(attribute="merge_commit", value=false)
+   | unique(attribute="message")
+   | group_by(attribute="group") %}
+### {{ group | striptags | trim }}
+{% for commit in commits | filter(attribute="scope") | sort(attribute="scope") -%}
+- {% if commit.breaking %}💥 {% endif %}**({{ commit.scope }})** {{ commit.message | split(pat="\n") | first | trim }}{% if commit.breaking %} — **breaking**{% endif %} · ([`{{ commit.id | truncate(length=7, end="") }}`](https://github.com/{{ remote.github.owner }}/{{ remote.github.repo }}/commit/{{ commit.id }})){% if commit.remote.username %} by @{{ commit.remote.username }}{% else %} · {{ commit.author.name }}{% endif %}{% if commit.remote.pr_number %} in [#{{ commit.remote.pr_number }}](https://github.com/{{ remote.github.owner }}/{{ remote.github.repo }}/pull/{{ commit.remote.pr_number }}){% endif %}
+{% endfor -%}
+{% for commit in commits -%}
+{% if not commit.scope -%}
+- {% if commit.breaking %}💥 {% endif %}{{ commit.message | split(pat="\n") | first | trim }}{% if commit.breaking %} — **breaking**{% endif %} · ([`{{ commit.id | truncate(length=7, end="") }}`](https://github.com/{{ remote.github.owner }}/{{ remote.github.repo }}/commit/{{ commit.id }})){% if commit.remote.username %} by @{{ commit.remote.username }}{% else %} · {{ commit.author.name }}{% endif %}{% if commit.remote.pr_number %} in [#{{ commit.remote.pr_number }}](https://github.com/{{ remote.github.owner }}/{{ remote.github.repo }}/pull/{{ commit.remote.pr_number }}){% endif %}
+{% endif -%}
+{% endfor %}
+{% endfor -%}
+
+{%- if github.contributors | filter(attribute="is_first_time", value=true) | length > 0 %}
+### ❤️ New Contributors
+{% for contributor in github.contributors | filter(attribute="is_first_time", value=true) %}
+  - @{{ contributor.username }} made their first contribution\
+    {%- if contributor.pr_number %} in [#{{ contributor.pr_number }}](https://github.com/{{ remote.github.owner }}/{{ remote.github.repo }}/pull/{{ contributor.pr_number }}){% endif %}
+{%- endfor %}
+{% endif -%}
+
+{% endif %}
 """
+
+# Keep a Changelog 风格的页脚链接表
+# https://git-cliff.org/docs/configuration/changelog#footer
 footer = """
+{% for release in releases -%}
+    {% if release.version and release.previous.version -%}
+[{{ release.version | trim_start_matches(pat="v") }}]: \
+    https://github.com/{{ remote.github.owner }}/{{ remote.github.repo }}\
+    /compare/{{ release.previous.version }}..{{ release.version }}
+    {% elif release.version -%}
+[{{ release.version | trim_start_matches(pat="v") }}]: \
+    https://github.com/{{ remote.github.owner }}/{{ remote.github.repo }}\
+    /releases/tag/{{ release.version }}
+    {% else -%}
+[unreleased]: https://github.com/{{ remote.github.owner }}/{{ remote.github.repo }}\
+    /compare/{{ release.previous.version }}..HEAD
+    {% endif -%}
+{% endfor %}
 <!-- generated by git-cliff -->
 """
+
 trim = true
+# 即使没有可处理的 release，也渲染 body（便于空仓库/调试）
+render_always = true
+# 默认输出路径；仍可用 -o / --output 覆盖
+# https://git-cliff.org/docs/configuration/changelog#output
+output = "CHANGELOG.md"
+
+# 输出前字符串替换（与 commit_preprocessors 语法相同）
 postprocessors = [
-    { pattern = '\$REPO', replace = "https://github.com/layenbrank/corex" },
+    # 统一 Windows 路径分隔符展示（若模板里误带入）
+    { pattern = '\\\\', replace = "/" },
 ]
 
+# ---------------------------------------------------------------------------
+# GitHub remote — 用于模板中的 compare / commit / PR 链接与可选元数据
+# https://git-cliff.org/docs/configuration/remote
+# https://git-cliff.org/docs/integration/github
+# ---------------------------------------------------------------------------
+[remote]
+# 本地默认离线，避免无 token 时打 GitHub API 触发 403。
+# 需要 PR 作者 / New Contributors 时：
+#   $env:GIT_CLIFF_OFFLINE="false"; $env:GITHUB_TOKEN="ghp_…"; git-cliff -o CHANGELOG.md
+offline = true
+
+[remote.github]
+owner = "layenbrank"
+repo = "corex"
+# 勿把 token 写进仓库；用环境变量 GITHUB_TOKEN / --github-token
+# token = ""
+
+# ---------------------------------------------------------------------------
+# Git history parsing
+# https://git-cliff.org/docs/configuration/git
+# ---------------------------------------------------------------------------
 [git]
+# 按 Conventional Commits 解析
 conventional_commits = true
+# 本仓库有大量中文 / 非规范提交，不过滤，交给 commit_parsers 分流或 skip
 filter_unconventional = false
+# 未匹配 conventional 时不硬失败（历史兼容）
+require_conventional = false
+# 不把多段落 commit 拆成多条
 split_commits = false
-commit_preprocessors = []
-commit_parsers = [
-    { message = "\\[skip", skip = true },
-    # Skip pure Chinese subject lines (common in this repo) from conventional grouping noise.
-    { message = "^\\p{Han}", skip = true },
-    { message = "^feat", group = "Features" },
-    { message = "^fix", group = "Bug Fixes" },
-    { message = "^doc", group = "Documentation" },
-    { message = "^perf", group = "Performance" },
-    { message = "^refactor", group = "Refactoring" },
-    { message = "^style", group = "Style" },
-    { message = "^revert", group = "Revert" },
-    { message = "^test", group = "Tests" },
-    { message = "^chore\\(version\\):", skip = true },
-    { message = "^chore", group = "Miscellaneous Chores" },
-    { message = ".*", group = "Other" },
-    { body = ".*security", group = "Security" },
+
+# 预处理：规范化消息（在 parsers 之前）
+# https://git-cliff.org/docs/tips-and-tricks
+commit_preprocessors = [
+    # 将 (#123) 转为可被 link_parsers 识别的 #123
+    { pattern = '\\(#([0-9]+)\\)', replace = " #${1}" },
+    # 去掉常见 bot 前缀噪声（保留正文）
+    { pattern = '^\\[skip ci\\]\\s*', replace = "" },
 ]
-protect_breaking_commits = false
+
+# 分组顺序靠 HTML 注释强制；模板里用 striptags 去掉
+# https://git-cliff.org/docs/tips-and-tricks#changing-the-group-order
+# 注意用两位数字，避免 <!-- 10 --> 排在 <!-- 2 --> 前
+commit_parsers = [
+    # --- skip ---
+    { message = "\\[skip", skip = true },
+    { message = "\\[changelog\\s*skip\\]", skip = true },
+    { footer = "^changelog:\\s?ignore", skip = true },
+    # 纯中文标题（本仓库常见规划/笔记提交）不进 changelog
+    { message = "^\\p{Han}", skip = true },
+    { message = "^chore\\(version\\):", skip = true },
+    { message = "^chore\\(release\\):\\s*prepare for", skip = true },
+    { message = "^chore\\(deps", skip = true },
+    { message = "^chore\\(pr\\)", skip = true },
+    { message = "^chore\\(pull\\)", skip = true },
+    { message = "^Merge (branch|pull request|remote-tracking)", skip = true },
+    { message = "^Pull request", skip = true },
+
+    # --- groups (ordered) ---
+    { message = "^feat", group = "<!-- 00 -->🚀 Features" },
+    { message = "^fix", group = "<!-- 01 -->🐛 Bug Fixes" },
+    { message = "^doc", group = "<!-- 02 -->📚 Documentation" },
+    { message = "^perf", group = "<!-- 03 -->⚡ Performance" },
+    { message = "^refactor", group = "<!-- 04 -->♻️ Refactoring" },
+    { message = "^style", group = "<!-- 05 -->🎨 Style" },
+    { message = "^test", group = "<!-- 06 -->🧪 Tests" },
+    { message = "^ci", group = "<!-- 07 -->🤖 CI" },
+    { message = "^build", group = "<!-- 08 -->🏗️ Build" },
+    { message = "^revert", group = "<!-- 09 -->⏪ Revert" },
+    { body = ".*security", group = "<!-- 10 -->🔐 Security" },
+    { message = "^chore\\(release\\)", group = "<!-- 11 -->📦 Release" },
+    { message = "^chore\\(tooling\\)", group = "<!-- 12 -->🧰 Tooling" },
+    { message = "^chore", group = "<!-- 13 -->🔧 Miscellaneous" },
+    { message = ".*", group = "<!-- 14 -->🌀 Other" },
+]
+
+# breaking 提交即使命中 skip 规则也保留
+protect_breaking_commits = true
+# 未被任何 parser 匹配的提交是否丢弃（末尾有 .*，一般用不到）
 filter_commits = false
+fail_on_unmatched_commit = false
+
+# 仅处理 vN… 形式的 tag（与发布工作流一致）
 tag_pattern = "v[0-9].*"
+# 跳过某些 tag 作为独立 release 头（正则）
 skip_tags = ""
-ignore_tags = ""
+# 预发布 tag 的提交并入下一正式版（alpha/beta/rc）
+# https://git-cliff.org/docs/configuration/git
+ignore_tags = "v[0-9].*-(alpha|beta|rc)(\\.[0-9]+)?$"
+# 仅统计正式版（可选；空=全部）
+count_tags = ""
+
 topo_order = false
+topo_order_commits = true
+# 组内提交顺序：oldest = 先写的在上（时间正序）
 sort_commits = "oldest"
 
+# Issue / RFC 自动链接
+link_parsers = [
+    { pattern = "#(\\d+)", href = "https://github.com/layenbrank/corex/issues/$1" },
+]
+
+# 仅改规划笔记 / lock 的提交不进入 changelog，减少噪音
+# https://git-cliff.org/docs/configuration/git#include_paths-exclude_paths
+exclude_paths = [
+    "task_plan.md",
+    "progress.md",
+    "findings.md",
+    "Cargo.lock",
+]
+# include_paths = []  # 空=不过滤路径
+
+recurse_submodules = false
+# limit_commits = 0  # 0/未设 = 不限制
+
+# ---------------------------------------------------------------------------
+# SemVer bump（配合 git-cliff --bumped-version / --bump）
+# https://git-cliff.org/docs/configuration/bump
+# ---------------------------------------------------------------------------
 [bump]
 features_always_bump_minor = true
 breaking_always_bump_major = true
+# 无任何 tag 时的起点
+initial_tag = "0.1.0"
+# chore/ci/docs/style/test/build 不驱动版本号
+no_increment_regex = "chore|ci|docs|style|test|build"
+# 一般不需要强制 bump_type；需要时可设 "major" | "minor" | "patch"
+# bump_type = "minor"
+# 特殊前缀（少用）
+# custom_major_increment_regex = "major"
+# custom_minor_increment_regex = "minor|more"

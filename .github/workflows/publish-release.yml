@@ -6,11 +6,13 @@ name: Publish Release
 # - ZIP：corex.exe + corex-daemon.exe + pdfium.dll（若存在）
 # - 资产名：corex-{tag}-windows-x64.zip（prepare.ts 约定）
 #
-# 发布示例：
-#   # bump workspace.package.version 后：
-#   git tag v4.0.0 && git push --tags
+# 发布示例（changelog 须在 tag 前本地用 git-cliff 生成并提交，本 workflow 不跑 cliff）：
+#   git-cliff --bumped-version
+#   # bump Cargo.toml [workspace.package].version + git-cliff -o CHANGELOG.md + commit
+#   git tag v4.0.0 && git push && git push --tags
 #   git tag v4.0.0-beta.1 && git push --tags
 #   # 或 Actions → Publish Release → workflow_dispatch 指定 tag
+# 完整流程：docs/ops/发布与Changelog.md
 
 on:
   push:

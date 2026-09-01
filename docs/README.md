@@ -1,6 +1,6 @@
 # Corex 文档
 
-可组合的**指令（Directive）/ Action** 运行时。当前版本：**v5.1.0**。
+可组合的**指令（Directive）/ Action** 运行时。当前版本：**v6.0.0**。
 
 按用途选文档即可；找不到时先回本页。
 
@@ -19,6 +19,7 @@
 | 配 `corex.toml` | [guide/运行时配置.md](./guide/运行时配置.md) |
 | 了解架构 / watch·cron / 开发门禁 | [reference/架构.md](./reference/架构.md) |
 | 企业锁定 / 合规 | [ops/企业部署.md](./ops/企业部署.md) |
+| 发版 / 写 CHANGELOG | [ops/发布与Changelog.md](./ops/发布与Changelog.md) |
 | 升级迁移 | [changelog/破坏性变更-v5.md](./changelog/破坏性变更-v5.md) |
 
 ---
@@ -78,6 +79,7 @@ Schema：[schemas/directive.schema.json](../schemas/directive.schema.json)
 | 文档 | 说明 |
 |------|------|
 | [企业部署](./ops/企业部署.md) | 锁定配置、最小构建、CLI 边界 |
+| [发布与 Changelog](./ops/发布与Changelog.md) | tag 前 `git-cliff`、版本对齐、Publish Release |
 | [合规说明](./ops/合规说明.md) | 授权与控制项 |
 | [威胁模型](./ops/威胁模型.md) | 高风险 Action |
 

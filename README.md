@@ -39,7 +39,7 @@ corex actions
 | 参考 | [指令 YAML](docs/reference/指令YAML.md) · [内置 Action](docs/reference/内置Action.md) · [架构](docs/reference/架构.md) |
 | 接入 | [接入总览](docs/integration/接入总览.md) · [IPC](docs/integration/IPC接入指南.md) · [Tauri](docs/integration/Tauri接入指南.md) |
 | 示例 | [directives](examples/directives/README.md) · [actions](examples/actions/README.md) |
-| 运维 | [企业部署](docs/ops/企业部署.md) · [合规](docs/ops/合规说明.md) |
+| 运维 | [企业部署](docs/ops/企业部署.md) · [发布与 Changelog](docs/ops/发布与Changelog.md) · [合规](docs/ops/合规说明.md) |
 | 变更 | [v5](docs/changelog/破坏性变更-v5.md) · [v4](docs/changelog/破坏性变更-v4.md) · [archive](docs/archive/) |
 
 ## Workspace
