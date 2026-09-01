@@ -16,7 +16,7 @@
 | [pipeline-v3.md](./pipeline-v3.md) | Pipeline v3 DSL（已由 Directive YAML 取代） |
 | [v3-migration.md](./v3-migration.md) | v3 迁移笔记 |
 | [runtime.md](./runtime.md) | 旧 runtime / serve 说明 |
-| [cron.md](./cron.md) | cron 表达式参考 |
+| [cron.md](./cron.md) | 旧 zslayton/`cron` 表达式（已由 [reference/cron表达式.md](../reference/cron表达式.md) 取代） |
 | [breaking-changes.md](./breaking-changes.md) | ≤v3 时代破坏性变更汇总 |
 | [worktree.md](./worktree.md) | 旧 worktree 工作流 |
 | [corex.task.schema.README.md](./corex.task.schema.README.md) | 旧 task schema |

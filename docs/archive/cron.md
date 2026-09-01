@@ -1,3 +1,5 @@
+> **已归档。** 本文描述 zslayton/`cron`（7 字段、日/周默认 AND）。corex v5 现行规则见 **[Cron 表达式参考](../reference/cron表达式.md)**（`tokio-cron-scheduler` 0.15.1 → **croner ^3.0.0**）。
+
 cron 表达式中的特殊字符含义**基本通用**，但不同实现（如 Linux 系统 cron、Rust `cron` 库、Quartz）存在关键差异。**核心结论**：所有特殊字符的语义一致，但 **Rust `cron` 库要求“日字段”和“周字段”必须同时满足（逻辑“与”关系）**，而 Linux 系统 cron 中二者是“或”关系（需用 `?` 显式避免冲突）。以下按字符分类详细说明，**重点标注 Rust 库特性**。
 
 ---

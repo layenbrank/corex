@@ -198,7 +198,8 @@ permissions:
 ```yaml
 triggers:
   - type: cron
-    expr: "0 * * * *"          # 5 或 6 字段；启动: corex cron run <name>
+    expr: "0 9 * * 1-5"        # 5 或 6 字段；规则见 cron表达式.md
+    timezone: local            # 可选：local | utc | +08:00；默认 runtime.cron_timezone=local
   - type: watch
     paths: ["./src"]
     includes: []
@@ -209,6 +210,11 @@ triggers:
     poll: false               # NFS/WSL 等不可靠 FS 时用 PollWatcher
     events: []                # 空 = create+modify+remove；可收紧为 ["create","modify"]
 ```
+
+| cron 字段 | 默认 | 说明 |
+|-----------|------|------|
+| `expr` | （必填） | 5 或 6 字段 cron 表达式 |
+| `timezone` | `runtime.cron_timezone`（默认 `local`） | `local` / `utc` / `±HH:MM` |
 
 | watch 字段 | 默认 | 说明 |
 |------------|------|------|
@@ -263,3 +269,4 @@ corex watch send build-client run-now
 - [schemas/directive.schema.json](../../schemas/directive.schema.json)
 - [ipc-protocol.md](IPC协议.md)
 - [architecture.md](架构.md)（含 [Supervisor](架构.md#supervisor-子系统cron--watch)）
+- [cron表达式.md](cron表达式.md)（`tokio-cron-scheduler` → croner 3 表达式规则）

@@ -35,7 +35,7 @@
 | `dir.update` | `act-file` | `from`、`to`；`create_dirs?` | 重命名 / 移动目录 |
 | `dir.remove` | `act-file` | `path`；`recursive?` | 删除目录（默认仅空目录） |
 | `template.render` | `act-template` | `template`；`context?` (map) | MiniJinja 渲染 |
-| `cron.schedule` | `act-cron` | `expr`；`directive?` | 在活动的 `corex cron` 监督进程上注册 cron 任务 |
+| `cron.schedule` | `act-cron` | `expr`；`timezone?`；`directive?` | 在活动的 `corex cron` 监督进程上注册 cron 任务 |
 | `keyring.get` | `act-keyring` | `service`、`user` | 读取系统钥匙串 |
 | `keyring.set` | `act-keyring` | `service`、`user`、`password` | 写入系统钥匙串 |
 | `copy.run` | `act-copy` | `from`、`to`；`empty?`、`includes?`、`excludes?` | 目录树 / 过滤复制 |
@@ -172,11 +172,12 @@ IPC: `{"type":"invoke","action":"scan.os","params":{}}`
   action: cron.schedule
   params:
     expr: "0 0 12 * * *"
+    timezone: local
     directive: hello
   save_to: job
 ```
 
-IPC: `{"type":"invoke","action":"cron.schedule","params":{"expr":"0 0 12 * * *","directive":"hello"}}`
+IPC: `{"type":"invoke","action":"cron.schedule","params":{"expr":"0 0 12 * * *","timezone":"local","directive":"hello"}}`
 
 ### 网络与模板
 
