@@ -138,6 +138,7 @@ pub async fn supervise_cron_job(
         }
         tokio::time::sleep(Duration::from_millis(500)).await;
     }
+    let _ = engine.unregister(&meta.id).await;
     let _ = JobMeta::remove(data_dir, JobKind::Cron, &meta.id);
     Ok(())
 }

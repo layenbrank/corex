@@ -190,7 +190,13 @@ impl WatchEngine {
                 }
 
                 last_run = Some(Instant::now());
-                worker_flag.store(true, Ordering::SeqCst);
+                if worker_flag
+                    .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
+                    .is_err()
+                {
+                    pending = true;
+                    continue;
+                }
                 info!(directive = %worker_name, "watch 触发执行");
                 let result = run_directive_file(
                     Arc::clone(&worker_store),
@@ -367,10 +373,13 @@ impl WatchEngine {
         let state = jobs
             .get(job_id)
             .ok_or_else(|| EngineError::other(format!("watch job 未找到: {job_id}")))?;
-        if state.is_running.load(Ordering::SeqCst) {
+        if state
+            .is_running
+            .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
+            .is_err()
+        {
             return Err(EngineError::other("job 正在运行"));
         }
-        state.is_running.store(true, Ordering::SeqCst);
         let store = Arc::clone(&self.store);
         let runtime = self.runtime.clone();
         let data_dir = self.data_dir.clone();
