@@ -261,6 +261,13 @@ fn build_command(spec: &LaunchSpec, host: Host) -> Result<Command, ActionError> 
     if let Some(cwd) = &spec.cwd {
         cmd.current_dir(cwd);
     }
+    // Avoid flashing a console window when launched from a GUI / windowless parent
+    // (daemon, Tauri). GUI subsystem targets are unaffected.
+    #[cfg(windows)]
+    {
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+        cmd.creation_flags(CREATE_NO_WINDOW);
+    }
     Ok(cmd)
 }
 
