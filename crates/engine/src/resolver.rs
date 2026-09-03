@@ -4,6 +4,7 @@ use corex_core::{EngineError, ExecutionContext, Value};
 use once_cell::sync::Lazy;
 use regex::Regex;
 use serde_json::json;
+use std::collections::HashMap;
 
 static VAR_RE: Lazy<Regex> =
     Lazy::new(|| Regex::new(r"\{\{\s*([^}]+?)\s*\}\}").expect("valid regex"));
@@ -13,6 +14,53 @@ static VAR_RE: Lazy<Regex> =
 pub struct Resolver;
 
 impl Resolver {
+    /// Seed directive `variables` into `ctx`, resolving placeholders.
+    ///
+    /// Uses multi-pass resolution so entries may reference each other regardless
+    /// of `HashMap` iteration order (e.g. `dist: "{{base}}/out"` with `base` defined
+    /// elsewhere in the same map).
+    pub fn seed_variables(
+        variables: &HashMap<String, Value>,
+        ctx: &mut ExecutionContext,
+    ) -> Result<(), EngineError> {
+        let mut pending: Vec<(String, Value)> = variables
+            .iter()
+            .filter(|(k, _)| !ctx.variables.contains_key(k.as_str()))
+            .map(|(k, v)| (k.clone(), v.clone()))
+            .collect();
+
+        while !pending.is_empty() {
+            let mut next = Vec::new();
+            let mut progressed = false;
+            let mut last_undefined: Option<EngineError> = None;
+
+            for (k, v) in pending {
+                match Self::resolve_value(&v, ctx) {
+                    Ok(resolved) => {
+                        ctx.variables.entry(k).or_insert(resolved);
+                        progressed = true;
+                    }
+                    Err(e @ EngineError::UndefinedVariable(_)) => {
+                        last_undefined = Some(e);
+                        next.push((k, v));
+                    }
+                    Err(e) => return Err(e),
+                }
+            }
+
+            if next.is_empty() {
+                break;
+            }
+            if !progressed {
+                return Err(last_undefined.unwrap_or_else(|| {
+                    EngineError::ResolveError("变量存在循环依赖或无法解析".into())
+                }));
+            }
+            pending = next;
+        }
+        Ok(())
+    }
+
     /// Resolve all placeholders inside a [`Value`] tree.
     pub fn resolve_value(value: &Value, ctx: &ExecutionContext) -> Result<Value, EngineError> {
         match value {
@@ -279,6 +327,48 @@ mod tests {
     fn nested_missing_is_undefined() {
         let c = ctx();
         let err = Resolver::resolve_string("{{step.greet.nope}}", &c).unwrap_err();
+        assert!(matches!(err, EngineError::UndefinedVariable(_)));
+    }
+
+    #[test]
+    fn seed_variables_resolves_cross_refs_any_order() {
+        // HashMap iteration order is nondeterministic; run enough times that a
+        // single-pass seeder would flake if `dist` were resolved before `base`.
+        for _ in 0..64 {
+            let mut vars = HashMap::new();
+            vars.insert(
+                "dist".into(),
+                Value::Str("{{base}}/dist-iwellnew".into()),
+            );
+            vars.insert(
+                "base".into(),
+                Value::Str("C:/Documents/source code of business".into()),
+            );
+            vars.insert(
+                "client".into(),
+                Value::Str("{{base}}/iwellnew".into()),
+            );
+
+            let mut c = ExecutionContext::new(RuntimeConfig::default());
+            Resolver::seed_variables(&vars, &mut c).expect("cross-ref seed");
+            assert_eq!(
+                c.variables.get("dist").and_then(|v| v.as_str()),
+                Some("C:/Documents/source code of business/dist-iwellnew")
+            );
+            assert_eq!(
+                c.variables.get("client").and_then(|v| v.as_str()),
+                Some("C:/Documents/source code of business/iwellnew")
+            );
+        }
+    }
+
+    #[test]
+    fn seed_variables_detects_cycles() {
+        let mut vars = HashMap::new();
+        vars.insert("a".into(), Value::Str("{{b}}".into()));
+        vars.insert("b".into(), Value::Str("{{a}}".into()));
+        let mut c = ExecutionContext::new(RuntimeConfig::default());
+        let err = Resolver::seed_variables(&vars, &mut c).unwrap_err();
         assert!(matches!(err, EngineError::UndefinedVariable(_)));
     }
 }

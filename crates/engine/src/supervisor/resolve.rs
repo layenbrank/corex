@@ -11,10 +11,7 @@ pub fn seed_directive_variables(
     runtime: RuntimeConfig,
 ) -> Result<ExecutionContext, EngineError> {
     let mut ctx = ExecutionContext::new(runtime);
-    for (k, v) in &directive.variables {
-        let resolved = Resolver::resolve_value(v, &ctx)?;
-        ctx.variables.entry(k.clone()).or_insert(resolved);
-    }
+    Resolver::seed_variables(&directive.variables, &mut ctx)?;
     Ok(ctx)
 }
 
@@ -103,5 +100,27 @@ steps:
         let ctx = seed_directive_variables(&d, RuntimeConfig::default()).unwrap();
         let base = ctx.variables.get("base").unwrap();
         assert!(matches!(base, Value::Str(s) if !s.contains("{{")));
+    }
+
+    #[test]
+    fn seed_variables_allows_forward_refs() {
+        let yaml = r#"
+name: t
+variables:
+  dist: "{{base}}/out"
+  base: "{{env.TEMP}}/root"
+steps:
+  - id: a
+    action: template.render
+    params:
+      template: ok
+"#;
+        let d = Directive::from_yaml_str(yaml).unwrap();
+        for _ in 0..32 {
+            let ctx = seed_directive_variables(&d, RuntimeConfig::default()).unwrap();
+            let dist = ctx.variables.get("dist").unwrap().as_str().unwrap();
+            assert!(dist.ends_with("/root/out"), "got {dist}");
+            assert!(!dist.contains("{{"));
+        }
     }
 }

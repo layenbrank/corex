@@ -35,7 +35,7 @@ inputs:
 
 ### 变量（Variables）
 
-顶层 `variables` 在启动时解析一次，并存入 `ctx.variables`。在步骤上使用 `save_to`，可将该步骤的输出写入变量名。
+顶层 `variables` 在启动时**多轮**解析后写入 `ctx.variables`，因此同一 map 内可以互相引用（例如 `dist: "{{base}}/out"`），**不依赖 YAML 书写顺序**。循环依赖会报错。在步骤上使用 `save_to`，可将该步骤的输出写入变量名。
 
 ## 步骤（Steps）
 

@@ -58,9 +58,9 @@ impl Pipeline {
             run_name: Some(directive.name.clone()),
         };
 
-        for (k, v) in &directive.variables {
-            let resolved = Resolver::resolve_value(v, &ctx)?;
-            ctx.variables.entry(k.clone()).or_insert(resolved);
+        if let Err(e) = Resolver::seed_variables(&directive.variables, &mut ctx) {
+            pipeline.record_history(directive, started, Err(&e));
+            return Err(e);
         }
         if let Err(e) = apply_input_defaults(directive, &mut ctx) {
             pipeline.record_history(directive, started, Err(&e));
