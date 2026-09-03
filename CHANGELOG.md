@@ -8,6 +8,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 See also [Conventional Commits](https://www.conventionalcommits.org/).
 
 ---
+## [6.0.1](https://github.com/layenbrank/corex/compare/v6.0.0..v6.0.1) - 2026-09-03
+
+### 🐛 Bug Fixes
+- **(engine)** 多轮解析 variables 交叉引用，消除偶发未定义 · ([`f92e3c7`](https://github.com/layenbrank/corex/commit/f92e3c7d56d0acd0e81ecd6be1d29382f9e6a40b)) · lh
+
+
+### 📦 Release
+- **(release)** bump version to 6.0.1
+
+---
 ## [6.0.0](https://github.com/layenbrank/corex/compare/v5.3.1..v6.0.0) - 2026-09-01
 
 ### 🚀 Features
