@@ -1,10 +1,10 @@
-//! `keyring.get` / `keyring.set` via the keyring crate.
+//! 经 keyring crate 实现的 `keyring.get` / `keyring.set`。
 
 use crate::ActionRegistry;
 use async_trait::async_trait;
 use corex_core::{
-    Action, ActionCategory, ActionError, ActionMeta, ExecutionContext, ParamSchema, SchemaType,
-    Value,
+    Action, ActionCategory, ActionError, ActionMeta, ExecutionContext, ParamSchema, PermissionSet,
+    SchemaType, Value,
 };
 use std::sync::Arc;
 
@@ -29,10 +29,14 @@ pub struct KeyringSet;
 
 #[async_trait]
 impl Action for KeyringGet {
+    fn permissions(&self) -> PermissionSet {
+        PermissionSet::SECRET
+    }
+
     fn meta(&self) -> ActionMeta {
         ActionMeta::new(
             "keyring.get",
-            "Keyring Get",
+            "读取凭据",
             "从系统钥匙串读取密钥",
             ActionCategory::System,
         )
@@ -57,10 +61,14 @@ impl Action for KeyringGet {
 
 #[async_trait]
 impl Action for KeyringSet {
+    fn permissions(&self) -> PermissionSet {
+        PermissionSet::SECRET
+    }
+
     fn meta(&self) -> ActionMeta {
         ActionMeta::new(
             "keyring.set",
-            "Keyring Set",
+            "写入凭据",
             "写入系统钥匙串",
             ActionCategory::System,
         )

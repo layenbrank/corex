@@ -1,13 +1,13 @@
-//! Morph PDF actions — export/merge/split via lopdf; meta/render soft-fail without pdfium.
+//! Morph PDF 动作——经 lopdf 做导出/合并/拆分；没有 pdfium 时 meta/render 软失败。
 
 use crate::ActionRegistry;
 use crate::builtin::util::{
-    confine_path, ensure_parent, opt_i64, opt_str_list, require_map, require_path, require_str,
+    confine_path, ensure_parent, opt_i64, opt_strs, require_map, require_path, require_str,
 };
 use async_trait::async_trait;
 use corex_core::{
-    Action, ActionCategory, ActionError, ActionMeta, ExecutionContext, ParamSchema, SchemaType,
-    Value,
+    Action, ActionCategory, ActionError, ActionMeta, ExecutionContext, ParamSchema, PermissionSet,
+    SchemaType, Value,
 };
 use lopdf::{Document as LopdfDoc, Object as LopdfObj, ObjectId as LopdfId, dictionary};
 use std::collections::{HashSet, VecDeque};
@@ -22,10 +22,14 @@ pub struct MorphExport;
 
 #[async_trait]
 impl Action for MorphMeta {
+    fn permissions(&self) -> PermissionSet {
+        PermissionSet::FILESYSTEM
+    }
+
     fn meta(&self) -> ActionMeta {
         ActionMeta::new(
             "morph.meta",
-            "PDF Meta",
+            "PDF 元数据",
             "读取 PDF 元数据（需要 pdfium）",
             ActionCategory::Data,
         )
@@ -45,10 +49,14 @@ impl Action for MorphMeta {
 
 #[async_trait]
 impl Action for MorphRender {
+    fn permissions(&self) -> PermissionSet {
+        PermissionSet::FILESYSTEM
+    }
+
     fn meta(&self) -> ActionMeta {
         ActionMeta::new(
             "morph.render",
-            "PDF Render",
+            "PDF 渲染",
             "渲染 PDF 单页为 PNG（需要 pdfium）",
             ActionCategory::Data,
         )
@@ -72,10 +80,14 @@ impl Action for MorphRender {
 
 #[async_trait]
 impl Action for MorphExport {
+    fn permissions(&self) -> PermissionSet {
+        PermissionSet::FILESYSTEM
+    }
+
     fn meta(&self) -> ActionMeta {
         ActionMeta::new(
             "morph.export",
-            "PDF Export",
+            "PDF 导出",
             "复制 PDF 到目标路径",
             ActionCategory::Data,
         )
@@ -101,15 +113,19 @@ impl Action for MorphExport {
 
 #[async_trait]
 impl Action for MorphMerge {
+    fn permissions(&self) -> PermissionSet {
+        PermissionSet::FILESYSTEM
+    }
+
     fn meta(&self) -> ActionMeta {
         ActionMeta::new(
             "morph.merge",
-            "PDF Merge",
+            "PDF 合并",
             "合并多个 PDF",
             ActionCategory::Data,
         )
         .with_params(vec![
-            ParamSchema::new("paths", SchemaType::List, true),
+            ParamSchema::new("paths", SchemaType::Array, true),
             ParamSchema::new("dest", SchemaType::File, true),
         ])
     }
@@ -120,7 +136,7 @@ impl Action for MorphMerge {
         ctx: &mut ExecutionContext,
     ) -> Result<Value, ActionError> {
         let map = require_map(&params)?;
-        let paths = opt_str_list(map, "paths");
+        let paths = opt_strs(map, "paths");
         if paths.is_empty() {
             return Err(ActionError::InvalidParams(
                 "至少需要一个输入文件".to_string(),
@@ -187,10 +203,14 @@ impl Action for MorphMerge {
 
 #[async_trait]
 impl Action for MorphSplit {
+    fn permissions(&self) -> PermissionSet {
+        PermissionSet::FILESYSTEM
+    }
+
     fn meta(&self) -> ActionMeta {
         ActionMeta::new(
             "morph.split",
-            "PDF Split",
+            "PDF 拆分",
             "按页数上限拆分 PDF",
             ActionCategory::Data,
         )
@@ -198,7 +218,7 @@ impl Action for MorphSplit {
             ParamSchema::new("path", SchemaType::File, true),
             ParamSchema::new("dir", SchemaType::File, true),
             ParamSchema::new("limit", SchemaType::Int, false).with_default(1),
-            ParamSchema::new("ranges", SchemaType::List, false),
+            ParamSchema::new("ranges", SchemaType::Array, false),
         ])
     }
 
@@ -212,7 +232,7 @@ impl Action for MorphSplit {
         let dir = confine_path(ctx, Path::new(&require_str(map, "dir")?))?;
         std::fs::create_dir_all(&dir)?;
 
-        let ranges = if let Some(Value::List(raw)) = map.get("ranges") {
+        let ranges = if let Some(Value::Array(raw)) = map.get("ranges") {
             let mut out = Vec::new();
             for item in raw {
                 let s = item.as_str().ok_or_else(|| {
@@ -253,7 +273,7 @@ impl Action for MorphSplit {
         };
 
         let paths = split_pdf(&path.to_string_lossy(), ranges, &dir.to_string_lossy())?;
-        Ok(Value::List(
+        Ok(Value::Array(
             paths.into_iter().map(|p| Value::File(p.into())).collect(),
         ))
     }
@@ -261,10 +281,8 @@ impl Action for MorphSplit {
 
 fn push_refs(obj: &LopdfObj, needed: &mut HashSet<LopdfId>, queue: &mut VecDeque<LopdfId>) {
     match obj {
-        LopdfObj::Reference(id) => {
-            if needed.insert(*id) {
-                queue.push_back(*id);
-            }
+        LopdfObj::Reference(id) if needed.insert(*id) => {
+            queue.push_back(*id);
         }
         LopdfObj::Array(arr) => {
             for item in arr {

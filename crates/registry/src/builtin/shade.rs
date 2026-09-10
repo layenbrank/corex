@@ -1,4 +1,4 @@
-//! `shade.convert` — image format conversion / compression.
+//! `shade.convert` —— 图像格式转换 / 压缩。
 
 use crate::ActionRegistry;
 use crate::builtin::util::{
@@ -6,8 +6,8 @@ use crate::builtin::util::{
 };
 use async_trait::async_trait;
 use corex_core::{
-    Action, ActionCategory, ActionError, ActionMeta, ExecutionContext, ParamSchema, SchemaType,
-    Value,
+    Action, ActionCategory, ActionError, ActionMeta, ExecutionContext, ParamSchema, PermissionSet,
+    SchemaType, Value,
 };
 use image::codecs::jpeg::JpegEncoder;
 use image::codecs::png::PngEncoder;
@@ -26,10 +26,14 @@ pub struct ShadeConvert;
 
 #[async_trait]
 impl Action for ShadeConvert {
+    fn permissions(&self) -> PermissionSet {
+        PermissionSet::FILESYSTEM
+    }
+
     fn meta(&self) -> ActionMeta {
         ActionMeta::new(
             "shade.convert",
-            "Shade Convert",
+            "色彩转换",
             "图片格式转换与压缩",
             ActionCategory::Data,
         )

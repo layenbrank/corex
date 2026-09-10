@@ -1,4 +1,4 @@
-//! Action registry and built-in actions.
+//! 动作注册表与内置动作。
 
 pub mod builtin;
 
@@ -13,12 +13,12 @@ pub mod discovery;
 #[cfg(feature = "wasm")]
 pub mod wasm_host;
 
-use corex_core::{Action, ActionMeta, ActionStore, PluginConfig, RuntimeConfig};
+use corex_core::{Action, ActionMeta, ActionStore, PluginConfig};
 use std::collections::HashMap;
 use std::sync::Arc;
-use tracing::{info, warn};
+use tracing::{debug, warn};
 
-/// Thread-safe registry of named actions.
+/// 线程安全的具名动作注册表。
 #[derive(Default, Clone)]
 pub struct ActionRegistry {
     actions: HashMap<String, Arc<dyn Action>>,
@@ -31,14 +31,16 @@ impl ActionRegistry {
         }
     }
 
-    /// Register all feature-enabled builtins.
+    /// 注册全部已启用 feature 的内置动作。
     pub fn register_builtins(&mut self) {
         builtin::register_all(self);
     }
 
     pub fn register(&mut self, action: Arc<dyn Action>) {
         let id = action.meta().id.clone();
-        info!(action = %id, "注册动作");
+        // 用 `debug` 而不是 `info`：这条每个内置动作启动时都会发一次，
+        // 用 `info` 会让每条命令都把整个注册表打到 stderr。
+        debug!(action = %id, "注册动作");
         self.actions.insert(id, action);
     }
 
@@ -46,10 +48,10 @@ impl ActionRegistry {
         self.actions.get(id).cloned()
     }
 
-    pub fn list(&self) -> Vec<ActionMeta> {
-        let mut list: Vec<_> = self.actions.values().map(|a| a.meta()).collect();
-        list.sort_by(|a, b| a.id.cmp(&b.id));
-        list
+    pub fn actions(&self) -> Vec<ActionMeta> {
+        let mut actions: Vec<_> = self.actions.values().map(|a| a.meta()).collect();
+        actions.sort_by(|a, b| a.id.cmp(&b.id));
+        actions
     }
 
     pub fn contains(&self, id: &str) -> bool {
@@ -64,12 +66,8 @@ impl ActionRegistry {
         self.actions.is_empty()
     }
 
-    /// Apply runtime plugin / action disablement from config.
-    pub fn apply_runtime_config(&mut self, config: &RuntimeConfig) {
-        self.apply_plugin_config(&config.plugins);
-    }
-
-    pub fn apply_plugin_config(&mut self, plugins: &PluginConfig) {
+    /// 按配置剔除被禁用的插件与动作。
+    pub fn remove_disabled(&mut self, plugins: &PluginConfig) {
         if !plugins.disabled.is_empty() {
             let before = self.actions.len();
             self.actions.retain(|id, _| {
@@ -99,6 +97,6 @@ impl ActionStore for ActionRegistry {
     }
 
     fn actions(&self) -> Vec<ActionMeta> {
-        self.list()
+        ActionRegistry::actions(self)
     }
 }

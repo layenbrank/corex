@@ -1,11 +1,11 @@
-//! Shared param helpers for builtin actions.
+//! 内置动作共用的参数辅助函数。
 
 use corex_core::path::confine_in_roots;
 use corex_core::{ActionError, ExecutionContext, Value};
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
-/// Reject paths outside `ctx.config.filesystem_roots` when roots are set.
+/// 设了 roots 时，拒绝 `ctx.config.filesystem_roots` 之外的路径。
 pub fn confine_path(ctx: &ExecutionContext, path: &Path) -> Result<PathBuf, ActionError> {
     confine_in_roots(&ctx.config.filesystem_roots, path).map_err(|e| ActionError::execution(e.0))
 }
@@ -42,9 +42,9 @@ pub fn opt_f64(map: &BTreeMap<String, Value>, key: &str, default: f64) -> f64 {
     map.get(key).and_then(|v| v.as_f64()).unwrap_or(default)
 }
 
-pub fn opt_str_list(map: &BTreeMap<String, Value>, key: &str) -> Vec<String> {
+pub fn opt_strs(map: &BTreeMap<String, Value>, key: &str) -> Vec<String> {
     match map.get(key) {
-        Some(Value::List(items)) => items
+        Some(Value::Array(items)) => items
             .iter()
             .filter_map(|v| v.as_str().map(|s| s.to_string()))
             .collect(),
@@ -58,10 +58,10 @@ pub fn opt_str_list(map: &BTreeMap<String, Value>, key: &str) -> Vec<String> {
 }
 
 pub fn ensure_parent(path: &std::path::Path) -> Result<(), ActionError> {
-    if let Some(parent) = path.parent() {
-        if !parent.as_os_str().is_empty() {
-            std::fs::create_dir_all(parent)?;
-        }
+    if let Some(parent) = path.parent()
+        && !parent.as_os_str().is_empty()
+    {
+        std::fs::create_dir_all(parent)?;
     }
     Ok(())
 }

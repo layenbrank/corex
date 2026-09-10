@@ -1,4 +1,4 @@
-//! Compression actions: zip / tar.gz / 7z compress & decompress.
+//! 压缩动作：zip / tar.gz / 7z 的压缩与解压。
 
 use crate::ActionRegistry;
 use crate::builtin::filter::Filter;
@@ -7,8 +7,8 @@ use crate::builtin::util::{
 };
 use async_trait::async_trait;
 use corex_core::{
-    Action, ActionCategory, ActionError, ActionMeta, ExecutionContext, ParamSchema, SchemaType,
-    Value,
+    Action, ActionCategory, ActionError, ActionMeta, ExecutionContext, ParamSchema, PermissionSet,
+    SchemaType, Value,
 };
 use flate2::Compression;
 use flate2::read::GzDecoder;
@@ -27,10 +27,14 @@ pub struct CompressionDecompress;
 
 #[async_trait]
 impl Action for CompressionCompress {
+    fn permissions(&self) -> PermissionSet {
+        PermissionSet::FILESYSTEM
+    }
+
     fn meta(&self) -> ActionMeta {
         ActionMeta::new(
             "compression.compress",
-            "Compress",
+            "压缩",
             "压缩目录/文件为 zip、tar.gz 或 7z",
             ActionCategory::Data,
         )
@@ -41,8 +45,8 @@ impl Action for CompressionCompress {
                 .with_default("zip")
                 .with_description("zip | tar.gz | 7z"),
             ParamSchema::new("level", SchemaType::Int, false).with_default(6),
-            ParamSchema::new("includes", SchemaType::List, false),
-            ParamSchema::new("excludes", SchemaType::List, false),
+            ParamSchema::new("includes", SchemaType::Array, false),
+            ParamSchema::new("excludes", SchemaType::Array, false),
         ])
     }
 
@@ -56,8 +60,8 @@ impl Action for CompressionCompress {
         let to = confine_path(ctx, &require_path(map, "to")?)?;
         let format = opt_str(map, "format").unwrap_or_else(|| "zip".into());
         let level = opt_i64(map, "level", 6) as u32;
-        let includes = crate::builtin::util::opt_str_list(map, "includes");
-        let excludes = crate::builtin::util::opt_str_list(map, "excludes");
+        let includes = crate::builtin::util::opt_strs(map, "includes");
+        let excludes = crate::builtin::util::opt_strs(map, "excludes");
         ensure_parent(&to)?;
 
         match format.to_lowercase().as_str() {
@@ -82,10 +86,14 @@ impl Action for CompressionCompress {
 
 #[async_trait]
 impl Action for CompressionDecompress {
+    fn permissions(&self) -> PermissionSet {
+        PermissionSet::FILESYSTEM
+    }
+
     fn meta(&self) -> ActionMeta {
         ActionMeta::new(
             "compression.decompress",
-            "Decompress",
+            "解压",
             "解压 zip、tar.gz 或 7z",
             ActionCategory::Data,
         )

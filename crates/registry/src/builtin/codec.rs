@@ -1,12 +1,12 @@
-//! Codec actions: base64 encode/decode and md5 hash.
+//! 编解码动作：base64 编解码与 md5 摘要。
 
 use crate::ActionRegistry;
 use crate::builtin::util::{confine_path, ensure_parent, opt_str, require_map, require_str};
 use async_trait::async_trait;
 use base64::{Engine, engine::general_purpose::STANDARD};
 use corex_core::{
-    Action, ActionCategory, ActionError, ActionMeta, ExecutionContext, ParamSchema, SchemaType,
-    Value,
+    Action, ActionCategory, ActionError, ActionMeta, ExecutionContext, ParamSchema, PermissionSet,
+    SchemaType, Value,
 };
 use md5::{Digest, Md5};
 use std::collections::BTreeMap;
@@ -68,6 +68,10 @@ const MAX_JSON_PARSE_BYTES: usize = 10 * 1024 * 1024;
 
 #[async_trait]
 impl Action for CodecBase64Encode {
+    fn permissions(&self) -> PermissionSet {
+        PermissionSet::FILESYSTEM
+    }
+
     fn meta(&self) -> ActionMeta {
         ActionMeta::new(
             "codec.base64.encode",
@@ -97,6 +101,10 @@ impl Action for CodecBase64Encode {
 
 #[async_trait]
 impl Action for CodecBase64Decode {
+    fn permissions(&self) -> PermissionSet {
+        PermissionSet::FILESYSTEM
+    }
+
     fn meta(&self) -> ActionMeta {
         ActionMeta::new(
             "codec.base64.decode",
@@ -148,6 +156,10 @@ impl Action for CodecBase64Decode {
 
 #[async_trait]
 impl Action for CodecHashMd5 {
+    fn permissions(&self) -> PermissionSet {
+        PermissionSet::FILESYSTEM
+    }
+
     fn meta(&self) -> ActionMeta {
         ActionMeta::new(
             "codec.hash.md5",
@@ -178,10 +190,14 @@ impl Action for CodecHashMd5 {
 
 #[async_trait]
 impl Action for CodecJsonParse {
+    fn permissions(&self) -> PermissionSet {
+        PermissionSet::NONE
+    }
+
     fn meta(&self) -> ActionMeta {
         ActionMeta::new(
             "codec.json.parse",
-            "JSON Parse",
+            "JSON 解析",
             "将 JSON 字符串解析为结构化 Value",
             ActionCategory::Data,
         )
@@ -273,7 +289,7 @@ mod tests {
     fn json_parse_rejects_oversized() {
         use proptest::prelude::*;
         proptest!(|(n in 1usize..64)| {
-            // Keep generated payloads small but exercise rejection path via direct size check.
+            // 让生成的负载保持很小，但用直接的大小检查来覆盖拒绝路径。
             let text = format!("{{\"k\":\"{}\"}}", "x".repeat(n));
             let mut ctx = ExecutionContext::default();
             let mut params = BTreeMap::new();

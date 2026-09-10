@@ -1,10 +1,10 @@
-//! `notify.send` — desktop notification via notify-rust.
+//! `notify.send` —— 经 notify-rust 发桌面通知。
 
 use crate::ActionRegistry;
 use async_trait::async_trait;
 use corex_core::{
-    Action, ActionCategory, ActionError, ActionMeta, ExecutionContext, ParamSchema, SchemaType,
-    Value,
+    Action, ActionCategory, ActionError, ActionMeta, ExecutionContext, ParamSchema, PermissionSet,
+    SchemaType, Value,
 };
 use std::sync::Arc;
 
@@ -12,6 +12,10 @@ pub struct NotifySend;
 
 #[async_trait]
 impl Action for NotifySend {
+    fn permissions(&self) -> PermissionSet {
+        PermissionSet::NOTIFICATIONS
+    }
+
     fn meta(&self) -> ActionMeta {
         ActionMeta::new("notify.send", "Notify", "发送桌面通知", ActionCategory::Ui).with_params(
             vec![

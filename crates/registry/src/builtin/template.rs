@@ -1,10 +1,10 @@
-//! `template.render` — MiniJinja template rendering.
+//! `template.render` —— MiniJinja 模板渲染。
 
 use crate::ActionRegistry;
 use async_trait::async_trait;
 use corex_core::{
-    Action, ActionCategory, ActionError, ActionMeta, ExecutionContext, ParamSchema, SchemaType,
-    Value,
+    Action, ActionCategory, ActionError, ActionMeta, ExecutionContext, ParamSchema, PermissionSet,
+    SchemaType, Value,
 };
 use std::sync::Arc;
 
@@ -12,10 +12,14 @@ pub struct TemplateRender;
 
 #[async_trait]
 impl Action for TemplateRender {
+    fn permissions(&self) -> PermissionSet {
+        PermissionSet::NONE
+    }
+
     fn meta(&self) -> ActionMeta {
         ActionMeta::new(
             "template.render",
-            "Template Render",
+            "模板渲染",
             "使用 MiniJinja 渲染模板字符串",
             ActionCategory::Data,
         )
@@ -46,7 +50,7 @@ impl Action for TemplateRender {
             .get_template("tpl")
             .map_err(|e| ActionError::execution(format!("加载模板失败: {e}")))?;
 
-        // Build context: explicit context map + variables as fallback.
+        // 构建上下文：显式 context map + 以 variables 兜底。
         let mut ctx_json = serde_json::Map::new();
         for (k, v) in &ctx.variables {
             ctx_json.insert(k.clone(), v.to_json());

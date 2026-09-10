@@ -12,7 +12,7 @@ corex validate examples/actions/file.copy.yaml
 验证全部示例（含本目录与 directives）：
 
 ```powershell
-cargo test -p corex-engine example_directives_validate
+cargo test -p corex-engine --test examples
 ```
 
 ## 索引
@@ -43,4 +43,4 @@ cargo test -p corex-engine example_directives_validate
 | `ui.*` | [ui.window.list.yaml](./ui.window.list.yaml) | [ui-smoke-notepad.yaml](../directives/ui-smoke-notepad.yaml) |
 | `morph.*` | [morph.export.yaml](./morph.export.yaml) | [morph-demo.yaml](../directives/morph-demo.yaml) |
 
-平台标记：`capture.*`、`bootstrap.*`、`ui.*` 主要为 **Windows**；`morph.meta` / `morph.render` 需要 **pdfium**。
+平台标记：`capture.*`、`bootstrap.*`、`ui.*` 主要为 **Windows**；`morph.meta` / `morph.render` **尚未实现**（调用即报错）。

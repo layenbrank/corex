@@ -1,15 +1,16 @@
-//! `clipboard.get` / `clipboard.set` via arboard (text and image).
+//! 经 arboard 实现的 `clipboard.get` / `clipboard.set`（文本与图片）。
 
 use crate::ActionRegistry;
-use crate::builtin::util::{opt_str, require_map, require_str};
+use crate::builtin::util::{confine_path, opt_str, require_map, require_path, require_str};
 use arboard::{Clipboard, ImageData};
 use async_trait::async_trait;
 use corex_core::{
-    Action, ActionCategory, ActionError, ActionMeta, ExecutionContext, ParamSchema, SchemaType,
-    Value,
+    Action, ActionCategory, ActionError, ActionMeta, ExecutionContext, ParamSchema, PermissionSet,
+    SchemaType, Value,
 };
 use image::GenericImageView;
 use std::collections::BTreeMap;
+use std::path::Path;
 use std::sync::Arc;
 
 fn open_clipboard() -> Result<Clipboard, ActionError> {
@@ -20,9 +21,9 @@ fn clipboard_format(map: &BTreeMap<String, Value>) -> String {
     opt_str(map, "format").unwrap_or_else(|| "text".into())
 }
 
-fn load_rgba_image(path: &str) -> Result<(Vec<u8>, u32, u32), ActionError> {
+fn rgba_image(path: &Path) -> Result<(Vec<u8>, u32, u32), ActionError> {
     let img = image::open(path)
-        .map_err(|e| ActionError::execution(format!("打开图片失败 {path}: {e}")))?;
+        .map_err(|e| ActionError::execution(format!("打开图片失败 {}: {e}", path.display())))?;
     let (width, height) = img.dimensions();
     let rgba = img.to_rgba8().into_raw();
     Ok((rgba, width, height))
@@ -33,10 +34,14 @@ pub struct ClipboardSet;
 
 #[async_trait]
 impl Action for ClipboardGet {
+    fn permissions(&self) -> PermissionSet {
+        PermissionSet::CLIPBOARD
+    }
+
     fn meta(&self) -> ActionMeta {
         ActionMeta::new(
             "clipboard.get",
-            "Clipboard Get",
+            "读取剪贴板",
             "读取系统剪贴板（text 或 image）",
             ActionCategory::Ui,
         )
@@ -81,10 +86,15 @@ impl Action for ClipboardGet {
 
 #[async_trait]
 impl Action for ClipboardSet {
+    fn permissions(&self) -> PermissionSet {
+        // `format: image` 要从磁盘读图，所以这里也需要文件系统权限。
+        PermissionSet::CLIPBOARD.union(PermissionSet::FILESYSTEM)
+    }
+
     fn meta(&self) -> ActionMeta {
         ActionMeta::new(
             "clipboard.set",
-            "Clipboard Set",
+            "写入剪贴板",
             "写入系统剪贴板（text 或 image）",
             ActionCategory::Ui,
         )
@@ -100,7 +110,7 @@ impl Action for ClipboardSet {
     async fn execute(
         &self,
         params: Value,
-        _ctx: &mut ExecutionContext,
+        ctx: &mut ExecutionContext,
     ) -> Result<Value, ActionError> {
         let map = require_map(&params)?;
         let format = clipboard_format(map);
@@ -113,9 +123,10 @@ impl Action for ClipboardSet {
                     .map_err(|e| ActionError::execution(format!("写入剪贴板文本失败: {e}")))?;
             }
             "image" => {
-                let path =
-                    opt_str(map, "file").ok_or_else(|| ActionError::MissingParam("file".into()))?;
-                let (rgba, width, height) = load_rgba_image(&path)?;
+                // 与其它所有取路径的动作一样受约束：旧代码会读指令里写什么就读什么，
+                // 完全无视 `filesystem_roots`。
+                let path = confine_path(ctx, &require_path(map, "file")?)?;
+                let (rgba, width, height) = rgba_image(&path)?;
                 let data = ImageData {
                     width: width as usize,
                     height: height as usize,

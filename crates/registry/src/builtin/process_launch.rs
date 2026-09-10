@@ -1,4 +1,4 @@
-//! Shared process launch kernel for `shell.run` and `exec.run`.
+//! `shell.run` 与 `exec.run` 共用的进程启动内核。
 
 use corex_core::{ActionError, Value};
 use std::collections::BTreeMap;
@@ -8,23 +8,23 @@ use std::process::Stdio;
 use tokio::io::{AsyncRead, AsyncReadExt};
 use tokio::process::Command;
 
-/// Explicit execution host. `Auto` resolves from script extension / command mode.
+/// 显式指定执行宿主。`Auto` 按脚本扩展名 / 命令形式推断。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Host {
-    /// Direct `Command::new(program)` + args.
+    /// 直接 `Command::new(program)` + args。
     None,
-    /// Windows `cmd /C`, Unix `sh -c`.
+    /// Windows `cmd /C`，Unix `sh -c`。
     Cmd,
-    /// Windows PowerShell 5.x (`powershell`).
+    /// Windows PowerShell 5.x（`powershell`）。
     Powershell,
-    /// PowerShell 7+ (`pwsh`).
+    /// PowerShell 7+（`pwsh`）。
     Pwsh,
-    /// Resolve from context (script ext or command → None).
+    /// 按上下文推断（脚本扩展名或命令形式 → None）。
     Auto,
 }
 
 impl Host {
-    /// Parse YAML `host` string. Unknown → error.
+    /// 解析 YAML 的 `host` 字符串。未知值 → 报错。
     pub fn parse(s: &str) -> Result<Self, ActionError> {
         match s.trim().to_ascii_lowercase().as_str() {
             "none" | "" => Ok(Host::None),
@@ -40,14 +40,14 @@ impl Host {
     }
 }
 
-/// Whether `program` is treated as a script file (for Auto resolution).
+/// `program` 是否按脚本文件处理（供 Auto 推断用）。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TargetKind {
     Command,
     Script,
 }
 
-/// Sync wait for exit vs spawn-and-return for GUI apps.
+/// 同步等待退出，还是给 GUI 程序用“派生即返回”。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum LaunchWait {
     #[default]
@@ -67,7 +67,7 @@ impl LaunchWait {
     }
 }
 
-/// When the same executable is already running.
+/// 同名可执行文件已在运行时的处理方式。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum IfRunning {
     #[default]
@@ -89,7 +89,7 @@ impl IfRunning {
     }
 }
 
-/// Optional window probe before launch (Windows).
+/// 启动前可选的窗口探测（Windows）。
 #[derive(Debug, Clone, Default)]
 pub struct IfRunningWindow {
     pub title_contains: String,
@@ -141,7 +141,7 @@ impl LaunchResult {
     }
 }
 
-/// Resolve `Auto` (and validate explicit hosts) into a concrete host.
+/// 把 `Auto`（并校验显式宿主）解析成具体宿主。
 pub fn resolve_host(host: Host, program: &Path, kind: TargetKind) -> Host {
     match host {
         Host::Auto => match kind {
@@ -205,7 +205,7 @@ fn build_command(spec: &LaunchSpec, host: Host) -> Result<Command, ActionError> 
                         c.arg(a);
                     }
                 } else {
-                    // Single command line: join program + args for /C
+                    // 单条命令行：把 program 与 args 拼起来交给 /C
                     let mut line = prog_str.to_string();
                     for a in &spec.args {
                         line.push(' ');
@@ -261,8 +261,8 @@ fn build_command(spec: &LaunchSpec, host: Host) -> Result<Command, ActionError> 
     if let Some(cwd) = &spec.cwd {
         cmd.current_dir(cwd);
     }
-    // Avoid flashing a console window when launched from a GUI / windowless parent
-    // (daemon, Tauri). GUI subsystem targets are unaffected.
+    // 从 GUI / 无窗口父进程启动时避免闪一下控制台窗口
+    // （daemon、Tauri）；GUI 子系统的目标不受影响。
     #[cfg(windows)]
     {
         const CREATE_NO_WINDOW: u32 = 0x0800_0000;
@@ -271,9 +271,9 @@ fn build_command(spec: &LaunchSpec, host: Host) -> Result<Command, ActionError> 
     Ok(cmd)
 }
 
-/// Launch process and map to a uniform result. Applies `allow_nonzero`.
+/// 启动进程并映射成统一结果。会应用 `allow_nonzero`。
 pub async fn launch(spec: LaunchSpec) -> Result<LaunchResult, ActionError> {
-    // Canonicalized `\\?\` paths break cmd.exe / some shells on Windows.
+    // Windows 上被规范化成 `\\?\` 的路径会让 cmd.exe / 某些 shell 出错。
     let spec = LaunchSpec {
         program: corex_core::path::for_external_process(spec.program),
         cwd: spec.cwd.map(corex_core::path::for_external_process),
@@ -362,7 +362,7 @@ enum ProcessStream {
     Stderr,
 }
 
-/// Read process output in chunks, echo to the terminal, and collect for the action result.
+/// 分块读取进程输出，回显到终端，并收集起来作为动作结果。
 async fn pump_process_stream<R>(reader: Option<R>, stream: ProcessStream) -> String
 where
     R: AsyncRead + Unpin,
@@ -414,7 +414,7 @@ fn should_skip_launch(spec: &LaunchSpec) -> Result<Option<String>, ActionError> 
                     IfRunning::Launch => Ok(None),
                 };
             }
-            // Window query configured but no match: do not fall back to process-name skip.
+            // 配了窗口查询但没匹配上：不要回退到按进程名跳过。
             return Ok(None);
         }
         #[cfg(not(windows))]
@@ -575,7 +575,7 @@ fn window_probe_matches(probe: &IfRunningWindow) -> bool {
     true
 }
 
-/// Parse optional host from params map (`host` key). Default `Auto`.
+/// 从参数 map 里解析可选的宿主（`host` 键）。默认 `Auto`。
 pub fn host_from_params(map: &BTreeMap<String, Value>) -> Result<Host, ActionError> {
     match map.get("host").and_then(|v| v.as_str()) {
         None => Ok(Host::Auto),
@@ -585,7 +585,7 @@ pub fn host_from_params(map: &BTreeMap<String, Value>) -> Result<Host, ActionErr
 
 pub fn args_from_params(map: &BTreeMap<String, Value>) -> Vec<String> {
     match map.get("args") {
-        Some(Value::List(items)) => items
+        Some(Value::Array(items)) => items
             .iter()
             .map(|v| {
                 v.as_str()
@@ -626,7 +626,7 @@ pub fn if_running_window_from_params(
         .ok_or_else(|| ActionError::MissingParam("if_running_window.title_contains".into()))?
         .to_string();
     let title_excludes = match m.get("title_excludes") {
-        Some(Value::List(items)) => items
+        Some(Value::Array(items)) => items
             .iter()
             .filter_map(|v| v.as_str().map(|s| s.to_string()))
             .collect(),
@@ -643,7 +643,7 @@ pub fn if_running_window_from_params(
     }))
 }
 
-/// Build a [`LaunchSpec`] from resolved action params (shared by shell.run / exec.run).
+/// 由解析好的动作参数构建 [`LaunchSpec`]（shell.run / exec.run 共用）。
 pub fn launch_spec_from_command_params(
     map: &BTreeMap<String, Value>,
     program: PathBuf,

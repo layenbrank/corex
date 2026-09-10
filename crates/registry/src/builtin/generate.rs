@@ -1,15 +1,15 @@
-//! Generate actions: path list, uuid, cvid.
+//! 生成类动作：路径列表、uuid、cvid。
 
 use crate::ActionRegistry;
 use crate::builtin::filter::Filter;
 use crate::builtin::util::{
-    confine_path, ensure_parent, opt_bool, opt_i64, opt_str, opt_str_list, require_map,
-    require_path, require_str,
+    confine_path, ensure_parent, opt_bool, opt_i64, opt_str, opt_strs, require_map, require_path,
+    require_str,
 };
 use async_trait::async_trait;
 use corex_core::{
-    Action, ActionCategory, ActionError, ActionMeta, ExecutionContext, ParamSchema, SchemaType,
-    Value,
+    Action, ActionCategory, ActionError, ActionMeta, ExecutionContext, ParamSchema, PermissionSet,
+    SchemaType, Value,
 };
 use rand::RngExt;
 use std::collections::BTreeMap;
@@ -34,10 +34,14 @@ pub struct GenerateTimestamp;
 
 #[async_trait]
 impl Action for GenerateUuid {
+    fn permissions(&self) -> PermissionSet {
+        PermissionSet::NONE
+    }
+
     fn meta(&self) -> ActionMeta {
         ActionMeta::new(
             "generate.uuid",
-            "Generate UUID",
+            "生成 UUID",
             "生成 UUID v4",
             ActionCategory::Data,
         )
@@ -56,24 +60,31 @@ impl Action for GenerateUuid {
         let map = params.as_map().unwrap_or(&empty);
         let count = opt_i64(map, "count", 1).max(1) as usize;
         let uppercase = opt_bool(map, "uppercase", false);
-        let mut list = Vec::with_capacity(count);
+        let mut items = Vec::with_capacity(count);
         for _ in 0..count {
             let id = Uuid::new_v4().to_string();
-            list.push(Value::Str(if uppercase { id.to_uppercase() } else { id }));
+            items.push(Value::Str(if uppercase { id.to_uppercase() } else { id }));
         }
         let mut out = BTreeMap::new();
-        out.insert("items".into(), Value::List(list.clone()));
-        out.insert("value".into(), list.first().cloned().unwrap_or(Value::Null));
+        out.insert("items".into(), Value::Array(items.clone()));
+        out.insert(
+            "value".into(),
+            items.first().cloned().unwrap_or(Value::Null),
+        );
         Ok(Value::Map(out))
     }
 }
 
 #[async_trait]
 impl Action for GenerateCvid {
+    fn permissions(&self) -> PermissionSet {
+        PermissionSet::NONE
+    }
+
     fn meta(&self) -> ActionMeta {
         ActionMeta::new(
             "generate.cvid",
-            "Generate CVID",
+            "生成 CVID",
             "生成 GUID v4 大写 hex（CVID）",
             ActionCategory::Data,
         )
@@ -90,10 +101,15 @@ impl Action for GenerateCvid {
 
 #[async_trait]
 impl Action for GeneratePath {
+    fn permissions(&self) -> PermissionSet {
+        // 会枚举源目录（`from` + `includes`），因此要读文件系统。
+        PermissionSet::FILESYSTEM
+    }
+
     fn meta(&self) -> ActionMeta {
         ActionMeta::new(
             "generate.path",
-            "Generate Path List",
+            "生成路径列表",
             "遍历目录并按模板写出路径列表",
             ActionCategory::Data,
         )
@@ -103,9 +119,9 @@ impl Action for GeneratePath {
             ParamSchema::new("transform", SchemaType::Str, true),
             ParamSchema::new("index", SchemaType::Int, false).with_default(0),
             ParamSchema::new("separator", SchemaType::Str, false).with_default(""),
-            ParamSchema::new("includes", SchemaType::List, false),
-            ParamSchema::new("excludes", SchemaType::List, false),
-            ParamSchema::new("uppercase", SchemaType::List, false),
+            ParamSchema::new("includes", SchemaType::Array, false),
+            ParamSchema::new("excludes", SchemaType::Array, false),
+            ParamSchema::new("uppercase", SchemaType::Array, false),
         ])
     }
 
@@ -120,9 +136,9 @@ impl Action for GeneratePath {
         let transform = require_str(map, "transform")?;
         let index_start = opt_i64(map, "index", 0) as usize;
         let separator = opt_str(map, "separator").unwrap_or_default();
-        let includes = opt_str_list(map, "includes");
-        let excludes = opt_str_list(map, "excludes");
-        let uppercase = opt_str_list(map, "uppercase");
+        let includes = opt_strs(map, "includes");
+        let excludes = opt_strs(map, "excludes");
+        let uppercase = opt_strs(map, "uppercase");
 
         if to.is_dir() {
             return Err(ActionError::InvalidParams(
@@ -162,17 +178,19 @@ impl Action for GeneratePath {
         });
 
         let pad_width = entries.len().to_string().len().max(1);
+        let spec = NameSpec {
+            transform: &transform,
+            pad_width,
+            uppercase: &uppercase,
+            separator: &separator,
+        };
         let mut file = std::fs::File::create(&to)?;
         let mut items = 0u64;
         for (key, entry) in entries.iter().enumerate() {
-            let line = path_transform_line(
-                &transform,
+            let line = spec.render(
                 entry.path(),
                 entry.file_name().to_string_lossy().as_ref(),
                 key + index_start,
-                pad_width,
-                &uppercase,
-                &separator,
                 &from,
             );
             if key + 1 == entries.len() {
@@ -190,57 +208,65 @@ impl Action for GeneratePath {
     }
 }
 
-fn path_transform_line(
-    transform: &str,
-    entry_path: &Path,
-    filename: &str,
-    index: usize,
+/// `generate.path` 如何渲染每一行输出。
+///
+/// 用一个值代替四个并列参数：命名策略每次运行只构建一次，
+/// 之后每个条目复用。
+struct NameSpec<'a> {
+    /// 带 `{{name}}` / `{name}` 占位符的模板。
+    transform: &'a str,
+    /// `index` 占位符的补零宽度。
     pad_width: usize,
-    uppercase: &[String],
-    separator: &str,
-    from: &Path,
-) -> String {
-    let extension = entry_path
-        .extension()
-        .unwrap_or_default()
-        .to_string_lossy()
-        .to_string();
-    let relative = entry_path.strip_prefix(from).unwrap_or(entry_path);
-    let dirpart = relative
-        .parent()
-        .map(|p| p.to_string_lossy().to_string())
-        .unwrap_or_default();
-    let fullpath = if dirpart.is_empty() {
-        filename.to_string()
-    } else {
-        let sep = if !separator.is_empty() {
-            separator
+    /// 需要转大写的占位符名。
+    uppercase: &'a [String],
+    /// 路径分隔符的替换字符；为空则原样保留。
+    separator: &'a str,
+}
+
+impl NameSpec<'_> {
+    fn render(&self, entry_path: &Path, filename: &str, index: usize, from: &Path) -> String {
+        let extension = entry_path
+            .extension()
+            .unwrap_or_default()
+            .to_string_lossy()
+            .to_string();
+        let relative = entry_path.strip_prefix(from).unwrap_or(entry_path);
+        let dirpart = relative
+            .parent()
+            .map(|p| p.to_string_lossy().to_string())
+            .unwrap_or_default();
+        let fullpath = if dirpart.is_empty() {
+            filename.to_string()
         } else {
-            std::path::MAIN_SEPARATOR_STR
+            let sep = if self.separator.is_empty() {
+                std::path::MAIN_SEPARATOR_STR
+            } else {
+                self.separator
+            };
+            format!("{dirpart}{sep}{filename}")
         };
-        format!("{dirpart}{sep}{filename}")
-    };
-    let index_str = format!("{:0pad_width$}", index, pad_width = pad_width);
-    let filename_v = up(uppercase, "filename", filename);
-    let extension_v = up(uppercase, "extension", &extension);
-    let path_v = up(uppercase, "path", &dirpart);
-    let fullpath_v = up(uppercase, "fullpath", &fullpath);
-    let mut out = transform.to_string();
-    // Prefer `{{name}}` then `{name}` (single braces avoid Directive `{{ }}` resolver clash).
-    for (key, val) in [
-        ("index", index_str.as_str()),
-        ("filename", filename_v.as_str()),
-        ("extension", extension_v.as_str()),
-        ("path", path_v.as_str()),
-        ("fullpath", fullpath_v.as_str()),
-    ] {
-        out = out.replace(&format!("{{{{{key}}}}}"), val);
-        out = out.replace(&format!("{{{key}}}"), val);
+        let index_str = format!("{:0pad_width$}", index, pad_width = self.pad_width);
+        let filename_v = up(self.uppercase, "filename", filename);
+        let extension_v = up(self.uppercase, "extension", &extension);
+        let path_v = up(self.uppercase, "path", &dirpart);
+        let fullpath_v = up(self.uppercase, "fullpath", &fullpath);
+        let mut out = self.transform.to_string();
+        // 优先 `{{name}}`，再试 `{name}`（单层大括号可避开指令 `{{ }}` 解析器的冲突）。
+        for (key, val) in [
+            ("index", index_str.as_str()),
+            ("filename", filename_v.as_str()),
+            ("extension", extension_v.as_str()),
+            ("path", path_v.as_str()),
+            ("fullpath", fullpath_v.as_str()),
+        ] {
+            out = out.replace(&format!("{{{{{key}}}}}"), val);
+            out = out.replace(&format!("{{{key}}}"), val);
+        }
+        if !self.separator.is_empty() {
+            out = out.replace(['\\', '/'], self.separator);
+        }
+        out
     }
-    if !separator.is_empty() {
-        out = out.replace('\\', separator).replace('/', separator);
-    }
-    out
 }
 
 fn up(uppercase: &[String], field: &str, value: &str) -> String {
@@ -253,10 +279,14 @@ fn up(uppercase: &[String], field: &str, value: &str) -> String {
 
 #[async_trait]
 impl Action for GenerateTimestamp {
+    fn permissions(&self) -> PermissionSet {
+        PermissionSet::NONE
+    }
+
     fn meta(&self) -> ActionMeta {
         ActionMeta::new(
             "generate.timestamp",
-            "Generate Timestamp",
+            "生成时间戳",
             "生成当前时间戳字符串",
             ActionCategory::Data,
         )
@@ -323,7 +353,7 @@ mod tests {
             .unwrap()
             .get("items")
             .unwrap()
-            .as_list()
+            .as_array()
             .unwrap();
         assert_eq!(items.len(), 1);
         assert_eq!(items[0].as_str().unwrap().len(), 36);

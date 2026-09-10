@@ -1,11 +1,11 @@
-//! `http.send` — HTTP client (curl / fetch style).
+//! `http.send` —— HTTP 客户端（curl / fetch 风格）。
 
 use crate::ActionRegistry;
 use crate::builtin::util::{opt_bool, opt_i64, require_map, require_str};
 use async_trait::async_trait;
 use corex_core::{
-    Action, ActionCategory, ActionError, ActionMeta, ExecutionContext, ParamSchema, SchemaType,
-    Value,
+    Action, ActionCategory, ActionError, ActionMeta, ExecutionContext, ParamSchema, PermissionSet,
+    SchemaType, Value,
 };
 use reqwest::header::{CONTENT_TYPE, HeaderName, HeaderValue};
 use reqwest::{Client, Method, RequestBuilder};
@@ -17,10 +17,14 @@ pub struct HttpSend;
 
 #[async_trait]
 impl Action for HttpSend {
+    fn permissions(&self) -> PermissionSet {
+        PermissionSet::NETWORK
+    }
+
     fn meta(&self) -> ActionMeta {
         ActionMeta::new(
             "http.send",
-            "HTTP Send",
+            "HTTP 请求",
             "发送 HTTP 请求（类 curl / fetch）：method、query、headers、token、json/form/body",
             ActionCategory::Network,
         )
@@ -63,10 +67,10 @@ impl Action for HttpSend {
         let method = parse_method(map.get("method").and_then(|v| v.as_str()).unwrap_or("GET"))?;
         let client = build_client(map)?;
         let mut builder = client.request(method, url);
-        builder = apply_query(builder, map)?;
-        builder = apply_headers(builder, map.get("headers"))?;
-        builder = apply_auth(builder, map)?;
-        builder = apply_body(builder, map)?;
+        builder = with_query(builder, map)?;
+        builder = with_headers(builder, map.get("headers"))?;
+        builder = with_auth(builder, map)?;
+        builder = with_body(builder, map)?;
         let resp = builder
             .send()
             .await
@@ -103,7 +107,7 @@ fn query_source(map: &BTreeMap<String, Value>) -> Option<&BTreeMap<String, Value
         .and_then(|v| v.as_map())
 }
 
-fn apply_query(
+fn with_query(
     mut builder: RequestBuilder,
     map: &BTreeMap<String, Value>,
 ) -> Result<RequestBuilder, ActionError> {
@@ -116,7 +120,7 @@ fn apply_query(
     Ok(builder)
 }
 
-fn apply_headers(
+fn with_headers(
     mut builder: RequestBuilder,
     headers: Option<&Value>,
 ) -> Result<RequestBuilder, ActionError> {
@@ -133,14 +137,14 @@ fn apply_headers(
     Ok(builder)
 }
 
-fn apply_auth(
+fn with_auth(
     mut builder: RequestBuilder,
     map: &BTreeMap<String, Value>,
 ) -> Result<RequestBuilder, ActionError> {
-    if let Some(token) = map.get("token").and_then(|v| v.as_str()) {
-        if !token.is_empty() {
-            builder = builder.bearer_auth(token);
-        }
+    if let Some(token) = map.get("token").and_then(|v| v.as_str())
+        && !token.is_empty()
+    {
+        builder = builder.bearer_auth(token);
     }
     let Some(Value::Map(auth)) = map.get("auth") else {
         return Ok(builder);
@@ -195,7 +199,7 @@ fn apply_auth(
     Ok(builder)
 }
 
-fn apply_body(
+fn with_body(
     mut builder: RequestBuilder,
     map: &BTreeMap<String, Value>,
 ) -> Result<RequestBuilder, ActionError> {
@@ -413,7 +417,7 @@ mod tests {
         let mut m = BTreeMap::new();
         m.insert("json".into(), Value::Map(BTreeMap::new()));
         m.insert("body".into(), Value::Str("x".into()));
-        let err = apply_body(Client::new().get("http://example.com"), &m).expect_err("conflict");
+        let err = with_body(Client::new().get("http://example.com"), &m).expect_err("conflict");
         assert!(err.to_string().contains("只能指定其一"));
     }
 }

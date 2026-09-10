@@ -1,23 +1,27 @@
-//! `process.list` / `process.kill`.
+//! `process.list` / `process.kill` 的进程枚举与结束。
 
 use crate::ActionRegistry;
 use async_trait::async_trait;
 use corex_core::{
-    Action, ActionCategory, ActionError, ActionMeta, ExecutionContext, ParamSchema, SchemaType,
-    Value,
+    Action, ActionCategory, ActionError, ActionMeta, ExecutionContext, ParamSchema, PermissionSet,
+    SchemaType, Value,
 };
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
-pub struct ProcessList;
+pub struct Processes;
 pub struct ProcessKill;
 
 #[async_trait]
-impl Action for ProcessList {
+impl Action for Processes {
+    fn permissions(&self) -> PermissionSet {
+        PermissionSet::SHELL
+    }
+
     fn meta(&self) -> ActionMeta {
         ActionMeta::new(
             "process.list",
-            "List Processes",
+            "枚举进程",
             "枚举进程（可选 name_contains）",
             ActionCategory::System,
         )
@@ -40,7 +44,7 @@ impl Action for ProcessList {
             .map(|s| s.to_ascii_lowercase());
         #[cfg(windows)]
         {
-            return tokio::task::spawn_blocking(move || win::list_processes(filter.as_deref()))
+            return tokio::task::spawn_blocking(move || win::snapshot(filter.as_deref()))
                 .await
                 .map_err(|e| ActionError::execution(format!("process.list 失败: {e}")))?;
         }
@@ -54,10 +58,14 @@ impl Action for ProcessList {
 
 #[async_trait]
 impl Action for ProcessKill {
+    fn permissions(&self) -> PermissionSet {
+        PermissionSet::SHELL
+    }
+
     fn meta(&self) -> ActionMeta {
         ActionMeta::new(
             "process.kill",
-            "Kill Process",
+            "结束进程",
             "按 pid 结束进程",
             ActionCategory::System,
         )
@@ -90,7 +98,7 @@ impl Action for ProcessKill {
 }
 
 pub fn register(registry: &mut ActionRegistry) {
-    registry.register(Arc::new(ProcessList));
+    registry.register(Arc::new(Processes));
     registry.register(Arc::new(ProcessKill));
 }
 
@@ -105,7 +113,7 @@ mod win {
     };
     use windows::Win32::System::Threading::{OpenProcess, PROCESS_TERMINATE, TerminateProcess};
 
-    pub fn list_processes(name_contains: Option<&str>) -> Result<Value, ActionError> {
+    pub fn snapshot(name_contains: Option<&str>) -> Result<Value, ActionError> {
         unsafe {
             let snap = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0)
                 .map_err(|e| ActionError::execution(format!("CreateToolhelp32Snapshot: {e}")))?;
@@ -113,7 +121,7 @@ mod win {
                 dwSize: size_of_val(&PROCESSENTRY32W::default()) as u32,
                 ..Default::default()
             };
-            let mut list = Vec::new();
+            let mut processes = Vec::new();
             if Process32FirstW(snap, &mut entry).is_ok() {
                 loop {
                     let name = String::from_utf16_lossy(
@@ -127,7 +135,7 @@ mod win {
                         let mut m = BTreeMap::new();
                         m.insert("pid".into(), Value::Int(entry.th32ProcessID as i64));
                         m.insert("name".into(), Value::Str(name));
-                        list.push(Value::Map(m));
+                        processes.push(Value::Map(m));
                     }
                     if Process32NextW(snap, &mut entry).is_err() {
                         break;
@@ -136,7 +144,7 @@ mod win {
             }
             let _ = CloseHandle(snap);
             let mut out = BTreeMap::new();
-            out.insert("processes".into(), Value::List(list));
+            out.insert("processes".into(), Value::Array(processes));
             Ok(Value::Map(out))
         }
     }

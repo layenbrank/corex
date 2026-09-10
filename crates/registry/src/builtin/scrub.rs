@@ -1,11 +1,11 @@
-//! `scrub.run` — delete named targets under a source tree.
+//! `scrub.run` —— 删除源目录树下指定名称的目标。
 
 use crate::ActionRegistry;
 use crate::builtin::util::{confine_path, opt_bool, require_map, require_path, require_str};
 use async_trait::async_trait;
 use corex_core::{
-    Action, ActionCategory, ActionError, ActionMeta, ExecutionContext, ParamSchema, SchemaType,
-    Value,
+    Action, ActionCategory, ActionError, ActionMeta, ExecutionContext, ParamSchema, PermissionSet,
+    SchemaType, Value,
 };
 use std::path::Path;
 use std::sync::Arc;
@@ -15,10 +15,14 @@ pub struct ScrubRun;
 
 #[async_trait]
 impl Action for ScrubRun {
+    fn permissions(&self) -> PermissionSet {
+        PermissionSet::FILESYSTEM
+    }
+
     fn meta(&self) -> ActionMeta {
         ActionMeta::new(
             "scrub.run",
-            "Scrub",
+            "目录清理",
             "删除源目录下指定名称的目标",
             ActionCategory::System,
         )

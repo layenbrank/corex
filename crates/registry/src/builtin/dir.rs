@@ -1,11 +1,11 @@
-//! Directory actions: write / read / update / remove.
+//! 目录动作：写入 / 读取 / 更新 / 删除。
 
 use crate::ActionRegistry;
 use crate::builtin::util::{confine_path, opt_bool, opt_i64, opt_str, require_map};
 use async_trait::async_trait;
 use corex_core::{
-    Action, ActionCategory, ActionError, ActionMeta, ExecutionContext, ParamSchema, SchemaType,
-    Value,
+    Action, ActionCategory, ActionError, ActionMeta, ExecutionContext, ParamSchema, PermissionSet,
+    SchemaType, Value,
 };
 use std::collections::{BTreeMap, VecDeque};
 use std::path::{Path, PathBuf};
@@ -58,13 +58,13 @@ impl TreeNode {
         m.insert("kind".into(), Value::Str(self.kind.clone()));
         if self.kind == "dir" {
             let children: Vec<Value> = self.children.into_iter().map(|c| c.into_value()).collect();
-            m.insert("children".into(), Value::List(children));
+            m.insert("children".into(), Value::Array(children));
         }
         Value::Map(m)
     }
 }
 
-/// Bounded BFS. Returns either flat list or tree root depending on `as_tree`.
+/// 有界 BFS。按 `as_tree` 返回扁平数组或树根。
 async fn read_dir_bounded(
     root: &Path,
     max_depth: usize,
@@ -93,13 +93,13 @@ async fn read_dir_bounded(
             kind: "dir".into(),
             children: Vec::new(),
         };
-        // queue: (parent children vec index path, parent path, depth)
-        // Build iteratively: stack of (node_path, depth, children collector via path map)
+        // 队列元素：(父节点 children 向量下标路径, 父路径, 深度)
+        // 迭代构建：(node_path, 深度, 通过 path map 收集 children) 的栈
         let mut entries_seen = 0usize;
         let mut queue: VecDeque<(PathBuf, usize)> = VecDeque::new();
         queue.push_back((root.to_path_buf(), 0));
 
-        // Map path -> children accumulated; assemble at end via recursive attach
+        // path -> 累积的 children；最后用递归挂接组装
         let mut children_map: BTreeMap<PathBuf, Vec<TreeNode>> = BTreeMap::new();
 
         while let Some((dir_path, depth)) = queue.pop_front() {
@@ -186,7 +186,7 @@ async fn read_dir_bounded(
                 }
             }
         }
-        Ok(Value::List(out))
+        Ok(Value::Array(out))
     }
 }
 
@@ -197,6 +197,10 @@ pub struct DirRemove;
 
 #[async_trait]
 impl Action for DirWrite {
+    fn permissions(&self) -> PermissionSet {
+        PermissionSet::FILESYSTEM
+    }
+
     fn meta(&self) -> ActionMeta {
         ActionMeta::new("dir.write", "Dir Write", "创建目录", ActionCategory::Data).with_params(
             vec![
@@ -243,10 +247,14 @@ impl Action for DirWrite {
 
 #[async_trait]
 impl Action for DirRead {
+    fn permissions(&self) -> PermissionSet {
+        PermissionSet::FILESYSTEM
+    }
+
     fn meta(&self) -> ActionMeta {
         ActionMeta::new(
             "dir.read",
-            "Dir Read",
+            "目录读取",
             "列举目录（flat 或 tree）",
             ActionCategory::Data,
         )
@@ -290,10 +298,14 @@ impl Action for DirRead {
 
 #[async_trait]
 impl Action for DirUpdate {
+    fn permissions(&self) -> PermissionSet {
+        PermissionSet::FILESYSTEM
+    }
+
     fn meta(&self) -> ActionMeta {
         ActionMeta::new(
             "dir.update",
-            "Dir Update",
+            "目录更新",
             "重命名或移动目录",
             ActionCategory::Data,
         )
@@ -315,12 +327,11 @@ impl Action for DirUpdate {
         let from = confine_path(ctx, &from)?;
         let to = confine_path(ctx, &to)?;
         let create_dirs = opt_bool(map, "create_dirs", true);
-        if create_dirs {
-            if let Some(parent) = to.parent() {
-                if !parent.as_os_str().is_empty() {
-                    tokio::fs::create_dir_all(parent).await?;
-                }
-            }
+        if create_dirs
+            && let Some(parent) = to.parent()
+            && !parent.as_os_str().is_empty()
+        {
+            tokio::fs::create_dir_all(parent).await?;
         }
         tokio::fs::rename(&from, &to)
             .await
@@ -331,10 +342,14 @@ impl Action for DirUpdate {
 
 #[async_trait]
 impl Action for DirRemove {
+    fn permissions(&self) -> PermissionSet {
+        PermissionSet::FILESYSTEM
+    }
+
     fn meta(&self) -> ActionMeta {
         ActionMeta::new(
             "dir.remove",
-            "Dir Remove",
+            "目录删除",
             "删除目录（默认仅空目录）",
             ActionCategory::Data,
         )
@@ -401,8 +416,8 @@ mod tests {
         params.insert("path".into(), Value::Str(root.display().to_string()));
         params.insert("mode".into(), Value::Str("flat".into()));
         let flat = DirRead.execute(Value::Map(params), &mut ctx).await.unwrap();
-        let list = flat.as_list().unwrap();
-        assert_eq!(list.len(), 2); // a.txt + sub (depth 1)
+        let entries = flat.as_array().unwrap();
+        assert_eq!(entries.len(), 2); // a.txt + sub (depth 1)
 
         let mut params = BTreeMap::new();
         params.insert("path".into(), Value::Str(root.display().to_string()));
@@ -411,7 +426,7 @@ mod tests {
         let tree = DirRead.execute(Value::Map(params), &mut ctx).await.unwrap();
         let tm = tree.as_map().unwrap();
         assert_eq!(tm.get("kind").unwrap().as_str().unwrap(), "dir");
-        let children = tm.get("children").unwrap().as_list().unwrap();
+        let children = tm.get("children").unwrap().as_array().unwrap();
         assert_eq!(children.len(), 2);
 
         let renamed = tmp.path().join("renamed");

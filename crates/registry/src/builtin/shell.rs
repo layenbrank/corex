@@ -1,12 +1,12 @@
-//! `shell.run` — general process launcher (facade over process_launch).
+//! `shell.run` —— 通用进程启动器（process_launch 的门面）。
 
 use crate::ActionRegistry;
 use crate::builtin::process_launch::{TargetKind, launch, launch_spec_from_command_params};
 use crate::builtin::util::{confine_path, require_map, require_str};
 use async_trait::async_trait;
 use corex_core::{
-    Action, ActionCategory, ActionError, ActionMeta, ExecutionContext, ParamSchema, SchemaType,
-    Value,
+    Action, ActionCategory, ActionError, ActionMeta, ExecutionContext, ParamSchema, PermissionSet,
+    SchemaType, Value,
 };
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -15,19 +15,23 @@ pub struct ShellRun;
 
 #[async_trait]
 impl Action for ShellRun {
+    fn permissions(&self) -> PermissionSet {
+        PermissionSet::SHELL
+    }
+
     fn meta(&self) -> ActionMeta {
         ActionMeta::new(
             "shell.run",
-            "Shell",
+            "Shell 执行",
             "执行进程/命令并返回 stdout/stderr/exit_code",
             ActionCategory::System,
         )
         .with_params(vec![
             ParamSchema::new("command", SchemaType::Str, true)
                 .with_description("可执行文件或命令名"),
-            ParamSchema::new("args", SchemaType::List, false)
+            ParamSchema::new("args", SchemaType::Array, false)
                 .with_description("参数列表")
-                .with_default(Value::List(vec![])),
+                .with_default(Value::Array(vec![])),
             ParamSchema::new("cwd", SchemaType::Str, false)
                 .with_description("工作目录（受 filesystem_roots 约束）"),
             ParamSchema::new("host", SchemaType::Str, false)
@@ -55,7 +59,7 @@ impl Action for ShellRun {
     ) -> Result<Value, ActionError> {
         let map = require_map(&params)?;
         let command = require_str(map, "command")?;
-        // `command` is not path-confined (PATH lookup); only `cwd` is.
+        // `command` 不做路径约束（要查 PATH）；只有 `cwd` 做。
         let mut spec =
             launch_spec_from_command_params(map, PathBuf::from(command), TargetKind::Command)?;
         if let Some(cwd) = spec.cwd.take() {
@@ -87,7 +91,7 @@ mod tests {
             m.insert("command".into(), Value::Str("cmd".into()));
             m.insert(
                 "args".into(),
-                Value::List(vec![Value::Str("/C".into()), Value::Str("exit 1".into())]),
+                Value::Array(vec![Value::Str("/C".into()), Value::Str("exit 1".into())]),
             );
         }
         if allow_nonzero {
@@ -150,8 +154,10 @@ mod tests {
         std::fs::create_dir_all(&root).unwrap();
         std::fs::create_dir_all(&outside).unwrap();
 
-        let mut cfg = RuntimeConfig::default();
-        cfg.filesystem_roots = vec![root];
+        let cfg = RuntimeConfig {
+            filesystem_roots: vec![root],
+            ..Default::default()
+        };
         let mut ctx = ExecutionContext::new(cfg);
         let mut m = BTreeMap::new();
         #[cfg(unix)]
@@ -163,7 +169,7 @@ mod tests {
             m.insert("command".into(), Value::Str("cmd".into()));
             m.insert(
                 "args".into(),
-                Value::List(vec![Value::Str("/C".into()), Value::Str("echo ok".into())]),
+                Value::Array(vec![Value::Str("/C".into()), Value::Str("echo ok".into())]),
             );
         }
         m.insert("cwd".into(), Value::Str(outside.to_string_lossy().into()));

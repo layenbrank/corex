@@ -3,7 +3,6 @@
 name: action-capture-ocr
 description: "Action: capture.ocr"
 permissions:
-  capture: true
   filesystem: true
 steps:
   - id: demo

@@ -1,10 +1,10 @@
-//! Native dialogs (Windows MessageBox / simple prompt).
+//! 原生对话框（Windows MessageBox / 简单输入提示）。
 
 use crate::ActionRegistry;
 use async_trait::async_trait;
 use corex_core::{
-    Action, ActionCategory, ActionError, ActionMeta, ExecutionContext, ParamSchema, SchemaType,
-    Value,
+    Action, ActionCategory, ActionError, ActionMeta, ExecutionContext, ParamSchema, PermissionSet,
+    SchemaType, Value,
 };
 use std::collections::BTreeMap;
 use std::sync::Arc;
@@ -15,10 +15,14 @@ pub struct DialogPrompt;
 
 #[async_trait]
 impl Action for DialogAlert {
+    fn permissions(&self) -> PermissionSet {
+        PermissionSet::UI
+    }
+
     fn meta(&self) -> ActionMeta {
         ActionMeta::new(
             "dialog.alert",
-            "Alert",
+            "提示对话框",
             "模态提示框（确定）",
             ActionCategory::Ui,
         )
@@ -38,10 +42,14 @@ impl Action for DialogAlert {
 
 #[async_trait]
 impl Action for DialogConfirm {
+    fn permissions(&self) -> PermissionSet {
+        PermissionSet::UI
+    }
+
     fn meta(&self) -> ActionMeta {
         ActionMeta::new(
             "dialog.confirm",
-            "Confirm",
+            "确认对话框",
             "是/否确认框",
             ActionCategory::Ui,
         )
@@ -61,10 +69,14 @@ impl Action for DialogConfirm {
 
 #[async_trait]
 impl Action for DialogPrompt {
+    fn permissions(&self) -> PermissionSet {
+        PermissionSet::UI
+    }
+
     fn meta(&self) -> ActionMeta {
         ActionMeta::new(
             "dialog.prompt",
-            "Prompt",
+            "输入对话框",
             "简单文本输入框",
             ActionCategory::Ui,
         )
@@ -110,10 +122,10 @@ async fn dialog_alert(params: Value) -> Result<Value, ActionError> {
     let (message, title) = require_message(&params)?;
     #[cfg(windows)]
     {
-        return tokio::task::spawn_blocking(move || win::message_box(&title, &message, false))
+        tokio::task::spawn_blocking(move || win::message_box(&title, &message, false))
             .await
             .map_err(|e| ActionError::execution(format!("dialog.alert 失败: {e}")))?
-            .map(|_| Value::Bool(true));
+            .map(|_| Value::Bool(true))
     }
     #[cfg(not(windows))]
     {
@@ -126,10 +138,10 @@ async fn dialog_confirm(params: Value) -> Result<Value, ActionError> {
     let (message, title) = require_message(&params)?;
     #[cfg(windows)]
     {
-        return tokio::task::spawn_blocking(move || win::message_box(&title, &message, true))
+        tokio::task::spawn_blocking(move || win::message_box(&title, &message, true))
             .await
             .map_err(|e| ActionError::execution(format!("dialog.confirm 失败: {e}")))?
-            .map(Value::Bool);
+            .map(Value::Bool)
     }
     #[cfg(not(windows))]
     {
@@ -159,9 +171,9 @@ async fn dialog_prompt(params: Value) -> Result<Value, ActionError> {
         .to_string();
     #[cfg(windows)]
     {
-        return tokio::task::spawn_blocking(move || win::prompt_box(&title, &message, &default))
+        tokio::task::spawn_blocking(move || win::prompt_box(&title, &message, &default))
             .await
-            .map_err(|e| ActionError::execution(format!("dialog.prompt 失败: {e}")))?;
+            .map_err(|e| ActionError::execution(format!("dialog.prompt 失败: {e}")))?
     }
     #[cfg(not(windows))]
     {
@@ -196,9 +208,9 @@ mod win {
         if yes_no { Ok(r == IDYES) } else { Ok(true) }
     }
 
-    /// Minimal prompt: show message with default text hint; user confirms via Yes to accept default,
-    /// No to cancel. Full Edit dialog avoided to keep footprint small — returns default on Yes.
-    /// For richer input, combine with clipboard in Directive.
+    /// 最简输入提示：显示消息与默认文本，用户点“是”接受默认值、点“否”取消。
+    /// 为避免体积膨胀不做完整编辑框——点“是”就返回默认值。
+    /// 需要更丰富的输入时，在指令里配合剪贴板动作。
     pub fn prompt_box(title: &str, message: &str, default: &str) -> Result<Value, ActionError> {
         let body = if default.is_empty() {
             format!("{message}\n\n（确认后返回空文本；可先把内容放入剪贴板）")

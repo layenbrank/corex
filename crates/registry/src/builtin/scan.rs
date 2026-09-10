@@ -1,8 +1,10 @@
-//! `scan.os` — system information via sysinfo.
+//! `scan.os` —— 经 sysinfo 获取系统信息。
 
 use crate::ActionRegistry;
 use async_trait::async_trait;
-use corex_core::{Action, ActionCategory, ActionError, ActionMeta, ExecutionContext, Value};
+use corex_core::{
+    Action, ActionCategory, ActionError, ActionMeta, ExecutionContext, PermissionSet, Value,
+};
 use std::collections::BTreeMap;
 use std::sync::Arc;
 use sysinfo::System;
@@ -11,10 +13,14 @@ pub struct ScanOs;
 
 #[async_trait]
 impl Action for ScanOs {
+    fn permissions(&self) -> PermissionSet {
+        PermissionSet::NONE
+    }
+
     fn meta(&self) -> ActionMeta {
         ActionMeta::new(
             "scan.os",
-            "Scan OS",
+            "系统信息扫描",
             "采集操作系统与硬件摘要信息",
             ActionCategory::System,
         )

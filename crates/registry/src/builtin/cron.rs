@@ -1,10 +1,10 @@
-//! `cron.schedule` — register jobs on the active cron supervisor.
+//! `cron.schedule` —— 在当前 cron supervisor 上注册作业。
 
 use crate::ActionRegistry;
 use async_trait::async_trait;
 use corex_core::{
-    Action, ActionCategory, ActionError, ActionMeta, ExecutionContext, ParamSchema, SchemaType,
-    Value,
+    Action, ActionCategory, ActionError, ActionMeta, ExecutionContext, ParamSchema, PermissionSet,
+    SchemaType, Value,
 };
 use std::collections::BTreeMap;
 use std::sync::Arc;
@@ -13,10 +13,14 @@ pub struct CronSchedule;
 
 #[async_trait]
 impl Action for CronSchedule {
+    fn permissions(&self) -> PermissionSet {
+        PermissionSet::NONE
+    }
+
     fn meta(&self) -> ActionMeta {
         ActionMeta::new(
             "cron.schedule",
-            "Cron Schedule",
+            "Cron 调度",
             "向 cron 守护注册表达式并关联指令",
             ActionCategory::System,
         )

@@ -1,8 +1,10 @@
-//! Bootstrap actions: env / inspect / force (PATH helpers).
+//! 引导动作：env / inspect / force（PATH 辅助）。
 
 use crate::ActionRegistry;
 use async_trait::async_trait;
-use corex_core::{Action, ActionCategory, ActionError, ActionMeta, ExecutionContext, Value};
+use corex_core::{
+    Action, ActionCategory, ActionError, ActionMeta, ExecutionContext, PermissionSet, Value,
+};
 use std::collections::BTreeMap;
 use std::env;
 use std::path::{Path, PathBuf};
@@ -19,7 +21,7 @@ fn exe_dir() -> Result<String, ActionError> {
 }
 
 fn bootstrap_script() -> PathBuf {
-    // Prefer scripts next to workspace when developing; fall back to CWD.
+    // 开发时优先用工作区旁边的脚本；否则回退到当前目录。
     let candidates = [
         PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../scripts/bootstrap.ps1"),
         PathBuf::from("scripts/bootstrap.ps1"),
@@ -42,7 +44,7 @@ fn run_ps_script(action: &str, target: &str) -> Result<(), ActionError> {
         .args([
             "-NoProfile",
             "-ExecutionPolicy",
-            "Bypass",
+            "引导绕过",
             "-File",
             &script.to_string_lossy(),
             "-Action",
@@ -79,10 +81,14 @@ pub struct BootstrapForce;
 
 #[async_trait]
 impl Action for BootstrapEnv {
+    fn permissions(&self) -> PermissionSet {
+        PermissionSet::SHELL
+    }
+
     fn meta(&self) -> ActionMeta {
         ActionMeta::new(
             "bootstrap.env",
-            "Bootstrap Env",
+            "引导环境",
             "将工具目录写入用户 PATH（Windows PowerShell）",
             ActionCategory::System,
         )
@@ -108,10 +114,14 @@ impl Action for BootstrapEnv {
 
 #[async_trait]
 impl Action for BootstrapInspect {
+    fn permissions(&self) -> PermissionSet {
+        PermissionSet::SHELL
+    }
+
     fn meta(&self) -> ActionMeta {
         ActionMeta::new(
             "bootstrap.inspect",
-            "Bootstrap Inspect",
+            "引导检查",
             "检查工具目录是否已在 PATH 中",
             ActionCategory::System,
         )
@@ -129,10 +139,14 @@ impl Action for BootstrapInspect {
 
 #[async_trait]
 impl Action for BootstrapForce {
+    fn permissions(&self) -> PermissionSet {
+        PermissionSet::SHELL
+    }
+
     fn meta(&self) -> ActionMeta {
         ActionMeta::new(
             "bootstrap.force",
-            "Bootstrap Force",
+            "强制引导",
             "强制刷新 PATH 中的工具目录（Windows）",
             ActionCategory::System,
         )

@@ -1,11 +1,11 @@
-//! Template image matching (no OpenCV).
+//! 模板图匹配（不依赖 OpenCV）。
 
 use corex_core::ActionError;
 use image::{GrayImage, Luma};
 
 const MAX_HAYSTACK_PIXELS: u64 = 8_000_000;
 
-/// Search `needle` inside `haystack` (optional region). Returns best match.
+/// 在 `haystack` 中搜索 `needle`（可限定区域），返回最佳匹配。
 pub fn find_template(
     haystack: &GrayImage,
     needle: &GrayImage,

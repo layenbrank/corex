@@ -1,10 +1,10 @@
-//! `url.open` — open URL / file with ShellExecute.
+//! `url.open` —— 用 ShellExecute 打开 URL / 文件。
 
 use crate::ActionRegistry;
 use async_trait::async_trait;
 use corex_core::{
-    Action, ActionCategory, ActionError, ActionMeta, ExecutionContext, ParamSchema, SchemaType,
-    Value,
+    Action, ActionCategory, ActionError, ActionMeta, ExecutionContext, ParamSchema, PermissionSet,
+    SchemaType, Value,
 };
 use std::sync::Arc;
 
@@ -12,10 +12,14 @@ pub struct UrlOpen;
 
 #[async_trait]
 impl Action for UrlOpen {
+    fn permissions(&self) -> PermissionSet {
+        PermissionSet::SHELL
+    }
+
     fn meta(&self) -> ActionMeta {
         ActionMeta::new(
             "url.open",
-            "Open URL",
+            "打开 URL",
             "用系统默认程序打开 URL 或文件",
             ActionCategory::System,
         )
@@ -82,7 +86,7 @@ mod win {
                 SW_SHOWNORMAL,
             )
         };
-        // ShellExecute returns > 32 on success (HINSTANCE as isize)
+        // ShellExecute 成功时返回值 > 32（HINSTANCE 当作 isize）
         if ret.0 as isize <= 32 {
             return Err(ActionError::execution(format!(
                 "ShellExecute 失败 code={}",

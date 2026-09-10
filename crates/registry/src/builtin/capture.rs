@@ -1,4 +1,4 @@
-//! Capture actions — soft-fail on unsupported platforms; crop/clipboard where possible.
+//! 截图类动作——不支持的平台上软失败；能裁剪 / 进剪贴板的就做。
 
 #[path = "capture_match.rs"]
 mod match_img;
@@ -9,8 +9,8 @@ use crate::builtin::util::{
 };
 use async_trait::async_trait;
 use corex_core::{
-    Action, ActionCategory, ActionError, ActionMeta, ExecutionContext, ParamSchema, SchemaType,
-    Value,
+    Action, ActionCategory, ActionError, ActionMeta, ExecutionContext, ParamSchema, PermissionSet,
+    SchemaType, Value,
 };
 use std::collections::BTreeMap;
 use std::sync::Arc;
@@ -23,10 +23,15 @@ pub struct CaptureFind;
 
 #[async_trait]
 impl Action for CaptureScreenshot {
+    fn permissions(&self) -> PermissionSet {
+        // 会驱动屏幕并把 PNG 写到磁盘。
+        PermissionSet::CAPTURE.union(PermissionSet::FILESYSTEM)
+    }
+
     fn meta(&self) -> ActionMeta {
         ActionMeta::new(
             "capture.screenshot",
-            "Screenshot",
+            "截图",
             "截取主显示器画面",
             ActionCategory::Ui,
         )
@@ -51,10 +56,15 @@ impl Action for CaptureScreenshot {
 
 #[async_trait]
 impl Action for CaptureCrop {
+    fn permissions(&self) -> PermissionSet {
+        // 两张图都是调用方已有的文件；完全不碰屏幕。
+        PermissionSet::FILESYSTEM
+    }
+
     fn meta(&self) -> ActionMeta {
         ActionMeta::new(
             "capture.crop",
-            "Crop Image",
+            "裁剪图片",
             "裁剪图片文件并写出",
             ActionCategory::Ui,
         )
@@ -100,10 +110,14 @@ fn require_i64(map: &BTreeMap<String, Value>, key: &str) -> Result<i64, ActionEr
 
 #[async_trait]
 impl Action for CaptureMonitors {
+    fn permissions(&self) -> PermissionSet {
+        PermissionSet::CAPTURE
+    }
+
     fn meta(&self) -> ActionMeta {
         ActionMeta::new(
             "capture.monitors",
-            "List Monitors",
+            "枚举显示器",
             "列出显示器信息",
             ActionCategory::Ui,
         )
@@ -120,10 +134,15 @@ impl Action for CaptureMonitors {
 
 #[async_trait]
 impl Action for CaptureOcr {
+    fn permissions(&self) -> PermissionSet {
+        // 对调用方指定的图片文件做 OCR；从不读取屏幕。
+        PermissionSet::FILESYSTEM
+    }
+
     fn meta(&self) -> ActionMeta {
         ActionMeta::new(
             "capture.ocr",
-            "Capture OCR",
+            "识别文字（OCR）",
             "识别图片中的文字",
             ActionCategory::Ui,
         )
@@ -148,7 +167,7 @@ impl Action for CaptureOcr {
 async fn capture_ocr_impl(params: Value) -> Result<Value, ActionError> {
     #[cfg(windows)]
     {
-        return capture_ocr_windows(params).await;
+        capture_ocr_windows(params).await
     }
     #[cfg(not(windows))]
     {
@@ -169,10 +188,15 @@ pub fn register(registry: &mut ActionRegistry) {
 
 #[async_trait]
 impl Action for CaptureFind {
+    fn permissions(&self) -> PermissionSet {
+        // 从磁盘读 haystack 与 needle；匹配本身只是算术。
+        PermissionSet::FILESYSTEM
+    }
+
     fn meta(&self) -> ActionMeta {
         ActionMeta::new(
             "capture.find",
-            "Find Template",
+            "模板匹配",
             "在大图中查找模板（灰度 NCC）",
             ActionCategory::Ui,
         )
@@ -271,7 +295,7 @@ mod win {
             use screenshots::Screen;
             let screens = Screen::all()
                 .map_err(|e| ActionError::execution(format!("枚举显示器失败: {e}")))?;
-            let list: Vec<Value> = screens
+            let monitors: Vec<Value> = screens
                 .iter()
                 .enumerate()
                 .map(|(i, s)| {
@@ -283,7 +307,7 @@ mod win {
                 })
                 .collect();
             let mut out = BTreeMap::new();
-            out.insert("monitors".into(), Value::List(list));
+            out.insert("monitors".into(), Value::Array(monitors));
             Ok(Value::Map(out))
         })
         .await
@@ -294,7 +318,7 @@ mod win {
         let map = require_map(&params)?;
         let file = require_path(map, "file")?;
         let lang = opt_str(map, "language");
-        // WinRT OCR types are typically !Send; keep COM work on one blocking thread.
+        // WinRT 的 OCR 类型通常不是 Send；COM 操作全部留在同一个阻塞线程上。
         tokio::task::spawn_blocking(move || ocr_file(&file, lang.as_deref()))
             .await
             .map_err(|e| ActionError::execution(format!("OCR 任务失败: {e}")))?
@@ -337,7 +361,7 @@ mod win {
             .Text()
             .map_err(|e| ActionError::execution(format!("读取 OCR 文本失败: {e}")))?
             .to_string();
-        // Line geometry APIs vary by windows crate version; expose text + empty lines for now.
+        // 行几何 API 随 windows crate 版本变动；目前只暴露文本与空行。
         let lines = vec![Value::Map({
             let mut lm = BTreeMap::new();
             lm.insert("text".into(), Value::Str(text.clone()));
@@ -345,7 +369,7 @@ mod win {
         })];
         let mut out = BTreeMap::new();
         out.insert("text".into(), Value::Str(text));
-        out.insert("lines".into(), Value::List(lines));
+        out.insert("lines".into(), Value::Array(lines));
         Ok(Value::Map(out))
     }
 }

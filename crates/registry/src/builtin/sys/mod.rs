@@ -1,4 +1,4 @@
-//! PC system helpers: dialog / url / process (`act-sys`).
+//! PC 系统辅助动作：dialog / url / process（`act-sys`）。
 
 mod dialog;
 mod process;

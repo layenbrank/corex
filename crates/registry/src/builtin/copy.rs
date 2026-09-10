@@ -1,14 +1,14 @@
-//! `copy.run` — recursive directory/file copy with includes/excludes.
+//! `copy.run` —— 带 includes/excludes 的递归目录 / 文件复制。
 
 use crate::ActionRegistry;
 use crate::builtin::filter::Filter;
 use crate::builtin::util::{
-    confine_path, ensure_parent, opt_bool, opt_str_list, require_map, require_path,
+    confine_path, ensure_parent, opt_bool, opt_strs, require_map, require_path,
 };
 use async_trait::async_trait;
 use corex_core::{
-    Action, ActionCategory, ActionError, ActionMeta, ExecutionContext, ParamSchema, SchemaType,
-    Value,
+    Action, ActionCategory, ActionError, ActionMeta, ExecutionContext, ParamSchema, PermissionSet,
+    SchemaType, Value,
 };
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -18,10 +18,14 @@ pub struct CopyRun;
 
 #[async_trait]
 impl Action for CopyRun {
+    fn permissions(&self) -> PermissionSet {
+        PermissionSet::FILESYSTEM
+    }
+
     fn meta(&self) -> ActionMeta {
         ActionMeta::new(
             "copy.run",
-            "Copy",
+            "复制",
             "复制文件或目录（支持 includes/excludes）",
             ActionCategory::Data,
         )
@@ -29,8 +33,8 @@ impl Action for CopyRun {
             ParamSchema::new("from", SchemaType::File, true),
             ParamSchema::new("to", SchemaType::File, true),
             ParamSchema::new("empty", SchemaType::Bool, false).with_default(false),
-            ParamSchema::new("includes", SchemaType::List, false),
-            ParamSchema::new("excludes", SchemaType::List, false),
+            ParamSchema::new("includes", SchemaType::Array, false),
+            ParamSchema::new("excludes", SchemaType::Array, false),
         ])
     }
 
@@ -43,8 +47,8 @@ impl Action for CopyRun {
         let from = confine_path(ctx, &require_path(map, "from")?)?;
         let to = confine_path(ctx, &require_path(map, "to")?)?;
         let empty = opt_bool(map, "empty", false);
-        let includes = opt_str_list(map, "includes");
-        let excludes = opt_str_list(map, "excludes");
+        let includes = opt_strs(map, "includes");
+        let excludes = opt_strs(map, "excludes");
 
         let path = if from.is_file() {
             copy_single_file(&from, &to)?
@@ -147,7 +151,7 @@ mod tests {
         params.insert("to".into(), Value::Str(dst.to_string_lossy().into()));
         params.insert(
             "excludes".into(),
-            Value::List(vec![Value::Str("**/*.tmp".into())]),
+            Value::Array(vec![Value::Str("**/*.tmp".into())]),
         );
 
         let mut ctx = ExecutionContext::default();
@@ -165,8 +169,10 @@ mod tests {
         std::fs::create_dir_all(&outside).unwrap();
         std::fs::write(outside.join("x.txt"), b"x").unwrap();
 
-        let mut cfg = corex_core::RuntimeConfig::default();
-        cfg.filesystem_roots = vec![root.clone()];
+        let cfg = corex_core::RuntimeConfig {
+            filesystem_roots: vec![root.clone()],
+            ..Default::default()
+        };
         let mut ctx = ExecutionContext::new(cfg);
 
         let mut params = BTreeMap::new();

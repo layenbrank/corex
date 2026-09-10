@@ -1,4 +1,4 @@
-//! Glob include/exclude filter (ported from corex-core utils).
+//! glob include/exclude 过滤器（从 corex-core 的 utils 移植）。
 
 use glob::Pattern;
 use std::path::Path;
@@ -17,7 +17,7 @@ impl Filter {
         }
     }
 
-    /// `true` = skip this path.
+    /// `true` = 跳过该路径。
     pub fn is_filtered(&self, path: &Path) -> bool {
         if !self.includes.is_empty() && !self.matches_any(&self.includes, path) {
             return true;

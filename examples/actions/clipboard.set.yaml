@@ -4,6 +4,8 @@ name: action-clipboard-set
 description: "Action: clipboard.set"
 permissions:
   clipboard: true
+  # 权限按**动作**静态声明：clipboard.set 的 image 模式会读磁盘，所以即使这里只用 text 也要声明。
+  filesystem: true
 steps:
   - id: demo
     action: clipboard.set

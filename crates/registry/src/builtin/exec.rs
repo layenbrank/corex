@@ -1,12 +1,12 @@
-//! `exec.run` — script-file runner (facade over process_launch).
+//! `exec.run` —— 脚本文件运行器（process_launch 的门面）。
 
 use crate::ActionRegistry;
 use crate::builtin::process_launch::{TargetKind, launch, launch_spec_from_command_params};
 use crate::builtin::util::{confine_path, require_map, require_str};
 use async_trait::async_trait;
 use corex_core::{
-    Action, ActionCategory, ActionError, ActionMeta, ExecutionContext, ParamSchema, SchemaType,
-    Value,
+    Action, ActionCategory, ActionError, ActionMeta, ExecutionContext, ParamSchema, PermissionSet,
+    SchemaType, Value,
 };
 use std::path::Path;
 use std::sync::Arc;
@@ -16,17 +16,21 @@ pub struct ExecRun;
 
 #[async_trait]
 impl Action for ExecRun {
+    fn permissions(&self) -> PermissionSet {
+        PermissionSet::SHELL
+    }
+
     fn meta(&self) -> ActionMeta {
         ActionMeta::new(
             "exec.run",
-            "Exec",
+            "执行脚本",
             "运行脚本文件并返回 stdout/stderr/exit_code",
             ActionCategory::System,
         )
         .with_params(vec![
             ParamSchema::new("script", SchemaType::File, true)
                 .with_description("脚本路径（作者自选，支持变量解析；受 filesystem_roots 约束）"),
-            ParamSchema::new("args", SchemaType::List, false),
+            ParamSchema::new("args", SchemaType::Array, false),
             ParamSchema::new("cwd", SchemaType::Str, false)
                 .with_description("工作目录（受 filesystem_roots 约束）"),
             ParamSchema::new("host", SchemaType::Str, false)
@@ -152,8 +156,10 @@ mod tests {
             p
         };
 
-        let mut cfg = RuntimeConfig::default();
-        cfg.filesystem_roots = vec![root];
+        let cfg = RuntimeConfig {
+            filesystem_roots: vec![root],
+            ..Default::default()
+        };
         let mut ctx = ExecutionContext::new(cfg);
         let mut m = BTreeMap::new();
         m.insert("script".into(), Value::Str(script.to_string_lossy().into()));
@@ -192,8 +198,10 @@ mod tests {
             p
         };
 
-        let mut cfg = RuntimeConfig::default();
-        cfg.filesystem_roots = vec![root.clone()];
+        let cfg = RuntimeConfig {
+            filesystem_roots: vec![root.clone()],
+            ..Default::default()
+        };
         let mut ctx = ExecutionContext::new(cfg);
         let mut m = BTreeMap::new();
         m.insert("script".into(), Value::Str(script.to_string_lossy().into()));
@@ -234,8 +242,10 @@ mod tests {
             p
         };
 
-        let mut cfg = RuntimeConfig::default();
-        cfg.filesystem_roots = vec![root];
+        let cfg = RuntimeConfig {
+            filesystem_roots: vec![root],
+            ..Default::default()
+        };
         let mut ctx = ExecutionContext::new(cfg);
         let mut m = BTreeMap::new();
         m.insert("script".into(), Value::Str(script.to_string_lossy().into()));

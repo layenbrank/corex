@@ -4,7 +4,6 @@ name: action-capture-find
 description: "Action: capture.find"
 permissions:
   filesystem: true
-  capture: true
 steps:
   - id: demo
     action: capture.find
