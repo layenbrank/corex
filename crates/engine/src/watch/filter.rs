@@ -1,4 +1,4 @@
-//! Path glob matching for watch events (Vite/chokidar-style: relative path + component match).
+//! watch 事件的路径 glob 匹配（Vite/chokidar 风格：相对路径 + 分量匹配）。
 
 use glob::Pattern;
 use std::path::Path;
@@ -7,7 +7,7 @@ fn normalize_path_str(path: &Path) -> String {
     path.to_string_lossy().replace('\\', "/")
 }
 
-/// Strip the first matching watch root prefix; normalize to forward slashes.
+/// 去掉第一个匹配的监听根前缀，并把路径统一成正斜杠。
 pub fn watch_relative_path(event_path: &Path, watch_roots: &[String]) -> String {
     let event = normalize_path_str(event_path);
     for root in watch_roots {
@@ -27,7 +27,7 @@ pub fn watch_relative_path(event_path: &Path, watch_roots: &[String]) -> String 
         .unwrap_or_default()
 }
 
-/// Compiled include/exclude filter; semantics align with `copy.run` / Vite `server.watch.ignored`.
+/// 编译好的 include/exclude 过滤器；语义与 `copy.run` / Vite 的 `server.watch.ignored` 对齐。
 #[derive(Debug, Clone)]
 pub struct WatchFilter {
     includes: Vec<Pattern>,
@@ -42,7 +42,7 @@ impl WatchFilter {
         }
     }
 
-    /// Returns true when the relative path should trigger a rebuild.
+    /// 该相对路径是否应触发重建。
     pub fn matches(&self, rel_path: &str) -> bool {
         let path = Path::new(rel_path);
         if !self.includes.is_empty() && !self.matches_any(&self.includes, path) {
@@ -75,7 +75,7 @@ fn parse_patterns(patterns: &[String]) -> Vec<Pattern> {
         .collect()
 }
 
-/// Returns true when `rel_path` passes include/exclude filters.
+/// `rel_path` 是否通过 include/exclude 过滤。
 pub fn path_matches(rel_path: &str, includes: &[String], excludes: &[String]) -> bool {
     WatchFilter::new(includes, excludes).matches(rel_path)
 }

@@ -1,20 +1,20 @@
-//! Cron timezone resolution for `Job::new_async_tz` (chrono only).
+//! 为 `Job::new_async_tz` 解析 cron 时区（仅涉及 chrono）。
 
 use chrono::FixedOffset;
 use corex_core::EngineError;
 
-/// Resolved timezone kind used when registering a job.
+/// 注册作业时使用的时区种类。
 #[derive(Debug, Clone, Copy)]
 pub enum ResolvedCronTz {
-    /// Interpret the expression in UTC.
+    /// 按 UTC 解释表达式。
     Utc,
-    /// Interpret the expression in the host local timezone.
+    /// 按宿主本地时区解释表达式。
     Local,
-    /// Fixed UTC offset (e.g. `+08:00`). No DST rules.
+    /// 固定 UTC 偏移（如 `+08:00`），不涉夏令时规则。
     Fixed(FixedOffset),
 }
 
-/// Pick effective timezone string: trigger override, else runtime default.
+/// 选出生效的时区字符串：触发器覆盖优先，否则用运行时默认。
 pub fn effective_cron_timezone(trigger_tz: Option<&str>, runtime_tz: &str) -> String {
     trigger_tz
         .map(str::trim)
@@ -23,12 +23,12 @@ pub fn effective_cron_timezone(trigger_tz: Option<&str>, runtime_tz: &str) -> St
         .to_string()
 }
 
-/// Parse a timezone name into a concrete chrono timezone.
+/// 把时区名解析成具体的 chrono 时区。
 ///
-/// Accepted values:
-/// - `local` / `system` — host local zone
-/// - `utc` / `z` — UTC
-/// - fixed offsets: `+08:00`, `-05:00`, `+0800`, `+8`
+/// 接受的值：
+/// - `local` / `system` —— 宿主本地时区
+/// - `utc` / `z` —— UTC
+/// - 固定偏移：`+08:00`、`-05:00`、`+0800`、`+8`
 pub fn parse_cron_timezone(name: &str) -> Result<ResolvedCronTz, EngineError> {
     let trimmed = name.trim();
     if trimmed.is_empty() {

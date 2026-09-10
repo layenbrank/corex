@@ -1,4 +1,4 @@
-//! Permissions gating, on_error skip/continue, and step timeout.
+//! 权限门禁、on_error 的 skip/continue，以及步骤超时。
 
 use corex_core::{ExecutionContext, RuntimeConfig};
 use corex_engine::{Directive, Pipeline};
@@ -217,8 +217,10 @@ steps:
 "#;
     let directive = Directive::from_yaml_str(yaml).unwrap();
     let pipeline = Pipeline::new(registry());
-    let mut cfg = RuntimeConfig::default();
-    cfg.strict_permissions = true;
+    let cfg = RuntimeConfig {
+        strict_permissions: true,
+        ..Default::default()
+    };
     let err = pipeline
         .execute(&directive, ExecutionContext::new(cfg))
         .await

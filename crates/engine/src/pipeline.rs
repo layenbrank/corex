@@ -1,4 +1,4 @@
-//! Pipeline executor for directives.
+//! 指令的流水线执行器。
 
 use crate::audit::{self, AuditEntry, ExecutionAudit};
 use crate::control_flow::evaluate_condition;
@@ -6,19 +6,19 @@ use crate::definition::{
     ActionStep, Directive, IfStep, OnError, ParallelStep, Permissions, RepeatStep, Step,
 };
 use crate::history::{ExecutionHistory, HistoryEntry};
-use crate::inputs::apply_input_defaults;
+use crate::inputs::fill_input_defaults;
 use crate::resolver::Resolver;
 use corex_core::{ActionError, ActionStore, EngineError, ExecutionContext, Value};
 use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime};
 use tracing::{debug, error, info, warn};
 
-/// Executes a [`Directive`] against an [`ActionStore`].
+/// 针对一个 [`ActionStore`] 执行 [`Directive`]。
 pub struct Pipeline {
     store: Arc<dyn ActionStore>,
     history: Option<ExecutionHistory>,
     audit: Option<ExecutionAudit>,
-    /// Set during [`Self::execute`] for step audit / logs.
+    /// 在 [`Self::execute`] 期间设置，用于步骤审计 / 日志。
     run_name: Option<String>,
 }
 
@@ -32,19 +32,19 @@ impl Pipeline {
         }
     }
 
-    /// Enable append-only JSONL recording for each [`Self::execute`] call.
+    /// 为每次 [`Self::execute`] 开启只追加的 JSONL 记录。
     pub fn with_history(mut self, history: ExecutionHistory) -> Self {
         self.history = Some(history);
         self
     }
 
-    /// Enable step-level redacted audit JSONL.
+    /// 开启步骤级脱敏审计 JSONL。
     pub fn with_audit(mut self, audit: ExecutionAudit) -> Self {
         self.audit = Some(audit);
         self
     }
 
-    /// Execute an entire directive.
+    /// 执行整条指令。
     pub async fn execute(
         &self,
         directive: &Directive,
@@ -62,7 +62,7 @@ impl Pipeline {
             pipeline.record_history(directive, started, Err(&e));
             return Err(e);
         }
-        if let Err(e) = apply_input_defaults(directive, &mut ctx) {
+        if let Err(e) = fill_input_defaults(directive, &mut ctx) {
             pipeline.record_history(directive, started, Err(&e));
             return Err(e);
         }
@@ -180,11 +180,11 @@ impl Pipeline {
         default_on_error: OnError,
         permissions: &Permissions,
     ) -> Result<Value, EngineError> {
-        if let Some(cond) = &step.when {
-            if !evaluate_condition(cond, ctx)? {
-                debug!(id = %step.id, "when 条件为假，跳过步骤");
-                return Ok(Value::Null);
-            }
+        if let Some(cond) = &step.when
+            && !evaluate_condition(cond, ctx)?
+        {
+            debug!(id = %step.id, "when 条件为假，跳过步骤");
+            return Ok(Value::Null);
         }
 
         let on_error = step.on_error.unwrap_or(default_on_error);
@@ -241,7 +241,7 @@ impl Pipeline {
         let name = self.run_name.as_deref().unwrap_or("unknown");
         audit::log_step_start(name, &step.id, &step.action);
 
-        if let Err(e) = permissions.allows_action(&step.action) {
+        if let Err(e) = permissions.allows_action(&*self.store, &step.action) {
             let err = EngineError::StepFailed {
                 step: step.id.clone(),
                 source: e,
@@ -340,9 +340,9 @@ impl Pipeline {
                         .await?;
             }
         } else if let Some(each) = &step.repeat.each {
-            let list_val = Resolver::resolve_string(each, ctx)?;
-            let items = match list_val {
-                Value::List(l) => l,
+            let resolved = Resolver::resolve_string(each, ctx)?;
+            let items = match resolved {
+                Value::Array(l) => l,
                 other => {
                     return Err(EngineError::ControlFlow(format!(
                         "repeat.each 必须解析为列表，得到: {other}"
@@ -447,11 +447,11 @@ impl Pipeline {
             }
         }
 
-        let list: Vec<Value> = outputs
+        let items: Vec<Value> = outputs
             .into_iter()
             .map(|o| o.unwrap_or(Value::Null))
             .collect();
-        let result = Value::List(list);
+        let result = Value::Array(items);
         ctx.set_step_output(&step.id, result.clone());
         Ok(result)
     }
@@ -464,12 +464,12 @@ impl Pipeline {
     }
 }
 
-/// PermissionDenied always aborts; otherwise follow [`OnError`].
+/// PermissionDenied 一律中止；其余按 [`OnError`] 处理。
 fn must_abort_step(err: &EngineError, on_error: OnError) -> bool {
     err.is_permission_denied() || matches!(on_error, OnError::Abort)
 }
 
-/// Prefer a permission-denied error over a later ordinary branch failure.
+/// 优先报告权限拒绝，而不是之后某个普通分支失败。
 fn prefer_branch_err(prev: Option<EngineError>, next: EngineError) -> EngineError {
     match prev {
         None => next,

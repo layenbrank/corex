@@ -1,8 +1,8 @@
-//! Tauri-side Corex IPC client (v4)
+//! Tauri 侧 Corex IPC 客户端（v4）
 //!
-//! Copy into a Tauri project as `src-tauri/src/corex_ipc.rs`.
+//! 复制到 Tauri 项目下作为 `src-tauri/src/corex_ipc.rs`。
 //!
-//! ## Dependencies (`src-tauri/Cargo.toml`)
+//! ## 依赖（`src-tauri/Cargo.toml`）
 //!
 //! ```toml
 //! [dependencies]
@@ -17,15 +17,15 @@
 //! ] }
 //! ```
 //!
-//! ## Register (`src-tauri/src/lib.rs`)
+//! ## 注册（`src-tauri/src/lib.rs`）
 //!
 //! ```rust
 //! mod corex_ipc;
 //!
-//! // On startup: spawn corex-daemon (sidecar).
+//! // 启动时：拉起 corex-daemon（sidecar）。
 //! let _ = corex_ipc::spawn_daemon(corex_ipc::daemon_exe_path());
 //!
-//! // On exit: corex_ipc::shutdown()?;
+//! // 退出时：corex_ipc::shutdown()?;
 //!
 //! #[tauri::command]
 //! fn take_screenshot(to: String) -> Result<String, String> {
@@ -33,8 +33,8 @@
 //! }
 //! ```
 //!
-//! Protocol: NDJSON `Request` / `Response` with `auth_token`.
-//! See `docs/ipc-protocol.md`.
+//! 协议：NDJSON `Request` / `Response`，带 `auth_token`。
+//! 参见 `docs/reference/IPC协议.md`。
 
 use std::fs::File;
 use std::io::{BufRead, BufReader, Write};
@@ -48,9 +48,9 @@ use std::ffi::OsStr;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
-/// Default IPC endpoint.
-/// - Windows: named pipe `\\.\pipe\corex`
-/// - Unix: override via `COREX_SOCKET` or pass an absolute path to `spawn_daemon` / `exchange`
+/// 默认 IPC 端点。
+/// - Windows：命名管道 `\\.\pipe\corex`
+/// - Unix：用 `COREX_SOCKET` 覆盖，或给 `spawn_daemon` / `exchange` 传绝对路径
 #[cfg(windows)]
 pub const PIPE_NAME: &str = r"\\.\pipe\corex";
 #[cfg(not(windows))]
@@ -58,7 +58,7 @@ pub const PIPE_NAME: &str = "corex.sock";
 
 static REQUEST_ID: AtomicU64 = AtomicU64::new(1);
 
-/// Daemon → client response (`crates/ipc` `Response`).
+/// 守护进程 → 客户端响应（对应 `crates/ipc` 的 `Response`）。
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum Response {
@@ -85,7 +85,7 @@ pub struct RpcError {
     pub message: String,
 }
 
-/// Resolve auth token: `COREX_TOKEN`, else `<data_dir>/token` when discoverable.
+/// 解析认证令牌：先看 `COREX_TOKEN`，否则在可发现时读 `<data_dir>/token`。
 pub fn auth_token() -> Result<String, String> {
     if let Ok(t) = std::env::var("COREX_TOKEN") {
         if !t.is_empty() {
@@ -111,12 +111,12 @@ pub fn auth_token() -> Result<String, String> {
 }
 
 fn dirs_hint_token() -> Option<PathBuf> {
-    // Best-effort: common Linux path; Windows/macOS hosts should set COREX_TOKEN.
+    // 尽力而为：Linux 常见路径；Windows / macOS 主机应显式设置 COREX_TOKEN。
     let home = std::env::var_os("HOME")?;
     Some(PathBuf::from(home).join(".local/share/corex/token"))
 }
 
-/// Sidecar / sibling `corex-daemon` path (adjust for packing).
+/// sidecar / 同级目录下的 `corex-daemon` 路径（打包方式不同需相应调整）。
 pub fn daemon_exe_path() -> PathBuf {
     std::env::current_exe()
         .ok()
@@ -144,7 +144,7 @@ pub fn daemon_exe_path() -> PathBuf {
         })
 }
 
-/// Spawn `corex-daemon` once at app start.
+/// 应用启动时拉起一次 `corex-daemon`。
 pub fn spawn_daemon(exe: impl AsRef<Path>) -> Result<Child, String> {
     let endpoint = endpoint_path();
     Command::new(exe.as_ref())
@@ -166,7 +166,7 @@ fn endpoint_path() -> String {
     PIPE_NAME.to_string()
 }
 
-/// Invoke a single Action by id (v4).
+/// 按 id 调用单个 Action（v4）。
 pub fn invoke_action(action: &str, params: Value) -> Result<Response, String> {
     let id = REQUEST_ID.fetch_add(1, Ordering::Relaxed);
     let token = auth_token()?;
@@ -180,7 +180,7 @@ pub fn invoke_action(action: &str, params: Value) -> Result<Response, String> {
     exchange(&payload.to_string())
 }
 
-/// Screenshot helper → `capture.screenshot`.
+/// 截图便捷方法 → `capture.screenshot`。
 pub fn screenshot(to: impl AsRef<str>) -> Result<String, String> {
     let resp = invoke_action(
         "capture.screenshot",
@@ -194,8 +194,8 @@ pub fn screenshot(to: impl AsRef<str>) -> Result<String, String> {
     }
 }
 
-/// UI Inspector: list top-level windows (`ui.window.list`).
-pub fn ui_window_list() -> Result<Value, String> {
+/// UI 检查器：枚举顶层窗口（`ui.window.list`）。
+pub fn ui_windows() -> Result<Value, String> {
     let resp = invoke_action("ui.window.list", json!({}))?;
     match resp {
         Response::Ok { data, .. } => Ok(data),
@@ -204,8 +204,8 @@ pub fn ui_window_list() -> Result<Value, String> {
     }
 }
 
-/// UI Inspector: list elements under a window (`ui.element.list`).
-pub fn ui_element_list(
+/// UI 检查器：枚举某个窗口下的元素（`ui.element.list`）。
+pub fn ui_elements(
     hwnd: Option<i64>,
     title_contains: Option<&str>,
     depth: i64,
@@ -228,7 +228,7 @@ pub fn ui_element_list(
     }
 }
 
-/// UI Inspector: find element by selector (`ui.element.find`).
+/// UI 检查器：按选择器查找元素（`ui.element.find`）。
 pub fn ui_element_find(params: Value) -> Result<Value, String> {
     let resp = invoke_action("ui.element.find", params)?;
     match resp {
@@ -246,7 +246,7 @@ fn value_to_path(data: &Value) -> Option<String> {
         if let Some(p) = obj.get("path").and_then(|v| v.as_str()) {
             return Some(p.to_string());
         }
-        // Corex Value::File often serializes as a plain string; also accept nested.
+        // Corex 的 Value::File 常序列化成普通字符串；这里也兼容嵌套形式。
         if let Some(p) = obj.get("File").and_then(|v| v.as_str()) {
             return Some(p.to_string());
         }
@@ -254,12 +254,12 @@ fn value_to_path(data: &Value) -> Option<String> {
     None
 }
 
-/// Probe whether the endpoint accepts a connection.
+/// 探测端点能否建立连接。
 pub fn is_ready() -> bool {
     open_endpoint(&endpoint_path()).is_ok()
 }
 
-/// Ask the daemon to exit.
+/// 请求守护进程退出。
 pub fn shutdown() -> Result<(), String> {
     let id = REQUEST_ID.fetch_add(1, Ordering::Relaxed);
     let token = auth_token()?;

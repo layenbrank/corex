@@ -1,10 +1,10 @@
-//! Supervisor job metadata on disk.
+//! 落盘的 supervisor 作业元数据。
 
 use crate::supervisor::process::is_supervisor_alive;
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 
-/// Supervisor job kind.
+/// supervisor 作业类型。
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum JobKind {
@@ -12,7 +12,7 @@ pub enum JobKind {
     Cron,
 }
 
-/// Persisted job metadata under `<data>/<kind>/<id>/meta.json`.
+/// 持久化的作业元数据，位于 `<data>/<kind>/<id>/meta.json`。
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct JobMeta {
     pub id: String,
@@ -24,10 +24,10 @@ pub struct JobMeta {
     pub expr: Option<String>,
     #[serde(default)]
     pub paths: Vec<String>,
-    /// Absolute path to the supervisor `corex` binary.
+    /// supervisor 所用 `corex` 二进制的绝对路径。
     #[serde(default)]
     pub supervisor_exe: Option<PathBuf>,
-    /// Process creation time (unix ms) for PID reuse detection.
+    /// 进程创建时间（unix 毫秒），用于识别 PID 复用。
     #[serde(default)]
     pub started_at_ms: Option<u64>,
 }
@@ -41,7 +41,7 @@ impl JobMeta {
         data_dir.join(sub).join(id)
     }
 
-    /// Path to the supervisor process log file.
+    /// supervisor 进程日志文件的路径。
     pub fn supervisor_log_path(data_dir: &Path, kind: JobKind, id: &str) -> PathBuf {
         Self::job_dir(data_dir, kind, id).join("supervisor.log")
     }
@@ -53,12 +53,12 @@ impl JobMeta {
         }
     }
 
-    /// Returns true when the recorded supervisor process is still alive.
+    /// 记录的 supervisor 进程是否仍然活着。
     pub fn is_supervisor_alive(&self) -> bool {
         is_supervisor_alive(self)
     }
 
-    /// Remove persisted job metadata (keeps `supervisor.log`).
+    /// 删除持久化的作业元数据（保留 `supervisor.log`）。
     pub fn remove(data_dir: &Path, kind: JobKind, id: &str) -> std::io::Result<()> {
         let dir = Self::job_dir(data_dir, kind, id);
         let _ = std::fs::remove_file(dir.join("meta.json"));
@@ -67,7 +67,7 @@ impl JobMeta {
         Ok(())
     }
 
-    /// Resolve a job by directive name (not OS pid).
+    /// 按指令名解析作业（不是按操作系统 pid）。
     pub fn resolve_by_name(data_dir: &Path, kind: JobKind, name: &str) -> Result<Self, String> {
         let trimmed = name.trim();
         if trimmed.is_empty() {
@@ -136,7 +136,7 @@ impl JobMeta {
         out
     }
 
-    /// Remove stale job records that no longer refer to a live supervisor.
+    /// 清理那些已经不再指向存活 supervisor 的作废记录。
     pub fn prune_stale(data_dir: &Path, kind: JobKind) {
         for meta in Self::scan(data_dir, kind) {
             if !meta.is_supervisor_alive() {
@@ -145,7 +145,7 @@ impl JobMeta {
         }
     }
 
-    /// Find a running supervisor job for the given directive name.
+    /// 找出该指令名下正在运行的 supervisor 作业。
     pub fn find_running_by_directive(
         data_dir: &Path,
         kind: JobKind,

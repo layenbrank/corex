@@ -1,8 +1,8 @@
-//! Path confinement helpers shared by daemon IPC and file actions.
+//! daemon IPC 与文件动作共用的路径约束辅助。
 
 use std::path::{Component, Path, PathBuf};
 
-/// Error when a path resolves outside an allowed root.
+/// 路径解析到允许根之外时的错误。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PathConfineError(pub String);
 
@@ -14,12 +14,12 @@ impl std::fmt::Display for PathConfineError {
 
 impl std::error::Error for PathConfineError {}
 
-/// Returns true when `path` contains a `..` component (before canonicalization).
+/// `path` 是否含有 `..` 分量（在规范化之前判断）。
 pub fn path_has_traversal(path: &Path) -> bool {
     path.components().any(|c| matches!(c, Component::ParentDir))
 }
 
-/// Ensure `path` resolves under `root` (after joining relative paths).
+/// 保证 `path`（拼接相对路径之后）解析在 `root` 之下。
 pub fn confine_under(root: &Path, path: &Path) -> Result<PathBuf, PathConfineError> {
     let root_canon = root
         .canonicalize()
@@ -42,10 +42,10 @@ pub fn confine_under(root: &Path, path: &Path) -> Result<PathBuf, PathConfineErr
     Ok(normalize_separators(cand_canon))
 }
 
-/// Ensure `path` is under at least one of `roots`.
+/// 保证 `path` 在 `roots` 之一之下。
 ///
-/// Empty `roots` disables confinement (local/dev default).
-/// Missing files are checked lexically against each root.
+/// `roots` 为空则不做约束（本地 / 开发默认）。
+/// 文件不存在时，按字面与各个根逐一比对检查。
 pub fn confine_in_roots(roots: &[PathBuf], path: &Path) -> Result<PathBuf, PathConfineError> {
     if roots.is_empty() {
         return Ok(normalize_separators(path.to_path_buf()));
@@ -74,7 +74,7 @@ pub fn confine_in_roots(roots: &[PathBuf], path: &Path) -> Result<PathBuf, PathC
     }))
 }
 
-/// Normalize path separators for display and JSON (`\` on Windows).
+/// 为展示与 JSON 统一路径分隔符（Windows 上用 `\`）。
 pub fn normalize_separators(path: PathBuf) -> PathBuf {
     #[cfg(windows)]
     {
@@ -89,17 +89,17 @@ pub fn normalize_separators(path: PathBuf) -> PathBuf {
     path
 }
 
-/// Display path with platform-native separators.
+/// 用平台原生分隔符展示的路径。
 pub fn display_path(path: &Path) -> String {
     normalize_separators(path.to_path_buf())
         .display()
         .to_string()
 }
 
-/// Strip Windows verbatim (`\\?\`) prefixes so paths work with `cmd` / PowerShell.
+/// 去掉 Windows 的 verbatim（`\\?\`）前缀，使路径能被 `cmd` / PowerShell 接受。
 ///
-/// `canonicalize` often yields `\\?\C:\...`, which `cmd.exe` rejects as "path not found".
-/// No-op on non-Windows and when the prefix is absent.
+/// `canonicalize` 常常给出 `\\?\C:\...`，而 `cmd.exe` 会当“找不到路径”拒绍。
+/// 非 Windows 或没有该前缀时是空操作。
 pub fn for_external_process(path: PathBuf) -> PathBuf {
     #[cfg(windows)]
     {
@@ -114,7 +114,7 @@ pub fn for_external_process(path: PathBuf) -> PathBuf {
     path
 }
 
-/// Confine a possibly non-existent path under `root`.
+/// 把一个可能不存在的路径约束在 `root` 之下。
 fn confine_missing(root: &Path, path: &Path) -> Result<PathBuf, PathConfineError> {
     let root_canon = root
         .canonicalize()
@@ -124,7 +124,7 @@ fn confine_missing(root: &Path, path: &Path) -> Result<PathBuf, PathConfineError
     } else {
         root.join(path)
     };
-    // Walk up until an existing ancestor is found.
+    // 向上回溯，直到找到一个存在的祖先。
     let mut cur = candidate.clone();
     let mut missing = Vec::new();
     while !cur.exists() {
@@ -187,7 +187,7 @@ mod tests {
         let root = dir.path().join("root");
         fs::create_dir_all(&root).unwrap();
         let target = root.join("new.txt");
-        let got = confine_in_roots(&[root.clone()], &target).unwrap();
+        let got = confine_in_roots(std::slice::from_ref(&root), &target).unwrap();
         assert!(got.starts_with(root.canonicalize().unwrap()) || got == target);
     }
 

@@ -1,15 +1,15 @@
-//! Scan a plugin directory for `*.wasm` components and register successful loads.
+//! 扫描插件目录里的 `*.wasm` 组件，并注册加载成功的那些。
 
 use crate::ActionRegistry;
 use crate::wasm_host::WasmPluginHost;
 use std::path::Path;
 use tracing::{info, warn};
 
-/// Discover `*.wasm` files under `plugin_dir`, attempt to load each via
-/// [`WasmPluginHost`], and register actions that load successfully.
+/// 在 `plugin_dir` 下发现 `*.wasm` 文件，逐个尝试经 [`WasmPluginHost`] 加载，
+/// 并把加载成功的注册为动作。
 ///
-/// Failures are logged and skipped (e.g. WIT bindgen not generated yet).
-/// Returns the list of paths that were attempted.
+/// 失败的会记日志并跳过（比如 WIT bindgen 还没生成）。
+/// 返回尝试过的路径列表。
 pub fn discover(
     plugin_dir: &Path,
     registry: &mut ActionRegistry,
@@ -36,7 +36,7 @@ pub fn discover(
         }
         let path_s = path.display().to_string();
         found.push(path_s.clone());
-        match host.load_plugin(&path) {
+        match host.instantiate(&path) {
             Ok(action) => {
                 let id = action.meta().id.clone();
                 info!(path = %path_s, action_id = %id, "WASM 插件已加载并注册");
@@ -57,8 +57,8 @@ pub fn discover(
     Ok(found)
 }
 
-/// List `*.wasm` paths without loading (utility / tests).
-pub fn list_wasm_files(plugin_dir: &Path) -> Vec<String> {
+/// 只列出 `*.wasm` 路径、不做加载（工具 / 测试用）。
+pub fn wasm_files(plugin_dir: &Path) -> Vec<String> {
     let mut found = Vec::new();
     if !plugin_dir.exists() {
         return found;

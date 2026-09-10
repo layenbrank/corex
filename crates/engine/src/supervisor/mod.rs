@@ -1,4 +1,4 @@
-//! PM2-style job supervisor utilities.
+//! PM2 风格的作业 supervisor 工具。
 
 pub mod control;
 pub mod job;

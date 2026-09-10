@@ -1,4 +1,4 @@
-//! IPC protocol and transports for talking to `corex-daemon`.
+//! 与 `corex-daemon` 通信的 IPC 协议与传输。
 
 pub mod protocol;
 pub mod transport;

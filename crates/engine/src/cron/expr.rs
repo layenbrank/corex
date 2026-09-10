@@ -1,8 +1,8 @@
-//! Cron expression normalization.
+//! cron 表达式归一化。
 
 use corex_core::EngineError;
 
-/// Normalize a cron expression to 6 fields (prepend seconds when 5 fields).
+/// 把 cron 表达式归一化成 6 段（只有 5 段时补上秒）。
 pub fn parse_cron_expr(expr: &str) -> Result<String, EngineError> {
     let trimmed = expr.trim();
     if trimmed.is_empty() {

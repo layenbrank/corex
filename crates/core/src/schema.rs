@@ -1,8 +1,8 @@
-//! Lightweight schema type tags for action parameters.
+//! 动作参数的轻量 schema 类型标签。
 
 use serde::{Deserialize, Serialize};
 
-/// Declared parameter / return type for documentation and soft validation.
+/// 参数 / 返回值的声明类型，用于文档与软校验。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum SchemaType {
@@ -11,7 +11,7 @@ pub enum SchemaType {
     Int,
     Float,
     Str,
-    List,
+    Array,
     Map,
     File,
     Bytes,
@@ -26,7 +26,7 @@ impl SchemaType {
             SchemaType::Int => "int",
             SchemaType::Float => "float",
             SchemaType::Str => "str",
-            SchemaType::List => "list",
+            SchemaType::Array => "array",
             SchemaType::Map => "map",
             SchemaType::File => "file",
             SchemaType::Bytes => "bytes",

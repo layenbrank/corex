@@ -1,4 +1,4 @@
-//! Cron job scheduling engine.
+//! Cron 作业调度引擎。
 
 use super::expr::parse_cron_expr;
 use super::tz::{ResolvedCronTz, parse_cron_timezone};
@@ -14,12 +14,12 @@ use tokio::sync::Mutex;
 use tracing::{info, warn};
 use uuid::Uuid;
 
-/// Registered cron job metadata.
+/// 已注册的 cron 作业元数据。
 #[derive(Debug, Clone)]
 pub struct CronJobSpec {
     pub id: String,
     pub expr: String,
-    /// Effective timezone (`local`, `utc`, or `±HH:MM`).
+    /// 生效的时区（`local`、`utc` 或 `±HH:MM`）。
     pub timezone: String,
     pub directive_path: PathBuf,
     pub directive_name: String,
@@ -31,7 +31,7 @@ struct JobState {
     uuid: Uuid,
 }
 
-/// Shared cron scheduler used by triggers and `cron.schedule`.
+/// 触发器与 `cron.schedule` 共用的 cron 调度器。
 pub struct CronEngine {
     data_dir: PathBuf,
     store: Arc<dyn ActionStore>,
@@ -139,7 +139,7 @@ impl CronEngine {
         Ok(())
     }
 
-    /// Remove scheduled job and stop accepting new cron ticks.
+    /// 移除已调度作业，并停止接受新的 cron 触发。
     pub async fn shutdown_force(&self, job_id: &str) -> Result<(), EngineError> {
         self.unregister(job_id).await
     }
@@ -171,7 +171,7 @@ impl CronEngine {
         Ok(())
     }
 
-    pub async fn list_jobs(&self) -> Vec<CronJobSpec> {
+    pub async fn jobs(&self) -> Vec<CronJobSpec> {
         self.jobs
             .lock()
             .await

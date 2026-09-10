@@ -1,4 +1,4 @@
-//! Append-only JSONL execution history under the data directory.
+//! 数据目录下只追加的 JSONL 执行历史。
 
 use corex_core::EngineError;
 use serde::{Deserialize, Serialize};
@@ -8,21 +8,21 @@ use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tracing::{debug, warn};
 
-/// One Directive / pipeline execution record.
+/// 一条指令 / 流水线执行记录。
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct HistoryEntry {
-    /// Directive name (or file stem).
+    /// 指令名（或文件名主干）。
     pub directive: String,
-    /// Unix epoch millis when execution started.
+    /// 执行开始的 unix 毫秒时间戳。
     pub started_at_ms: u64,
-    /// Unix epoch millis when execution ended.
+    /// 执行结束的 unix 毫秒时间戳。
     pub ended_at_ms: u64,
-    /// Whether execution succeeded.
+    /// 执行是否成功。
     pub ok: bool,
-    /// Error message when `ok` is false.
+    /// `ok` 为 false 时的错误消息。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
-    /// Wall duration in milliseconds.
+    /// 实际耗时（毫秒）。
     pub duration_ms: u64,
 }
 
@@ -54,11 +54,11 @@ impl HistoryEntry {
     }
 }
 
-/// Max length of history error text (after path redaction).
+/// 历史错误文本的最大长度（路径脱敏之后）。
 const HISTORY_ERROR_MAX: usize = 200;
 
-/// Classify from [`EngineError`] + redact paths + truncate.
-/// Full detail remains in `audit.jsonl` / process logs.
+/// 从 [`EngineError`] 归类 + 路径脱敏 + 截断。
+/// 完整细节仍保留在 `audit.jsonl` / 进程日志里。
 pub fn sanitize_history_error(err: &EngineError) -> String {
     let kind = err.kind();
     let redacted = redact_path_like(&err.to_string());
@@ -93,7 +93,7 @@ fn looks_like_path(token: &str) -> bool {
     if t.len() < 3 {
         return false;
     }
-    // Unix absolute or Windows drive / UNC-ish
+    // Unix 绝对路径，或 Windows 盘符 / 类 UNC
     t.starts_with('/')
         || t.starts_with('\\')
         || (t.len() >= 3
@@ -115,42 +115,41 @@ fn system_time_ms(t: SystemTime) -> u64 {
         .as_millis() as u64
 }
 
-/// Append-only JSONL writer for execution history.
+/// 执行历史的只追加 JSONL 写入器。
 #[derive(Debug, Clone)]
 pub struct ExecutionHistory {
     path: PathBuf,
 }
 
 impl ExecutionHistory {
-    /// Open (or create) history at an explicit path.
+    /// 在指定路径打开（或创建）历史文件。
     pub fn open(path: impl Into<PathBuf>) -> std::io::Result<Self> {
         let path = path.into();
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent)?;
         }
-        // Touch the file so missing parents / permissions fail early.
+        // 先碰一下文件，让父目录缺失 / 权限不足尽早暴露。
         let _ = OpenOptions::new().create(true).append(true).open(&path)?;
         Ok(Self { path })
     }
 
-    /// Default file under `data_dir` (`history.jsonl`).
+    /// `data_dir` 下的默认文件（`history.jsonl`）。
     pub fn under_data_dir(data_dir: &Path) -> std::io::Result<Self> {
         Self::open(data_dir.join("history.jsonl"))
     }
 
-    /// History file path.
+    /// 历史文件路径。
     pub fn path(&self) -> &Path {
         &self.path
     }
 
-    /// Append one entry as a single JSON line.
+    /// 追一条记录，占一行 JSON。
     pub fn append(&self, entry: &HistoryEntry) -> std::io::Result<()> {
         let mut file = OpenOptions::new()
             .create(true)
             .append(true)
             .open(&self.path)?;
-        serde_json::to_writer(&mut file, entry)
-            .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
+        serde_json::to_writer(&mut file, entry).map_err(std::io::Error::other)?;
         file.write_all(b"\n")?;
         file.flush()?;
         debug!(
@@ -163,7 +162,7 @@ impl ExecutionHistory {
         Ok(())
     }
 
-    /// Append, logging a warning on failure instead of propagating.
+    /// 追加；失败只记警告，不向上传播。
     pub fn record_best_effort(&self, entry: &HistoryEntry) {
         if let Err(e) = self.append(entry) {
             warn!(
@@ -174,7 +173,7 @@ impl ExecutionHistory {
         }
     }
 
-    /// Read all entries (for tests / inspection). Skips malformed lines.
+    /// 读出全部记录（测试 / 排查用）。跳过格式坏掉的行。
     pub fn read_all(&self) -> std::io::Result<Vec<HistoryEntry>> {
         if !self.path.exists() {
             return Ok(Vec::new());

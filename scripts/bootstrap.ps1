@@ -7,7 +7,7 @@ param(
     [string]$Target
 )
 
-# All outputs are ASCII-only to avoid encoding issues across hosts
+# 所有输出只用 ASCII，避免不同主机之间的编码问题
 
 function Get-NormalizedPathItems {
     param([string]$UserPath)

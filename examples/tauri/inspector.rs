@@ -1,26 +1,26 @@
-//! UI Inspector skeleton for Tauri (FlaUInspect-style tree + properties).
+//! Tauri 的 UI 检查器骨架（类 FlaUInspect 的控件树 + 属性面板）。
 //!
-//! Wire into `lib.rs`:
+//! 接入 `lib.rs`：
 //!
 //! ```ignore
 //! mod inspector;
 //!
 //! #[tauri::command]
-//! fn inspector_list_windows() -> Result<serde_json::Value, String> {
-//!     corex_ipc::ui_window_list()
+//! fn inspector_windows() -> Result<serde_json::Value, String> {
+//!     corex_ipc::ui_windows()
 //! }
 //!
 //! #[tauri::command]
-//! fn inspector_list_elements(hwnd: i64, depth: i64) -> Result<serde_json::Value, String> {
-//!     corex_ipc::ui_element_list(Some(hwnd), None, depth, 100)
+//! fn inspector_elements(hwnd: i64, depth: i64) -> Result<serde_json::Value, String> {
+//!     corex_ipc::ui_elements(Some(hwnd), None, depth, 100)
 //! }
 //! ```
 //!
-//! Frontend: see `inspector/index.html` — bind window list, element tree, property panel.
+//! 前端：见 `inspector/index.html` —— 绑定窗口列表、控件树、属性面板。
 
-/// Recommended Tauri commands for Inspector MVP.
+/// Inspector MVP 建议注册的 Tauri 命令。
 pub const INSPECTOR_COMMANDS: &[&str] = &[
-    "inspector_list_windows",
-    "inspector_list_elements",
+    "inspector_windows",
+    "inspector_elements",
     "inspector_find_element",
 ];

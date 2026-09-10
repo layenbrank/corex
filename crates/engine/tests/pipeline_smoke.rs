@@ -1,4 +1,4 @@
-//! End-to-end smoke: resolver + template/file pipeline.
+//! 端到端冒烟：解析器 + 模板 / 文件流水线。
 
 use corex_core::{ExecutionContext, RuntimeConfig, Value};
 use corex_engine::{Directive, Pipeline, Resolver};
@@ -48,7 +48,7 @@ steps:
     assert!(out.exists(), "output file should exist");
     let text = std::fs::read_to_string(&out).unwrap();
     assert_eq!(text, "Hi, corex!");
-    // last step returns write metadata map
+    // 最后一步返回写入元数据 map
     match result {
         Value::Map(m) => {
             assert_eq!(m.get("changed").and_then(|v| v.as_bool()), Some(true));

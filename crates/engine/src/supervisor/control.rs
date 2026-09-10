@@ -1,15 +1,15 @@
-//! Supervisor control messages.
+//! supervisor 控制消息。
 
 use std::fmt;
 use std::str::FromStr;
 
-/// Control message for watch/cron supervisors.
+/// 发给 watch/cron supervisor 的控制消息。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ControlMsg {
     RunNow,
     Status,
     Stop,
-    /// Stop supervisor and terminate in-flight pipeline / child processes.
+    /// 停止 supervisor，并终止进行中的流水线 / 子进程。
     StopForce,
 }
 
@@ -41,12 +41,12 @@ impl FromStr for ControlMsg {
     }
 }
 
-/// Write a control message into a job directory.
+/// 把控制消息写进作业目录。
 pub fn send_control(job_dir: &std::path::Path, msg: ControlMsg) -> std::io::Result<()> {
     std::fs::write(job_dir.join("control.cmd"), msg.to_string())
 }
 
-/// Poll and consume a pending control message.
+/// 轮询并消费一条待处理的控制消息。
 pub fn poll_control(job_dir: &std::path::Path) -> Option<ControlMsg> {
     let path = job_dir.join("control.cmd");
     let text = std::fs::read_to_string(&path).ok()?;

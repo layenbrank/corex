@@ -1,10 +1,10 @@
-//! Workspace-level smoke test (optional; also covered by engine tests).
+//! 工作区级冒烟测试（可选；引擎测试也覆盖了）。
 
 #[test]
 fn hello_yaml_parses() {
     let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("../../examples/directives/hello.yaml");
-    // When run from engine package, path may differ — try repo-relative.
+    // 从 engine 包目录跑时路径可能不同——再试一下仓库相对路径。
     let candidates = [
         path,
         std::path::PathBuf::from("examples/directives/hello.yaml"),

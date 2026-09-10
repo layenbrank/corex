@@ -82,7 +82,7 @@ fn spawn_corex_sidecar(app: &AppHandle) -> Result<(), String> {
         let _ = app_handle;
     });
 
-    // Wait for IPC endpoint (Windows pipe / Unix socket)
+    // 等待 IPC 端点可用（Windows 命名管道 / Unix socket）
     wait_for_daemon(Duration::from_secs(8));
     Ok(())
 }

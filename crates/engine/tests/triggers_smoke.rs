@@ -1,4 +1,4 @@
-//! Trigger parsing and cron expr smoke tests.
+//! 触发器解析与 cron 表达式冒烟测试。
 
 use corex_engine::{Directive, find_cron_trigger, find_watch_trigger, parse_cron_expr};
 

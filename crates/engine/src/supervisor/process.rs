@@ -1,4 +1,4 @@
-//! Process helpers for supervised jobs.
+//! 受管作业的进程辅助函数。
 
 use crate::supervisor::JobMeta;
 use std::fs::OpenOptions;
@@ -7,10 +7,10 @@ use std::process::{Command, Stdio};
 #[cfg(unix)]
 use std::time::Duration;
 
-/// Maximum drift allowed when comparing process start timestamps (ms).
+/// 比较进程启动时间戳时允许的最大偏差（毫秒）。
 const START_TIME_TOLERANCE_MS: u64 = 2_000;
 
-/// Returns true when `pid` appears to be running.
+/// `pid` 看起来是否在运行。
 pub fn is_pid_running(pid: u32) -> bool {
     if pid == 0 {
         return false;
@@ -18,7 +18,7 @@ pub fn is_pid_running(pid: u32) -> bool {
     process_exists(pid)
 }
 
-/// Capture identity fields for the current supervisor process.
+/// 采集当前 supervisor 进程的身份字段。
 pub fn current_supervisor_identity() -> (PathBuf, u64) {
     let pid = std::process::id();
     let exe = std::env::current_exe().unwrap_or_else(|_| PathBuf::from("corex"));
@@ -26,13 +26,13 @@ pub fn current_supervisor_identity() -> (PathBuf, u64) {
     (exe, started_at_ms)
 }
 
-/// Capture identity fields for a spawned child pid.
+/// 采集已派生出的子进程 pid 的身份字段。
 pub fn child_supervisor_identity(pid: u32, exe: &Path) -> (PathBuf, u64) {
     let started_at_ms = process_started_at_ms(pid).unwrap_or(0);
     (exe.to_path_buf(), started_at_ms)
 }
 
-/// Returns true when `meta` still refers to the original supervisor process.
+/// `meta` 是否仍指向最初那个 supervisor 进程。
 pub fn is_supervisor_alive(meta: &JobMeta) -> bool {
     if meta.pid == 0 {
         return false;
@@ -238,7 +238,7 @@ fn filetime_to_unix_ms(ft: &windows::Win32::Foundation::FILETIME) -> u64 {
         .saturating_sub(11_644_473_600_000)
 }
 
-/// Terminate `pid` and its child process tree.
+/// 终止 `pid` 及其子进程树。
 pub fn kill_process_tree(pid: u32) -> std::io::Result<()> {
     if pid == 0 {
         return Ok(());
@@ -254,10 +254,7 @@ pub fn kill_process_tree(pid: u32) -> std::io::Result<()> {
         if status.success() {
             Ok(())
         } else {
-            Err(std::io::Error::new(
-                std::io::ErrorKind::Other,
-                format!("taskkill 失败 (pid {pid})"),
-            ))
+            Err(std::io::Error::other(format!("taskkill 失败 (pid {pid})")))
         }
     }
     #[cfg(unix)]
@@ -298,7 +295,7 @@ pub fn kill_process_tree(pid: u32) -> std::io::Result<()> {
     }
 }
 
-/// Spawn a detached child process for a supervisor run loop.
+/// 为 supervisor 运行循环派生一个脱离终端的子进程。
 pub fn spawn_detached(exe: &Path, args: &[&str], log_path: Option<&Path>) -> std::io::Result<u32> {
     let mut cmd = Command::new(exe);
     cmd.args(args).stdin(Stdio::null());

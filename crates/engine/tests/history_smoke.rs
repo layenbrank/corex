@@ -1,4 +1,4 @@
-//! History recording smoke test.
+//! 历史记录冒烟测试。
 
 use corex_core::{ExecutionContext, RuntimeConfig};
 use corex_engine::{Directive, ExecutionHistory, Pipeline};

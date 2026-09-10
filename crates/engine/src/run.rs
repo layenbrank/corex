@@ -1,4 +1,4 @@
-//! Shared directive execution for triggers and CLI.
+//! 触发器与 CLI 共用的指令执行逻辑。
 
 use crate::audit::ExecutionAudit;
 use crate::definition::Directive;
@@ -9,7 +9,7 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-/// Runs directives with the same pipeline wiring as the CLI.
+/// 用与 CLI 相同的流水线接线方式运行指令。
 pub struct DirectiveRunner {
     pub store: Arc<dyn ActionStore>,
     pub runtime: RuntimeConfig,
@@ -59,7 +59,7 @@ impl DirectiveRunner {
     }
 }
 
-/// Convenience wrapper for trigger supervisors.
+/// 给触发器 supervisor 用的便捷包装。
 pub async fn run_directive_file(
     store: Arc<dyn ActionStore>,
     runtime: RuntimeConfig,

@@ -1,13 +1,13 @@
-//! JSON-RPC-ish request / response types.
+//! 类 JSON-RPC 的请求 / 响应类型。
 
 use corex_core::Value;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
-/// Maximum NDJSON line size (1 MiB).
+/// NDJSON 单行最大长度（1 MiB）。
 pub const MAX_LINE_BYTES: usize = 1024 * 1024;
 
-/// Client → daemon requests.
+/// 客户端 → daemon 的请求。
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum Request {
@@ -48,7 +48,7 @@ pub enum Request {
         #[serde(default)]
         path: Option<String>,
     },
-    /// Invoke a single action by id.
+    /// 按 id 调用单个动作。
     Invoke {
         #[serde(default)]
         id: u64,
@@ -83,7 +83,7 @@ impl Request {
         }
     }
 
-    /// Attach or replace the auth token on a request.
+    /// 给请求挂上或替换鉴权 token。
     pub fn with_auth_token(mut self, token: impl Into<String>) -> Self {
         let t = Some(token.into());
         match &mut self {
@@ -98,7 +98,7 @@ impl Request {
     }
 }
 
-/// Daemon → client responses.
+/// daemon → 客户端的响应。
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum Response {

@@ -1,4 +1,4 @@
-//! Control-flow tests: if / repeat / parallel.
+//! 控制流测试：if / repeat / parallel。
 
 use corex_core::{ExecutionContext, RuntimeConfig};
 use corex_engine::{Directive, Pipeline};
@@ -95,7 +95,7 @@ steps:
     );
 
     let directive = Directive::from_yaml_str(&yaml).unwrap();
-    // Debug: ensure as_var parsed
+    // 调试用：确认 as_var 解析成功
     match &directive.steps[0] {
         corex_engine::Step::Repeat(r) => assert_eq!(r.repeat.as_var, "i"),
         other => panic!("expected repeat, got {other:?}"),

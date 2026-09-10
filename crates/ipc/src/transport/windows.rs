@@ -1,4 +1,4 @@
-//! Windows named pipe transport via `interprocess` (newline-delimited JSON).
+//! 经 `interprocess` 的 Windows 命名管道传输（换行分隔的 JSON）。
 
 use super::{Transport, TransportError};
 use crate::protocol::{MAX_LINE_BYTES, Request, Response, RpcError};
@@ -6,7 +6,7 @@ use async_trait::async_trait;
 use std::path::{Path, PathBuf};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 
-/// Newline-delimited JSON over a Windows named pipe (e.g. `\\.\pipe\corex`).
+/// 在 Windows 命名管道上跑换行分隔的 JSON（如 `\\.\pipe\corex`）。
 #[derive(Debug, Clone)]
 pub struct NamedPipeTransport {
     path: PathBuf,
@@ -17,7 +17,7 @@ impl NamedPipeTransport {
         Self { path: path.into() }
     }
 
-    /// Canonical named pipe path for Windows IPC.
+    /// Windows IPC 的规范命名管道路径。
     pub fn canonical_pipe_path() -> PathBuf {
         PathBuf::from(r"\\.\pipe\corex")
     }
@@ -26,7 +26,7 @@ impl NamedPipeTransport {
         &self.path
     }
 
-    /// Serve connections: for each newline-delimited JSON request, call `handler`.
+    /// 服务连接：对每个换行分隔的 JSON 请求调用 `handler`。
     pub async fn serve<F, Fut>(path: &Path, mut handler: F) -> Result<(), TransportError>
     where
         F: FnMut(Request) -> Fut + Send,
@@ -34,8 +34,8 @@ impl NamedPipeTransport {
     {
         use interprocess::os::windows::named_pipe::{PipeListenerOptions, pipe_mode};
 
-        // Default security: current-user accessible pipe (OS default for named pipes
-        // created without an explicit SD is typically local-only).
+        // 默认安全设置：当前用户可访问的管道（未显式指定 SD 的命名管道，
+        // 按操作系统默认通常是仅本机可用）。
         let listener = PipeListenerOptions::new()
             .path(path)
             .create_tokio_duplex::<pipe_mode::Bytes>()

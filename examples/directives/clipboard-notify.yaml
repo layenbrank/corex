@@ -21,6 +21,9 @@ inputs:
 
 permissions:
   clipboard: true
+  # `clipboard.set` 的 `format: image` 会读磁盘上的图片，而权限是按**动作**静态声明的，
+  # 所以即使用 text 模式也需要这一项。
+  filesystem: true
   notifications: true
 
 steps:

@@ -1,4 +1,4 @@
-//! Transport abstraction: Unix domain sockets and Windows named pipes.
+//! 传输抽象：Unix domain socket 与 Windows 命名管道。
 
 use crate::protocol::{Request, Response};
 use async_trait::async_trait;
@@ -14,13 +14,13 @@ pub use unix::UnixSocketTransport;
 #[cfg(windows)]
 pub use windows::NamedPipeTransport;
 
-/// Platform-default IPC transport (Unix socket or Windows named pipe).
+/// 平台默认的 IPC 传输（Unix socket 或 Windows 命名管道）。
 #[cfg(unix)]
 pub type PlatformTransport = UnixSocketTransport;
 #[cfg(windows)]
 pub type PlatformTransport = NamedPipeTransport;
 
-/// Abstract IPC transport.
+/// IPC 传输抽象。
 #[async_trait]
 pub trait Transport: Send + Sync {
     async fn send(&mut self, request: &Request) -> Result<Response, TransportError>;
@@ -38,7 +38,7 @@ pub enum TransportError {
     Unsupported(String),
 }
 
-/// Writable directory of the running binary, if any.
+/// 运行中二进制所在的可写目录（若有）。
 fn try_exe_dir() -> Option<PathBuf> {
     let exe = std::env::current_exe().ok()?;
     let dir = exe.parent()?.to_path_buf();
@@ -57,9 +57,9 @@ fn try_exe_dir() -> Option<PathBuf> {
     }
 }
 
-/// Data root for directives / token / history / config.
+/// 指令 / token / 历史 / 配置的数据根目录。
 ///
-/// Order: writable exe dir → OS project data dir → `.corex`.
+/// 顺序：可写的 exe 目录 → 操作系统的项目数据目录 → `.corex`。
 pub fn data_dir() -> std::io::Result<PathBuf> {
     if let Some(dir) = try_exe_dir() {
         return Ok(dir);
@@ -71,7 +71,7 @@ pub fn data_dir() -> std::io::Result<PathBuf> {
     Ok(base)
 }
 
-/// Config TOML search paths (first hit wins): data dir, then cwd.
+/// 配置 TOML 的搜索路径（先命中的先用）：数据目录，然后是当前目录。
 pub fn config_paths() -> Vec<PathBuf> {
     let mut out = Vec::new();
     if let Ok(root) = data_dir() {
@@ -82,10 +82,10 @@ pub fn config_paths() -> Vec<PathBuf> {
     out
 }
 
-/// Default IPC endpoint for `data`.
+/// `data` 的默认 IPC 端点。
 ///
-/// - Unix: `<data>/corex.sock`
-/// - Windows: `\\.\pipe\corex`
+/// - Unix：`<data>/corex.sock`
+/// - Windows：`\\.\pipe\corex`
 pub fn ipc_endpoint(data: &Path) -> PathBuf {
     #[cfg(unix)]
     {
@@ -98,12 +98,12 @@ pub fn ipc_endpoint(data: &Path) -> PathBuf {
     }
 }
 
-/// Client transport for `endpoint`.
+/// `endpoint` 的客户端传输。
 pub fn ipc_connect(endpoint: impl Into<PathBuf>) -> PlatformTransport {
     PlatformTransport::new(endpoint)
 }
 
-/// Serve NDJSON requests on the platform transport.
+/// 在平台传输上服务 NDJSON 请求。
 pub async fn serve_ipc<F, Fut>(endpoint: &Path, handler: F) -> Result<(), TransportError>
 where
     F: FnMut(Request) -> Fut + Send,

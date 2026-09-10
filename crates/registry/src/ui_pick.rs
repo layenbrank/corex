@@ -1,4 +1,4 @@
-//! Browser-style element picker: hover highlight + click to capture selector YAML.
+//! 浏览器风格的元素拾取器：悬停高亮 + 点击采集 selector YAML。
 
 use corex_core::{ActionError, Value};
 use std::collections::BTreeMap;
@@ -280,10 +280,10 @@ impl PickSession {
                 .map_err(|e| ActionError::execution(format!("GetCursorPos: {e}")))?;
         }
         let el = crate::builtin::ui::win::element_at_point(pt.x, pt.y)?;
-        if let Some(scope) = self.scope_hwnd {
-            if !crate::builtin::ui::win::element_in_scope(&el, scope)? {
-                return Err(ActionError::execution("不在 scope 窗口内"));
-            }
+        if let Some(scope) = self.scope_hwnd
+            && !crate::builtin::ui::win::element_in_scope(&el, scope)?
+        {
+            return Err(ActionError::execution("不在 scope 窗口内"));
         }
         Ok(el)
     }
@@ -393,7 +393,7 @@ fn run_pick_blocking(scope_hwnd: Option<i64>) -> Result<BTreeMap<String, Value>,
         result: None,
     };
 
-    // USERDATA holds PickSession for the timer lifetime only; cleared before destroy.
+    // USERDATA 只在定时器生命周期内持有 PickSession；销毁前会清空。
     unsafe {
         SetWindowLongPtrW(
             session.ui.msg_hwnd,
@@ -439,7 +439,7 @@ fn run_pick_blocking(scope_hwnd: Option<i64>) -> Result<BTreeMap<String, Value>,
         .ok_or_else(|| ActionError::execution("未选中元素"))
 }
 
-/// Interactive pick: hover to highlight, click to capture selector YAML.
+/// 交互式拾取：悬停高亮，点击采集 selector YAML。
 pub async fn probe_pick(scope_hwnd: Option<i64>) -> Result<Value, ActionError> {
     tokio::task::spawn_blocking(move || {
         let map = run_pick_blocking(scope_hwnd)?;

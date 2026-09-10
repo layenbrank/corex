@@ -1,4 +1,4 @@
-//! Resolver undefined-variable and nested-path fail-closed behavior.
+//! 解析器的未定义变量与嵌套路径失败即报错行为。
 
 use corex_core::{EngineError, ExecutionContext, RuntimeConfig, Value};
 use corex_engine::Resolver;

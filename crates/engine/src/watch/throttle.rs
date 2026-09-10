@@ -1,23 +1,23 @@
-//! Lodash-like invoke throttle for watch pipelines (`leading: true`, `trailing: true`).
+//! 面向 watch 流水线的类 lodash 调用节流（`leading: true`、`trailing: true`）。
 //!
-//! Pipeline: FS events → **notify_debouncer_full** (FS quiet-period debounce, not a
-//! lodash debounce port) → logical triggers → **this throttle** → `run_directive_file`.
+//! 流水线：FS 事件 → **notify_debouncer_full**（文件系统静默期去抖，不是 lodash
+//! debounce 的移植）→ 逻辑触发 → **本节流器** → `run_directive_file`。
 //!
-//! Timing anchor: the throttle window starts at **invoke start** (call time), matching
-//! common lodash throttle “invocation moment” semantics. YAML field: `throttle_ms`.
+//! 计时基准：节流窗口从 **调用开始**（调用时刻）起算，与 lodash throttle
+//! 常见的“调用时刻”语义一致。YAML 字段：`throttle_ms`。
 
 use std::time::{Duration, Instant};
 
-/// Decision after a logical trigger (post-debounce) arrives.
+/// 逻辑触发（去抖之后）到达时的决策。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TriggerDecision {
-    /// Outside the throttle window: invoke immediately (leading edge).
+    /// 在节流窗口之外：立即调用（leading 边沿）。
     RunLeading,
-    /// Inside the window: arm trailing; wake at `until` (= last invoke start + interval).
+    /// 在窗口之内：布置 trailing；在 `until`（上次调用开始 + 间隔）醒来。
     ArmTrailing { until: Instant },
 }
 
-/// Rate-limits pipeline invokes: at most one leading and one trailing per window.
+/// 对流水线调用限流：每个窗口最多一次 leading、一次 trailing。
 #[derive(Debug)]
 pub struct InvokeThrottle {
     interval: Duration,
@@ -57,10 +57,10 @@ impl InvokeThrottle {
         }
     }
 
-    /// Record a logical trigger at `now`.
+    /// 在 `now` 记录一次逻辑触发。
     ///
-    /// When `is_busy` (another invoke holds `is_running`), always arm trailing and
-    /// never attempt a concurrent leading — CAS elsewhere still enforces single flight.
+    /// 当 `is_busy`（另一个调用正持有 `is_running`）时，一律布置 trailing，
+    /// 绝不尝试并发 leading——别处的 CAS 仍然保证单飞。
     pub fn note_trigger(&mut self, now: Instant, is_busy: bool) -> TriggerDecision {
         if is_busy {
             self.trailing_pending = true;
@@ -79,20 +79,20 @@ impl InvokeThrottle {
         }
     }
 
-    /// Call when an invoke actually begins (leading, trailing, or RUN_NOW).
+    /// 在一次调用真正开始时调用（leading、trailing 或 RUN_NOW）。
     ///
-    /// Clears trailing: the current invoke absorbs the pending edge. New triggers
-    /// during this run re-arm trailing via [`note_trigger`].
+    /// 清掉 trailing：当前调用吸收了待处理的那次边沿。本次运行期间的新触发
+    /// 会经由 [`note_trigger`] 重新布置 trailing。
     pub fn mark_invoke_start(&mut self, at: Instant) {
         self.last_invoke_start = Some(at);
         self.trailing_pending = false;
     }
 
-    /// `RUN_NOW` / `immediate`: refresh the throttle window so the next FS trigger
-    /// does not immediately leading-fire again.
+    /// `RUN_NOW` / `immediate`：刷新节流窗口，使下一次 FS 触发
+    /// 不会立刻又 leading 触发一次。
     ///
-    /// Does **not** clear `trailing_pending` — FS triggers already armed still get
-    /// one trailing after the new window (or ASAP if the window already elapsed).
+    /// **不**清掉 `trailing_pending`——已经布置过的 FS 触发仍然会
+    /// 在新窗口之后得到一次 trailing（窗口已过则尽快）。
     pub fn record_external_invoke(&mut self, at: Instant) {
         self.last_invoke_start = Some(at);
     }
@@ -101,7 +101,7 @@ impl InvokeThrottle {
         self.trailing_pending = true;
     }
 
-    /// Consume trailing flag when the deadline is due (or run was deferred).
+    /// 到期（或运行被推迟）时消费 trailing 标志。
     pub fn take_trailing(&mut self) -> bool {
         let had = self.trailing_pending;
         self.trailing_pending = false;
@@ -109,8 +109,8 @@ impl InvokeThrottle {
     }
 }
 
-/// Sleep until `until`, re-checking `window_end` after wake so `RUN_NOW` can extend
-/// the window without a spurious early trailing invoke.
+/// 睡到 `until`，醒来后再查一次 `window_end`，这样 `RUN_NOW` 可以延长
+/// 窗口，而不引发一次多余的提前 trailing 调用。
 pub async fn wait_for_trailing_deadline(
     throttle: &std::sync::Mutex<InvokeThrottle>,
     mut until: Instant,
@@ -118,7 +118,7 @@ pub async fn wait_for_trailing_deadline(
     loop {
         let now = Instant::now();
         if now >= until {
-            // Window may have moved (external invoke); reschedule if still inside.
+            // 窗口可能已被外部调用挪动；若仍在窗口内就重新排期。
             let refreshed = throttle
                 .lock()
                 .ok()
@@ -157,7 +157,7 @@ mod tests {
         let t0 = Instant::now();
         assert_eq!(t.note_trigger(t0, false), TriggerDecision::RunLeading);
         t.mark_invoke_start(t0);
-        // No further triggers → no trailing.
+        // 没有后续触发 → 不做 trailing。
         assert!(!t.has_trailing());
         assert!(!t.take_trailing());
     }
@@ -197,7 +197,7 @@ mod tests {
     fn busy_always_arms_trailing_even_outside_window() {
         let mut t = InvokeThrottle::new(ms(1000));
         let t0 = Instant::now();
-        // Never invoked; busy (e.g. RUN_NOW) → trailing ASAP.
+        // 从未调用过；忙碌中（如 RUN_NOW）→ 尽快 trailing。
         match t.note_trigger(t0, true) {
             TriggerDecision::ArmTrailing { until } => assert_eq!(until, t0),
             other => panic!("expected ArmTrailing, got {other:?}"),
@@ -209,7 +209,7 @@ mod tests {
     fn record_external_invoke_blocks_immediate_leading() {
         let mut t = InvokeThrottle::new(ms(1000));
         let t0 = Instant::now();
-        // RUN_NOW / immediate refreshes last_invoke.
+        // RUN_NOW / immediate 会刷新 last_invoke。
         t.record_external_invoke(t0);
         let soon = t0 + ms(10);
         match t.note_trigger(soon, false) {
@@ -225,7 +225,7 @@ mod tests {
         t.mark_invoke_start(t0);
         let _ = t.note_trigger(t0 + ms(50), false);
         assert!(t.has_trailing());
-        // RUN_NOW mid-window: keep trailing armed, move window.
+        // RUN_NOW 落在窗口中间：保留 trailing，移动窗口。
         let ext = t0 + ms(100);
         t.record_external_invoke(ext);
         assert!(t.has_trailing());
@@ -243,7 +243,7 @@ mod tests {
         assert!(!t.has_trailing());
     }
 
-    /// Simulates worker decisions: leading + in-window bursts → one trailing only.
+    /// 模拟 worker 的决策：leading + 窗口内连续触发 → 只产生一次 trailing。
     #[test]
     fn simulate_leading_plus_single_trailing_sequence() {
         let mut t = InvokeThrottle::new(ms(100));
@@ -266,7 +266,7 @@ mod tests {
 
         assert_eq!(runs, 2);
         assert!(!t.has_trailing());
-        // No extra events after trailing → still quiet.
+        // trailing 之后没有新事件 → 依旧安静。
         assert!(!t.take_trailing());
     }
 
@@ -280,7 +280,7 @@ mod tests {
         let throttle_for_ext = &throttle;
         let extender = async {
             tokio::time::sleep(ms(30)).await;
-            // Mimic RUN_NOW refreshing last_invoke mid-wait.
+            // 模拟 RUN_NOW 在等待中途刷新 last_invoke。
             throttle_for_ext
                 .lock()
                 .unwrap()
@@ -295,16 +295,16 @@ mod tests {
             Instant::now() >= end || Instant::now() + ms(5) >= end,
             "waiter should not return long before the extended window"
         );
-        // After wait returns, we should be at/past the (possibly extended) window.
+        // wait 返回后，应当到了（可能被延长的）窗口的边界或之后。
         assert!(throttle.lock().unwrap().is_outside_window(Instant::now()));
     }
 
-    /// Thin sync stand-in for the engine worker decision path (no FS / no real run).
+    /// 引擎 worker 决策路径的同步替身（不涉及文件系统、不真跑）。
     struct WorkerOrch {
         throttle: InvokeThrottle,
         is_running: bool,
         trailing_deadline: Option<Instant>,
-        /// Successful invoke starts (leading, trailing, or external).
+        /// 成功的调用起点（leading、trailing 或外部）。
         invoke_starts: Vec<&'static str>,
         channel: Vec<()>,
     }
@@ -330,7 +330,7 @@ mod tests {
             n
         }
 
-        /// Mirror: recv + coalesce + note_trigger + maybe leading.
+        /// 镜像逻辑：recv + coalesce + note_trigger + 可能的 leading。
         fn on_trigger(&mut self, now: Instant) {
             let _ = self.drain_channel();
             let busy = self.is_running;
@@ -358,7 +358,7 @@ mod tests {
             true
         }
 
-        /// RUN_NOW / immediate: CAS + record_external (does not clear trailing).
+        /// RUN_NOW / immediate：CAS + record_external（不清 trailing）。
         fn run_now(&mut self, now: Instant) -> bool {
             if self.is_running {
                 return false;
@@ -372,7 +372,7 @@ mod tests {
         fn finish_run(&mut self, now: Instant) {
             assert!(self.is_running);
             self.is_running = false;
-            // trailing_after_run: coalesce leftover channel into ≤1 trailing.
+            // trailing_after_run：把 channel 里的残余归并成最多一次 trailing。
             let saw = self.drain_channel() > 0;
             if !saw {
                 if self.throttle.has_trailing() {
@@ -395,7 +395,7 @@ mod tests {
             }
         }
 
-        /// Fire trailing when due (after wait); respects extended window.
+        /// 到期时触发 trailing（在 wait 之后）；会尊重被延长的窗口。
         fn try_trailing(&mut self, now: Instant) -> bool {
             let Some(until) = self.trailing_deadline else {
                 return false;
@@ -403,7 +403,7 @@ mod tests {
             if now < until {
                 return false;
             }
-            // wait_for_trailing_deadline refresh
+            // 刷新 wait_for_trailing_deadline
             if let Some(end) = self.throttle.window_end().filter(|&e| now < e) {
                 self.trailing_deadline = Some(end);
                 return false;
@@ -412,18 +412,18 @@ mod tests {
             if !self.throttle.take_trailing() {
                 return false;
             }
-            while self.is_running {
-                // Busy-wait path: absorb channel as busy trailing.
+            if self.is_running {
+                // 忙等路径：把 channel 当作忙碌 trailing 吸收掉。
                 let _ = self.drain_channel();
                 let _ = self.throttle.note_trigger(now, true);
                 return false; // caller must retry after finish
             }
-            if !self.throttle.is_outside_window(now) {
-                if let Some(end) = self.throttle.window_end() {
-                    self.throttle.arm_trailing();
-                    self.trailing_deadline = Some(end);
-                    return false;
-                }
+            if !self.throttle.is_outside_window(now)
+                && let Some(end) = self.throttle.window_end()
+            {
+                self.throttle.arm_trailing();
+                self.trailing_deadline = Some(end);
+                return false;
             }
             if !self.cas_start("trailing", now) {
                 self.throttle.arm_trailing();
@@ -444,7 +444,7 @@ mod tests {
         assert_eq!(w.invoke_starts, ["leading"]);
         w.finish_run(t0 + ms(5));
 
-        // Burst inside window → one trailing arm only.
+        // 窗口内的连续触发 → 只布置一次 trailing。
         for off in [10u64, 20, 30, 40] {
             w.push_trigger();
             w.on_trigger(t0 + ms(off));
@@ -473,14 +473,14 @@ mod tests {
         w.on_trigger(t0 + ms(20));
         assert_eq!(w.trailing_deadline, Some(t0 + ms(100)));
 
-        // RUN_NOW mid-wait extends window; trailing must not fire at old deadline.
+        // 等待中途的 RUN_NOW 会延长窗口；trailing 不能在旧期限触发。
         assert!(w.run_now(t0 + ms(50)));
         assert!(w.throttle.has_trailing());
         assert!(!w.try_trailing(t0 + ms(100)));
         assert_eq!(w.trailing_deadline, Some(t0 + ms(150)));
 
         w.finish_run(t0 + ms(60));
-        // After finish, trailing still armed to extended end.
+        // 结束后，trailing 仍布置到延长后的终点。
         assert!(w.try_trailing(t0 + ms(150)));
         assert_eq!(w.invoke_starts, ["leading", "run_now", "trailing"]);
     }
@@ -490,23 +490,23 @@ mod tests {
         let mut w = WorkerOrch::new(ms(100));
         let t0 = Instant::now();
 
-        // External RUN_NOW holds the flag.
+        // 外部 RUN_NOW 持有该标志。
         assert!(w.run_now(t0));
 
-        // FS trigger decides leading (outside window from throttle's view before
-        // note — but busy forces ArmTrailing). Use busy path: is_running true.
+        // FS 触发决定 leading（在 throttle 看来调用之前处于窗口之外，
+        // 但忙碌会强制 ArmTrailing）。走忙碌路径：is_running 为真。
         w.push_trigger();
         w.on_trigger(t0 + ms(5));
         assert!(w.throttle.has_trailing());
         assert_eq!(w.invoke_starts, ["run_now"]);
 
-        // Explicit CAS-lost path: outside window, not busy in throttle decision,
-        // but CAS fails because still running.
+        // 显式的 CAS 失败路径：在窗口之外，throttle 决策里也不忙碌，
+        // 但因为仍在运行所以 CAS 失败。
         w.is_running = false;
         w.throttle = InvokeThrottle::new(ms(100)); // fresh, outside window
         w.is_running = true; // held by "other" without mark — simulate race
         w.push_trigger();
-        // Force: manually simulate note_trigger outside + CAS fail
+        // 强制：手动模拟“窗口外 note_trigger + CAS 失败”
         let decision = w.throttle.note_trigger(t0 + ms(10), false);
         assert_eq!(decision, TriggerDecision::RunLeading);
         assert!(!w.cas_start("leading", t0 + ms(10))); // CAS lost
@@ -527,11 +527,11 @@ mod tests {
         w.on_trigger(t0);
         assert_eq!(w.invoke_starts, ["leading"]);
 
-        // During long run, many FS triggers land in channel.
+        // 长时间运行期间，许多 FS 触发落在 channel 里。
         for _ in 0..8 {
             w.push_trigger();
         }
-        // finish_run coalesces → single trailing arm.
+        // finish_run 归并 → 只布置一次 trailing。
         w.finish_run(t0 + ms(80)); // past window
         assert!(w.throttle.has_trailing() || w.trailing_deadline.is_some());
         assert_eq!(w.channel.len(), 0);
@@ -548,19 +548,19 @@ mod tests {
 
     #[test]
     fn orch_immediate_ignore_then_run_now_no_double_lead() {
-        // Simulates: ignore_initial held until run_now; no FS leading before arm.
+        // 模拟：ignore_initial 一直保持到 run_now；布置之前没有 FS leading。
         let mut w = WorkerOrch::new(ms(100));
         let t0 = Instant::now();
         let mut ignore = true;
 
-        // FS noise while ignoring — dropped (no on_trigger).
+        // 忽略期间的 FS 噪声——直接丢弃（不调 on_trigger）。
         assert!(ignore);
 
         assert!(w.run_now(t0));
         ignore = false;
         assert!(!ignore);
 
-        // After arm, in-window FS → trailing only, not second leading.
+        // 布置之后，窗口内的 FS → 只做 trailing，不做第二次 leading。
         w.push_trigger();
         w.on_trigger(t0 + ms(10));
         assert_eq!(w.invoke_starts, ["run_now"]);

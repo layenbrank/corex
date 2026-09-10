@@ -1,11 +1,11 @@
-//! File watch engine: FS debounce (`notify_debouncer_full`) then lodash-like throttle.
+//! 文件监听引擎：先 FS 去抖（`notify_debouncer_full`），再过类 lodash 节流。
 //!
 //! ```text
-//! FS events ──debounce(debounce_ms)──► trigger ──throttle(throttle_ms)──► run_directive
+//! FS 事件 ──debounce(debounce_ms)──► 触发 ──throttle(throttle_ms)──► run_directive
 //! ```
 //!
-//! Debounce here is **filesystem quiet-period** coalescing, not a lodash debounce API.
-//! `throttle_ms` is the lodash-like throttle interval (leading+trailing).
+//! 这里的去抖是**文件系统静默期**合并，不是 lodash 的 debounce API。
+//! `throttle_ms` 是类 lodash 的节流间隔（leading+trailing）。
 
 use super::event::{EventAction, EventFilter, classify_event};
 use super::filter::{WatchFilter, watch_relative_path};
@@ -31,7 +31,7 @@ const REMOUNT_TIMEOUT_MS: u64 = 60_000;
 const POLL_INTERVAL: Duration = Duration::from_secs(2);
 const BUSY_POLL_MS: u64 = 50;
 
-/// Active watch job.
+/// 活跃的 watch 作业。
 #[derive(Debug, Clone)]
 pub struct WatchJobSpec {
     pub id: String,
@@ -62,9 +62,9 @@ enum RemountCmd {
 struct WatchState {
     spec: WatchJobSpec,
     is_running: Arc<AtomicBool>,
-    /// Shared with worker so RUN_NOW / immediate refresh throttle `last_invoke`.
+    /// 与 worker 共享，使 RUN_NOW / immediate 能刷新节流的 `last_invoke`。
     throttle: Arc<Mutex<InvokeThrottle>>,
-    /// When true, DebounceHandler drops FS triggers (startup / pre-immediate).
+    /// 为真时 DebounceHandler 丢弃 FS 触发（启动期 / immediate 之前）。
     ignore_initial: Arc<AtomicBool>,
     worker_abort: tokio::task::AbortHandle,
     remount_abort: tokio::task::AbortHandle,
@@ -120,7 +120,7 @@ impl DebounceEventHandler for DebounceHandler {
     }
 }
 
-/// Directory/file watcher: FS debounce then lodash-like throttle on pipeline runs.
+/// 目录/文件监听器：FS 去抖之后再对流水线运行做类 lodash 节流。
 pub struct WatchEngine {
     data_dir: PathBuf,
     store: Arc<dyn ActionStore>,
@@ -166,18 +166,20 @@ impl WatchEngine {
 
         let worker = spawn_watch_worker(
             trigger_rx,
-            Arc::clone(&is_running),
-            Arc::clone(&throttle),
-            Arc::clone(&self.store),
-            self.runtime.clone(),
-            self.data_dir.clone(),
-            spec.directive_path.clone(),
-            spec.directive_name.clone(),
+            WorkerCtx {
+                worker_flag: Arc::clone(&is_running),
+                worker_throttle: Arc::clone(&throttle),
+                worker_store: Arc::clone(&self.store),
+                worker_runtime: self.runtime.clone(),
+                worker_data: self.data_dir.clone(),
+                worker_path: spec.directive_path.clone(),
+                worker_name: spec.directive_name.clone(),
+            },
         );
         let worker_abort = worker.abort_handle();
 
-        // Stay ignoring until armed: if `immediate`, keep closed until `run_now`
-        // so FS leading cannot race the startup invoke.
+        // 布置之前一直保持忽略：若为 `immediate`，则保持关闭直到 `run_now`，
+        // 这样 FS 的 leading 不会与启动时的那次调用抢跑。
         let ignore_initial = Arc::new(AtomicBool::new(true));
         let debouncer_slot: Arc<Mutex<Option<JobDebouncer>>> = Arc::new(Mutex::new(None));
 
@@ -191,7 +193,7 @@ impl WatchEngine {
             remount_tx: remount_tx.clone(),
         };
 
-        // FS quiet-period debounce (notify_debouncer_full), not a second in-worker debounce.
+        // 文件系统静默期去抖（notify_debouncer_full），不是 worker 内的第二次去抖。
         let debounce_ms = cfg.debounce_ms;
         let tick_rate = Duration::from_millis(debounce_ms.max(4) / 4);
         let notify_cfg = if cfg.poll {
@@ -337,7 +339,7 @@ impl WatchEngine {
         let state = jobs
             .get(job_id)
             .ok_or_else(|| EngineError::other(format!("watch job 未找到: {job_id}")))?;
-        // Arm FS events even if CAS fails — immediate must not leave watch muted forever.
+        // 即使 CAS 失败也要布置 FS 事件——immediate 不能让监听永远哑着。
         state.ignore_initial.store(false, Ordering::SeqCst);
         if state
             .is_running
@@ -346,8 +348,8 @@ impl WatchEngine {
         {
             return Err(EngineError::other("job 正在运行"));
         }
-        // Refresh throttle window at invoke start (same as leading) so a FS trigger
-        // immediately after does not leading-fire again.
+        // 在调用开始时刷新节流窗口（与 leading 一致），使紧随其后的 FS 触发
+        // 不会再 leading 触发一次。
         if let Ok(mut gate) = state.throttle.lock() {
             gate.record_external_invoke(Instant::now());
         }
@@ -368,7 +370,7 @@ impl WatchEngine {
         Ok(())
     }
 
-    pub async fn list_jobs(&self) -> Vec<WatchJobSpec> {
+    pub async fn jobs(&self) -> Vec<WatchJobSpec> {
         self.jobs
             .lock()
             .await
@@ -382,18 +384,43 @@ impl WatchEngine {
     }
 }
 
-/// Spawn the throttle worker: coalesce triggers, leading/trailing, CAS single-flight.
+/// 派生节流 worker：合并触发、leading/trailing、CAS 单飞。
+/// watch worker 每次触发都需要的全部东西。
+///
+/// 用一个值代替七个并列参数：它们合起来就是 worker 的整个世界；收进结构体
+/// 也让两个调用点不容易走偏。字段名保留 `worker_` 前缀，因为 worker 主体里
+/// 用的就是这个前缀。
+struct WorkerCtx {
+    /// 流水线运行时为 `true`，同时充当单飞门禁。
+    worker_flag: Arc<AtomicBool>,
+    /// leading/trailing 节流器，与 `RUN_NOW` 共享。
+    worker_throttle: Arc<Mutex<InvokeThrottle>>,
+    /// 流水线解析动作所用的 Action store。
+    worker_store: Arc<dyn ActionStore>,
+    /// 本作业的运行时配置快照。
+    worker_runtime: RuntimeConfig,
+    /// Corex 数据目录（历史 / 审计日志）。
+    worker_data: PathBuf,
+    /// 指令文件的绝对路径。
+    worker_path: PathBuf,
+    /// 指令名，用于日志行。
+    worker_name: String,
+}
+
 fn spawn_watch_worker(
     mut trigger_rx: tokio::sync::mpsc::Receiver<()>,
-    worker_flag: Arc<AtomicBool>,
-    worker_throttle: Arc<Mutex<InvokeThrottle>>,
-    worker_store: Arc<dyn ActionStore>,
-    worker_runtime: RuntimeConfig,
-    worker_data: PathBuf,
-    worker_path: PathBuf,
-    worker_name: String,
+    ctx: WorkerCtx,
 ) -> tokio::task::JoinHandle<()> {
     tokio::spawn(async move {
+        let WorkerCtx {
+            worker_flag,
+            worker_throttle,
+            worker_store,
+            worker_runtime,
+            worker_data,
+            worker_path,
+            worker_name,
+        } = ctx;
         let mut trailing_deadline: Option<Instant> = None;
         loop {
             tokio::select! {
@@ -422,7 +449,7 @@ fn spawn_watch_worker(
                             )
                             .await;
                             if !ran {
-                                // CAS lost to RUN_NOW: arm trailing, retry when free.
+                                // CAS 被 RUN_NOW 抢走：布置 trailing，空下来再重试。
                                 if let Ok(mut gate) = worker_throttle.lock() {
                                     gate.arm_trailing();
                                 }
@@ -454,7 +481,7 @@ fn spawn_watch_worker(
                         continue;
                     }
 
-                    // Wait out overlapping RUN_NOW / long leading without double-open.
+                    // 等重叠的 RUN_NOW / 长 leading 过去，且不要重复开启。
                     while worker_flag.load(Ordering::SeqCst) {
                         tokio::time::sleep(Duration::from_millis(BUSY_POLL_MS)).await;
                         while trigger_rx.try_recv().is_ok() {
@@ -464,10 +491,10 @@ fn spawn_watch_worker(
                         }
                     }
 
-                    // Window may still be open after RUN_NOW extended it.
-                    if let Ok(gate) = worker_throttle.lock() {
-                        if !gate.is_outside_window(Instant::now()) {
-                            if let Some(until) = gate.window_end() {
+                    // RUN_NOW 延长窗口后，窗口可能仍然是开的。
+                    if let Ok(gate) = worker_throttle.lock()
+                        && !gate.is_outside_window(Instant::now())
+                            && let Some(until) = gate.window_end() {
                                 drop(gate);
                                 if let Ok(mut g) = worker_throttle.lock() {
                                     g.arm_trailing();
@@ -475,8 +502,6 @@ fn spawn_watch_worker(
                                 trailing_deadline = Some(until);
                                 continue;
                             }
-                        }
-                    }
 
                     let ran = invoke_directive(
                         &worker_flag,
@@ -505,7 +530,7 @@ fn spawn_watch_worker(
     })
 }
 
-/// CAS + mark invoke start + run. Returns false if CAS lost (do not double-open).
+/// CAS + 标记调用开始 + 运行。CAS 抢不到时返回 false（不要重复开启）。
 async fn invoke_directive(
     flag: &AtomicBool,
     throttle: &Mutex<InvokeThrottle>,
@@ -534,7 +559,7 @@ async fn invoke_directive(
     true
 }
 
-/// After a successful run: coalesce channel triggers into at most one trailing arm.
+/// 运行成功之后：把 channel 里的触发归并成最多一次 trailing 布置。
 fn trailing_after_run(
     throttle: &Mutex<InvokeThrottle>,
     trigger_rx: &mut tokio::sync::mpsc::Receiver<()>,
@@ -560,7 +585,7 @@ fn trailing_after_run(
     };
     match gate.note_trigger(now, false) {
         TriggerDecision::RunLeading => {
-            // Outside window already — run ASAP via trailing path (single-flight).
+            // 已在窗口之外——走 trailing 路径尽快运行（单飞）。
             gate.arm_trailing();
             Some(now)
         }
@@ -587,7 +612,7 @@ fn mount_all(debouncer: &mut JobDebouncer, roots: &[String]) -> Result<(), Engin
     Ok(())
 }
 
-/// Narrow mount paths when includes are simple directory names.
+/// include 都是简单目录名时，收窄监听路径。
 pub fn resolve_roots(config: &WatchConfig) -> Vec<String> {
     let narrow = !config.includes.is_empty()
         && config
@@ -673,15 +698,15 @@ mod tests {
 
     #[test]
     fn immediate_keeps_ignore_until_armed_semantics() {
-        // Documented contract used by register/run_now:
-        // immediate=true → ignore stays true after mount; run_now clears it.
+        // register/run_now 依赖的约定（见文档）：
+        // immediate=true → 布置之后 ignore 仍为真；由 run_now 清掉。
         let ignore = AtomicBool::new(true);
         let immediate = true;
         if !immediate {
             ignore.store(false, Ordering::SeqCst);
         }
         assert!(ignore.load(Ordering::SeqCst));
-        // run_now path:
+        // run_now 路径：
         ignore.store(false, Ordering::SeqCst);
         assert!(!ignore.load(Ordering::SeqCst));
     }

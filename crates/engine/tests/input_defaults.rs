@@ -1,4 +1,4 @@
-//! Integration tests for directive input defaults.
+//! 指令输入默认值的集成测试。
 
 use corex_core::{ExecutionContext, RuntimeConfig, Value};
 use corex_engine::{Directive, Pipeline};

@@ -1,4 +1,4 @@
-//! Cron trigger engine.
+//! cron 触发器引擎。
 
 #[cfg(feature = "cron")]
 pub mod engine;

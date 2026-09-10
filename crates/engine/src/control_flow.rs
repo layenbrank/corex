@@ -1,10 +1,10 @@
-//! Condition evaluation helpers.
+//! 条件求值辅助函数。
 
 use crate::definition::Condition;
 use crate::resolver::Resolver;
 use corex_core::{EngineError, ExecutionContext, Value};
 
-/// Evaluate a [`Condition`] against the current context.
+/// 在当前上下文里对 [`Condition`] 求值。
 pub fn evaluate_condition(
     condition: &Condition,
     ctx: &ExecutionContext,

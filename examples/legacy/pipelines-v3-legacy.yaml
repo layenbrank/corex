@@ -1,6 +1,6 @@
-# LEGACY Pipeline v3 example (NOT valid for corex v4 Directive engine).
-# See hello.yaml for the current Directive format.
-# Migration notes: docs/breaking-changes-v4.md
+# 遗留的 Pipeline v3 示例（对 corex v4 的 Directive 引擎无效）。
+# 当前 Directive 格式见 hello.yaml。
+# 迁移说明：docs/changelog/破坏性变更-v4.md
 
 # Corex Pipeline v3
 # version 必须为 3
@@ -23,7 +23,7 @@ variables:
 pipelines:
   - id: build-h5
     description: H5+ 构建流水线
-    schedule: '0/30 * * * * *' # corex schedule cron 每 30 秒执行一次
+    schedule: "0/30 * * * * *" # corex schedule cron 每 30 秒执行一次
     steps:
       - id: copy_cache
         module: copy
@@ -33,7 +33,7 @@ pipelines:
           to: '${var.base}\\copies'
           empty: false
           includes: []
-          excludes: ['.ts']
+          excludes: [".ts"]
 
       - id: gen_path
         module: generate
@@ -41,15 +41,15 @@ pipelines:
         description: 生成路径列表
         depends_on: [copy_cache]
         params:
-          from: '${steps.copy_cache.artifact.path}'
+          from: "${steps.copy_cache.artifact.path}"
           to: '${var.base}\\path.txt'
           transform: '<include name="IDR_ITAB_{{extension}}_{{index}}" file="{{fullpath}}" type="BINDATA" />'
           index: 1
           separator: "\\"
           pad: true
           includes: []
-          excludes: ['example.js', '*.git', 'node_modules']
-          uppercase: ['extension']
+          excludes: ["example.js", "*.git", "node_modules"]
+          uppercase: ["extension"]
 
       - id: compress_wgt
         module: compression
@@ -58,14 +58,14 @@ pipelines:
         description: 打包 wgt（Zip 容器）
         depends_on: [copy_cache]
         params:
-          from: '${steps.copy_cache.artifact.path}'
+          from: "${steps.copy_cache.artifact.path}"
           to: '${var.base}\\H58991839.wgt'
           level: 6
           method: deflated
 
   - id: batch-copy
     description: 批量复制流水线
-    schedule: '0 0 9 * * *' # 每天 9 点执行一次
+    schedule: "0 0 9 * * *" # 每天 9 点执行一次
     steps:
       - id: copy_modules
         module: copy
@@ -74,7 +74,7 @@ pipelines:
           from: '${var.base}\\component-lib\\node_modules'
           to: '${var.base}\\copies'
           includes: []
-          excludes: ['.ts']
+          excludes: [".ts"]
 
       - id: gen_path_list
         module: generate
@@ -89,15 +89,15 @@ pipelines:
           separator: "\\"
           pad: true
           includes: []
-          excludes: ['example.js', '*.git', 'node_modules']
-          uppercase: ['extension']
+          excludes: ["example.js", "*.git", "node_modules"]
+          uppercase: ["extension"]
 
   - id: dev-tools
     description: 新模块 smoke test（含 watch 示例，见 corex watch run -p dev-tools）
     watch:
-      paths: ['${var.base}']
+      paths: ["${var.base}"]
       includes: []
-      excludes: ['**/node_modules/**', '**/.git/**']
+      excludes: ["**/node_modules/**", "**/.git/**"]
       debounce_ms: 300
     steps:
       - id: scan_os

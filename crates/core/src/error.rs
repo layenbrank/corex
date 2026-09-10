@@ -1,8 +1,8 @@
-//! Error types for actions and the pipeline engine.
+//! 动作与流水线引擎的错误类型。
 
 use thiserror::Error;
 
-/// Errors originating from a single action execution / validation.
+/// 来自单次动作执行 / 校验的错误。
 #[derive(Debug, Error)]
 pub enum ActionError {
     #[error("缺少必需参数: {0}")]
@@ -42,18 +42,18 @@ impl ActionError {
         Self::ExecutionFailed(format!("[{code}] {}", msg.as_ref()))
     }
 
-    /// UI error with a redacted selector hint for audit (`[selector_hint=...]`).
+    /// 带脱敏 selector 提示（`[selector_hint=...]`）的 UI 错误，供审计使用。
     pub fn ui_with_hint(code: &str, hint: &str, msg: impl AsRef<str>) -> Self {
         Self::ExecutionFailed(format!("[{code}][selector_hint={hint}] {}", msg.as_ref()))
     }
 
-    /// Parse UI error code `[ui_*]` from bracket tags in the message.
+    /// 从消息里的方括号标签解析 UI 错误码 `[ui_*]`。
     pub fn ui_code(&self) -> Option<&str> {
         self.tagged_message()
             .and_then(|msg| bracket_segments(msg).find(|s| s.starts_with("ui_")))
     }
 
-    /// Redacted selector hint from `[selector_hint=...]` in the message.
+    /// 从消息里的 `[selector_hint=...]` 取出脱敏 selector 提示。
     pub fn selector_hint(&self) -> Option<&str> {
         self.tagged_message().and_then(|msg| {
             bracket_segments(msg).find_map(|s| {
@@ -67,7 +67,7 @@ impl ActionError {
         Self::Other(msg.as_ref().to_string())
     }
 
-    /// Stable machine-readable error kind for audit / history.
+    /// 供审计 / 历史使用的稳定、机器可读的错误类别。
     pub fn kind(&self) -> String {
         match self {
             Self::PermissionDenied(_) => "permission_denied".into(),
@@ -95,7 +95,7 @@ impl ActionError {
     }
 }
 
-/// Bracket tags in messages such as `[ui_login_pending][selector_hint=...]`.
+/// 消息里的方括号标签，如 `[ui_login_pending][selector_hint=...]`。
 fn bracket_segments(msg: &str) -> impl Iterator<Item = &str> {
     msg.split(']').filter_map(|part| {
         let start = part.rfind('[')?;
@@ -103,7 +103,7 @@ fn bracket_segments(msg: &str) -> impl Iterator<Item = &str> {
     })
 }
 
-/// Errors from Directive loading, variable resolution, and pipeline control flow.
+/// 指令读取、变量解析与流水线控制流产生的错误。
 #[derive(Debug, Error)]
 pub enum EngineError {
     #[error("指令未找到: {0}")]
@@ -137,6 +137,11 @@ pub enum EngineError {
     #[error("配置错误: {0}")]
     Config(String),
 
+    /// 调用方把程序用错了：参数组合不对，或把某个开关用在了错误的子命令上。
+    /// 这条消息会原样展示，所以读起来就像 CLI 自己写的一样。
+    #[error("{0}")]
+    Usage(String),
+
     #[error("IO 错误: {0}")]
     Io(#[from] std::io::Error),
 
@@ -156,7 +161,7 @@ impl EngineError {
         Self::Other(msg.into())
     }
 
-    /// Stable machine-readable error kind for audit / history.
+    /// 供审计 / 历史使用的稳定、机器可读的错误类别。
     pub fn kind(&self) -> String {
         match self {
             Self::ActionNotRegistered(_) => "not_registered".into(),
@@ -167,6 +172,7 @@ impl EngineError {
             Self::UndefinedVariable(_) | Self::ResolveError(_) => "resolve".into(),
             Self::ConditionError(_) | Self::ControlFlow(_) => "control_flow".into(),
             Self::Config(_) => "config".into(),
+            Self::Usage(_) => "usage".into(),
             Self::Io(_) => "io".into(),
             Self::Other(_) => "execution".into(),
         }
@@ -180,7 +186,7 @@ impl EngineError {
         }
     }
 
-    /// Action-level source when present (`StepFailed` / `Action`).
+    /// 存在时的动作层来源（`StepFailed` / `Action`）。
     pub fn action_source(&self) -> Option<&ActionError> {
         match self {
             Self::StepFailed { source, .. } => Some(source),

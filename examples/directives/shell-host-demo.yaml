@@ -1,4 +1,4 @@
-# shell.run — host / wait / allow_nonzero
+# shell.run —— host / wait / allow_nonzero
 #
 # 运行:
 #   corex run shell-host-demo
@@ -27,7 +27,7 @@ steps:
     action: shell.run
     params:
       host: "{{input.host}}"
-      command: "Write-Output \"hello {{input.name}} from $PSVersionTable.PSVersion\""
+      command: 'Write-Output "hello {{input.name}} from $PSVersionTable.PSVersion"'
       wait: sync
       allow_nonzero: false
     save_to: ps_out

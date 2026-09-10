@@ -1,4 +1,4 @@
-//! HTTP directive integration: mock server + file.write / json.parse chain.
+//! HTTP 指令集成：mock server + file.write / json.parse 链路。
 
 use corex_core::{ExecutionContext, RuntimeConfig, Value};
 use corex_engine::{Directive, Pipeline};

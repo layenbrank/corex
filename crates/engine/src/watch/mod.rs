@@ -1,7 +1,7 @@
-//! File watch trigger engine.
+//! 文件监听触发器引擎。
 //!
-//! Timing pipeline: FS debounce (`notify_debouncer_full`) → lodash-like throttle
-//! (`throttle_ms` interval, leading+trailing) → pipeline run.
+//! 计时流水线：FS debounce（`notify_debouncer_full`）→ 类 lodash throttle
+//! （`throttle_ms` 间隔，leading+trailing）→ 运行流水线。
 
 #[cfg(feature = "watch")]
 pub mod engine;

@@ -1,4 +1,4 @@
-//! Supervisor run loops for watch and cron.
+//! watch 与 cron 的 supervisor 运行循环。
 
 #[cfg(feature = "watch")]
 pub async fn supervise_watch_job(
@@ -34,10 +34,10 @@ pub async fn supervise_watch_job(
             config: watch.clone(),
         })
         .await?;
-    if watch.immediate {
-        if let Err(e) = engine.run_now(&meta.id).await {
-            tracing::warn!(job = %meta.id, error = %e, "watch immediate run_now 失败");
-        }
+    if watch.immediate
+        && let Err(e) = engine.run_now(&meta.id).await
+    {
+        tracing::warn!(job = %meta.id, error = %e, "watch immediate run_now 失败");
     }
     let job_dir = JobMeta::job_dir(data_dir, JobKind::Watch, &meta.id);
     info!(job = %meta.id, "watch supervisor 已启动");
@@ -61,7 +61,7 @@ pub async fn supervise_watch_job(
                     }
                 }
                 ControlMsg::Status => {
-                    let jobs = engine.list_jobs().await;
+                    let jobs = engine.jobs().await;
                     info!(job = %meta.id, count = jobs.len(), "watch STATUS");
                 }
             }
@@ -127,7 +127,7 @@ pub async fn supervise_cron_job(
                     let _ = engine.run_now(&meta.id).await;
                 }
                 ControlMsg::Status => {
-                    let jobs = engine.list_jobs().await;
+                    let jobs = engine.jobs().await;
                     info!(job = %meta.id, count = jobs.len(), "cron STATUS");
                 }
             }

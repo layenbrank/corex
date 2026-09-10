@@ -1,10 +1,10 @@
-//! Notify event kind classification for watch triggers.
+//! 面向 watch 触发器的 notify 事件类型分类。
 
 use notify::Event;
 use notify::event::{EventKind, EventKindMask};
 use std::path::{Path, PathBuf};
 
-/// What to do with a debounced filesystem event.
+/// 一个去抖后的文件系统事件该怎么处理。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum EventAction {
     Trigger,
@@ -13,14 +13,14 @@ pub enum EventAction {
     Skip,
 }
 
-/// Which notify event kinds may trigger a pipeline run.
+/// 哪些 notify 事件类型可以触发流水线运行。
 #[derive(Debug, Clone)]
 pub struct EventFilter {
     mask: EventKindMask,
 }
 
 impl EventFilter {
-    /// Empty `events` uses create + modify + remove (no access).
+    /// `events` 为空时使用 create + modify + remove（不含 access）。
     pub fn from_events(events: &[String]) -> Self {
         if events.is_empty() {
             return Self {
@@ -48,7 +48,7 @@ impl EventFilter {
     }
 }
 
-/// Classify a notify event before path glob filtering.
+/// 在路径 glob 过滤之前，先对 notify 事件分类。
 pub fn classify_event(event: &Event, mount_roots: &[PathBuf], filter: &EventFilter) -> EventAction {
     if event.need_rescan() {
         return EventAction::Remount;

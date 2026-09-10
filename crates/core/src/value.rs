@@ -1,12 +1,12 @@
-//! Dynamic value type used across actions, directives, and IPC.
+//! 动作、指令与 IPC 共用的动态值类型。
 
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::fmt;
 use std::path::PathBuf;
 
-/// Untagged dynamic value. `File` / `Bytes` prefer structural forms when
-/// deserializing ambiguous JSON (string → `Str`, array of numbers → `List`).
+/// 无标签（untagged）动态值。反序列化有歧义的 JSON 时，`File` / `Bytes` 优先取
+/// 结构化形式（字符串 → `Str`，数字数组 → `Array`）。
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 #[serde(untagged)]
 pub enum Value {
@@ -16,11 +16,11 @@ pub enum Value {
     Int(i64),
     Float(f64),
     Str(String),
-    List(Vec<Value>),
+    Array(Vec<Value>),
     Map(BTreeMap<String, Value>),
-    /// Absolute or relative filesystem path. Serializes as a string.
+    /// 绝对或相对文件系统路径，序列化为字符串。
     File(PathBuf),
-    /// Raw bytes. Prefer constructing via helpers; JSON may round-trip as a list of ints.
+    /// 原始字节。优先用辅助函数构造；JSON 往返时可能变成整数数组。
     Bytes(Vec<u8>),
 }
 
@@ -63,9 +63,9 @@ impl Value {
         }
     }
 
-    pub fn as_list(&self) -> Option<&[Value]> {
+    pub fn as_array(&self) -> Option<&[Value]> {
         match self {
-            Value::List(l) => Some(l),
+            Value::Array(l) => Some(l),
             _ => None,
         }
     }
@@ -92,14 +92,14 @@ impl Value {
             Value::Int(i) => *i != 0,
             Value::Float(f) => *f != 0.0,
             Value::Str(s) => !s.is_empty(),
-            Value::List(l) => !l.is_empty(),
+            Value::Array(l) => !l.is_empty(),
             Value::Map(m) => !m.is_empty(),
             Value::File(_) => true,
             Value::Bytes(b) => !b.is_empty(),
         }
     }
 
-    /// Parse a CLI `-i KEY=VALUE` literal into a typed [`Value`] when unambiguous.
+    /// 把 CLI 的 `-i KEY=VALUE` 字面量解析成带类型的 [`Value`]（类型明确时）。
     pub fn from_cli_literal(raw: &str) -> Self {
         let s = raw.trim();
         match s.to_ascii_lowercase().as_str() {
@@ -117,7 +117,7 @@ impl Value {
         }
     }
 
-    /// Dot-path lookup, e.g. `"user.name"` or `"items.0"`.
+    /// 点路径查找，如 `"user.name"` 或 `"items.0"`。
     pub fn find_path(&self, path: &str) -> Option<&Value> {
         if path.is_empty() {
             return Some(self);
@@ -126,7 +126,7 @@ impl Value {
         for segment in path.split('.') {
             current = match current {
                 Value::Map(m) => m.get(segment)?,
-                Value::List(l) => {
+                Value::Array(l) => {
                     let idx: usize = segment.parse().ok()?;
                     l.get(idx)?
                 }
@@ -136,7 +136,7 @@ impl Value {
         Some(current)
     }
 
-    /// Mutable variant of [`find_path`].
+    /// [`find_path`] 的可变版本。
     pub fn find_path_mut(&mut self, path: &str) -> Option<&mut Value> {
         if path.is_empty() {
             return Some(self);
@@ -145,7 +145,7 @@ impl Value {
         for segment in path.split('.') {
             current = match current {
                 Value::Map(m) => m.get_mut(segment)?,
-                Value::List(l) => {
+                Value::Array(l) => {
                     let idx: usize = segment.parse().ok()?;
                     l.get_mut(idx)?
                 }
@@ -183,7 +183,7 @@ impl Value {
             }
             serde_json::Value::String(s) => Value::Str(s),
             serde_json::Value::Array(a) => {
-                Value::List(a.into_iter().map(Value::from_json).collect())
+                Value::Array(a.into_iter().map(Value::from_json).collect())
             }
             serde_json::Value::Object(o) => Value::Map(
                 o.into_iter()
@@ -200,11 +200,11 @@ impl Value {
             Value::Int(i) => serde_json::json!(*i),
             Value::Float(f) => serde_json::json!(*f),
             Value::Str(s) => serde_json::Value::String(s.clone()),
-            Value::List(l) => serde_json::Value::Array(l.iter().map(Value::to_json).collect()),
+            Value::Array(l) => serde_json::Value::Array(l.iter().map(Value::to_json).collect()),
             Value::Map(m) => {
                 serde_json::Value::Object(m.iter().map(|(k, v)| (k.clone(), v.to_json())).collect())
             }
-            Value::File(p) => serde_json::Value::String(crate::path::display_path(&p)),
+            Value::File(p) => serde_json::Value::String(crate::path::display_path(p)),
             Value::Bytes(b) => {
                 serde_json::Value::Array(b.iter().map(|x| serde_json::json!(*x)).collect())
             }
@@ -220,7 +220,7 @@ impl fmt::Display for Value {
             Value::Int(i) => write!(f, "{i}"),
             Value::Float(x) => write!(f, "{x}"),
             Value::Str(s) => write!(f, "{s}"),
-            Value::List(l) => {
+            Value::Array(l) => {
                 write!(f, "[")?;
                 for (i, v) in l.iter().enumerate() {
                     if i > 0 {
@@ -240,7 +240,7 @@ impl fmt::Display for Value {
                 }
                 write!(f, "}}")
             }
-            Value::File(p) => write!(f, "{}", crate::path::display_path(&p)),
+            Value::File(p) => write!(f, "{}", crate::path::display_path(p)),
             Value::Bytes(b) => write!(f, "<{} bytes>", b.len()),
         }
     }
@@ -320,7 +320,7 @@ impl From<&std::path::Path> for Value {
 
 impl From<Vec<Value>> for Value {
     fn from(v: Vec<Value>) -> Self {
-        Value::List(v)
+        Value::Array(v)
     }
 }
 

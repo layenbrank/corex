@@ -1,10 +1,10 @@
-//! Directive input default application.
+//! 指令输入默认值的填充。
 
 use crate::definition::{Directive, InputDecl};
 use crate::resolver::Resolver;
 use corex_core::{EngineError, ExecutionContext, Value};
 
-/// Returns true when an optional input value should be treated as "not provided".
+/// 该可选输入值是否应被视为“未提供”。
 pub fn is_input_unset(value: &Value) -> bool {
     match value {
         Value::Null => true,
@@ -13,21 +13,18 @@ pub fn is_input_unset(value: &Value) -> bool {
     }
 }
 
-/// Apply declared input defaults into `ctx.input` before step execution.
-pub fn apply_input_defaults(
+/// 在步骤执行之前，把声明的输入默认值填进 `ctx.input`。
+pub fn fill_input_defaults(
     directive: &Directive,
     ctx: &mut ExecutionContext,
 ) -> Result<(), EngineError> {
     for decl in &directive.inputs {
-        apply_one_input_default(decl, ctx)?;
+        fill_input_default(decl, ctx)?;
     }
     Ok(())
 }
 
-fn apply_one_input_default(
-    decl: &InputDecl,
-    ctx: &mut ExecutionContext,
-) -> Result<(), EngineError> {
+fn fill_input_default(decl: &InputDecl, ctx: &mut ExecutionContext) -> Result<(), EngineError> {
     let existing = ctx.input.get(&decl.name);
     let needs_default = match existing {
         None => true,
@@ -79,7 +76,7 @@ mod tests {
             required: false,
             default: Some(Value::Str("/default".into())),
         };
-        apply_one_input_default(&decl, &mut ctx).unwrap();
+        fill_input_default(&decl, &mut ctx).unwrap();
         assert_eq!(
             ctx.input.get("path").and_then(|v| v.as_str()),
             Some("/default")
@@ -96,7 +93,7 @@ mod tests {
             required: false,
             default: Some(Value::Str("/default".into())),
         };
-        apply_one_input_default(&decl, &mut ctx).unwrap();
+        fill_input_default(&decl, &mut ctx).unwrap();
         assert_eq!(
             ctx.input.get("path").and_then(|v| v.as_str()),
             Some("/default")
@@ -112,7 +109,7 @@ mod tests {
             required: true,
             default: None,
         };
-        let err = apply_one_input_default(&decl, &mut ctx).unwrap_err();
+        let err = fill_input_default(&decl, &mut ctx).unwrap_err();
         assert!(matches!(err, EngineError::UndefinedVariable(_)));
     }
 
@@ -125,7 +122,7 @@ mod tests {
             required: false,
             default: None,
         };
-        apply_one_input_default(&decl, &mut ctx).unwrap();
+        fill_input_default(&decl, &mut ctx).unwrap();
         assert!(!ctx.input.contains_key("x"));
     }
 }

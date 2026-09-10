@@ -1,4 +1,4 @@
-//! Validate example Directive YAML files parse and reference registered actions.
+//! 校验 examples 里的指令 YAML 能解析，且引用了已注册的动作。
 
 use corex_engine::Directive;
 use corex_registry::ActionRegistry;
@@ -18,10 +18,10 @@ fn walk_steps(
                 if !reg.contains(&a.action) {
                     missing.push(a.action.clone());
                 }
-                if !directive.permissions.is_unrestricted() {
-                    if let Err(e) = directive.permissions.allows_action(&a.action) {
-                        permission_errors.push(format!("{}: {}", a.action, e));
-                    }
+                if !directive.permissions.is_unrestricted()
+                    && let Err(e) = directive.permissions.allows_action(reg, &a.action)
+                {
+                    permission_errors.push(format!("{}: {}", a.action, e));
                 }
             }
             Step::If(i) => {
@@ -72,7 +72,7 @@ fn validate_examples_dir(dir: &Path, reg: &ActionRegistry) {
 }
 
 #[test]
-fn example_directives_validate() {
+fn examples() {
     let mut reg = ActionRegistry::new();
     reg.register_builtins();
     let base = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../examples");

@@ -1,4 +1,4 @@
-//! Parallel partial-failure behavior with on_error abort vs continue.
+//! 并行部分失败的行为：on_error 取 abort 与 continue 两种。
 
 use corex_core::{ExecutionContext, RuntimeConfig, Value};
 use corex_engine::{Directive, Pipeline};
@@ -97,16 +97,16 @@ steps:
         .await
         .expect("continue should return Ok with partial results");
 
-    let list = match result {
-        Value::List(items) => items,
-        other => panic!("expected List, got {other}"),
+    let items = match result {
+        Value::Array(items) => items,
+        other => panic!("expected Array, got {other}"),
     };
-    assert_eq!(list.len(), 2);
-    assert_eq!(list[0].as_str(), Some("A"));
+    assert_eq!(items.len(), 2);
+    assert_eq!(items[0].as_str(), Some("A"));
     assert!(
-        matches!(list[1], Value::Null),
+        matches!(items[1], Value::Null),
         "failed branch should be Null, got {:?}",
-        list[1]
+        items[1]
     );
 }
 

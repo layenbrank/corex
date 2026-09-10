@@ -1,4 +1,4 @@
-# Legal / Compliance
+# 法律 / 合规
 # - 仅用于已授权的本地自动化；勿用于未经同意的监控。
 # - 可能违反微信等第三方 ToS；生产环境勿默认同步本文件。
 # - Experimental / fragile：UI 布局与版本变化会导致失败。
@@ -13,7 +13,7 @@
 # 勿用 Esc（会关窗）、勿按 Down（会跳过默认选中的联系人）、勿在会话内再按 Ctrl+F（会弹出「搜索聊天记录」）。
 name: wechat-send-message
 description: 打开微信并向联系人发送消息（Windows UI 自动化示例）
-version: '0.9'
+version: "0.9"
 
 inputs:
   - name: contact
@@ -55,98 +55,98 @@ steps:
   - id: launch
     action: shell.run
     params:
-      command: '{{input.wechat_path}}'
+      command: "{{input.wechat_path}}"
       wait: detach
       if_running: skip
       if_running_window:
-        title_contains: '微信'
+        title_contains: "微信"
         prefer_largest: true
 
   - id: wait_wechat
     action: ui.window.wait
     params:
-      title_contains: '微信'
+      title_contains: "微信"
       timeout_ms: 15000
 
   - id: probe_login_shell
     action: ui.element.exists
     params:
-      title_contains: '微信'
+      title_contains: "微信"
       selectors:
-        - name: '进入微信'
+        - name: "进入微信"
           control_type: Button
       timeout_ms: 2000
     save_to: login_state
 
   - id: login_branch
     if:
-      eq: ['{{login_state.found}}', true]
+      eq: ["{{login_state.found}}", true]
     then:
       - id: click_enter_wechat
         action: ui.element.click
-        when: '{{input.auto_login}}'
+        when: "{{input.auto_login}}"
         params:
-          title_contains: '微信'
+          title_contains: "微信"
           selectors:
-            - name: '进入微信'
+            - name: "进入微信"
               control_type: Button
           safe: true
 
       - id: wait_login_complete
         action: ui.element.wait
         params:
-          title_contains: '微信'
+          title_contains: "微信"
           selectors:
-            - name: '进入微信'
+            - name: "进入微信"
               control_type: Button
           state: absent
-          timeout_ms: '{{input.login_timeout_ms}}'
+          timeout_ms: "{{input.login_timeout_ms}}"
           poll_interval_ms: 500
 
   - id: focus_main
     action: ui.window.focus
     params:
-      title_contains: '微信'
+      title_contains: "微信"
       prefer_largest: true
 
   - id: search_key
     action: ui.key
     params:
-      keys: 'Ctrl+F'
+      keys: "Ctrl+F"
 
   - id: wait_search_open
     action: ui.wait
     params:
-      ms: '{{input.search_settle_ms}}'
+      ms: "{{input.search_settle_ms}}"
 
   - id: type_contact
     action: ui.type
     params:
-      text: '{{input.contact}}'
+      text: "{{input.contact}}"
 
   - id: wait_contact_results
     action: ui.wait
     params:
-      ms: '{{input.contact_settle_ms}}'
+      ms: "{{input.contact_settle_ms}}"
 
   # 搜索结果默认已高亮第一项（匹配的联系人/会话），直接 Enter 即可。
   # 勿按 Down：会跳到第二项（常为「搜索网络结果」等），导致选错或打开错误面板。
   - id: open_chat
     action: ui.key
     params:
-      keys: 'Enter'
+      keys: "Enter"
 
   - id: wait_chat_ready
     action: ui.wait
     params:
-      ms: '{{input.chat_settle_ms}}'
+      ms: "{{input.chat_settle_ms}}"
 
   - id: type_msg
     action: ui.type
     params:
-      text: '{{input.message}}'
+      text: "{{input.message}}"
 
   - id: send
     action: ui.key
     params:
-      keys: 'Enter'
+      keys: "Enter"

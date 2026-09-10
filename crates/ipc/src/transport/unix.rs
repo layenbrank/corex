@@ -1,4 +1,4 @@
-//! Unix domain socket transport (newline-delimited JSON).
+//! Unix domain socket 传输（换行分隔的 JSON）。
 
 use super::{Transport, TransportError};
 use crate::protocol::{MAX_LINE_BYTES, Request, Response, RpcError};
@@ -6,7 +6,7 @@ use async_trait::async_trait;
 use std::path::{Path, PathBuf};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 
-/// Newline-delimited JSON over a Unix domain socket.
+/// 在 Unix domain socket 上跑换行分隔的 JSON。
 #[derive(Debug, Clone)]
 pub struct UnixSocketTransport {
     path: PathBuf,
@@ -21,7 +21,7 @@ impl UnixSocketTransport {
         &self.path
     }
 
-    /// Serve connections: for each newline-delimited JSON request, call `handler`.
+    /// 服务连接：对每个换行分隔的 JSON 请求调用 `handler`。
     pub async fn serve<F, Fut>(path: &Path, mut handler: F) -> Result<(), TransportError>
     where
         F: FnMut(Request) -> Fut + Send,
@@ -38,7 +38,7 @@ impl UnixSocketTransport {
         }
 
         let listener = UnixListener::bind(path)?;
-        // Restrict to current user only.
+        // 只限当前用户访问。
         let _ = std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600));
         tracing::info!(path = %path.display(), "IPC Unix socket 已监听");
 

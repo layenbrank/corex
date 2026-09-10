@@ -1,4 +1,4 @@
-//! `{{...}}` variable resolver.
+//! `{{...}}` 变量解析器。
 
 use corex_core::{EngineError, ExecutionContext, Value};
 use once_cell::sync::Lazy;
@@ -9,16 +9,16 @@ use std::collections::HashMap;
 static VAR_RE: Lazy<Regex> =
     Lazy::new(|| Regex::new(r"\{\{\s*([^}]+?)\s*\}\}").expect("valid regex"));
 
-/// Resolves `{{input.x}}`, `{{directive_input}}`, `{{step.id.path}}`,
-/// `{{env.NAME}}`, and `{{variables.name}}` / bare `{{name}}`.
+/// 解析 `{{input.x}}`、`{{directive_input}}`、`{{step.id.path}}`、
+/// `{{env.NAME}}`、`{{variables.name}}` 与裸的 `{{name}}`。
 pub struct Resolver;
 
 impl Resolver {
-    /// Seed directive `variables` into `ctx`, resolving placeholders.
+    /// 把指令的 `variables` 注入 `ctx`，并解析其中的占位符。
     ///
-    /// Uses multi-pass resolution so entries may reference each other regardless
-    /// of `HashMap` iteration order (e.g. `dist: "{{base}}/out"` with `base` defined
-    /// elsewhere in the same map).
+    /// 采用多趟解析，使各条目可以互相引用，而不受
+    /// `HashMap` 遍历顺序影响（如 `dist: "{{base}}/out"` 而 `base` 定义在同一
+    /// map 的别处）。
     pub fn seed_variables(
         variables: &HashMap<String, Value>,
         ctx: &mut ExecutionContext,
@@ -61,16 +61,16 @@ impl Resolver {
         Ok(())
     }
 
-    /// Resolve all placeholders inside a [`Value`] tree.
+    /// 解析 [`Value`] 树里的全部占位符。
     pub fn resolve_value(value: &Value, ctx: &ExecutionContext) -> Result<Value, EngineError> {
         match value {
             Value::Str(s) => Self::resolve_string(s, ctx),
-            Value::List(items) => {
+            Value::Array(items) => {
                 let mut out = Vec::with_capacity(items.len());
                 for item in items {
                     out.push(Self::resolve_value(item, ctx)?);
                 }
-                Ok(Value::List(out))
+                Ok(Value::Array(out))
             }
             Value::Map(map) => {
                 let mut out = std::collections::BTreeMap::new();
@@ -83,8 +83,8 @@ impl Resolver {
         }
     }
 
-    /// If the entire string is a single `{{expr}}`, return the raw Value
-    /// (preserving type). Otherwise interpolate to a string.
+    /// 若整个字符串就是一个 `{{expr}}`，返回原始 Value
+    /// （保留类型）；否则插值成字符串。
     pub fn resolve_string(input: &str, ctx: &ExecutionContext) -> Result<Value, EngineError> {
         let trimmed = input.trim();
         if let Some(caps) = VAR_RE.captures(trimmed) {
@@ -116,7 +116,7 @@ impl Resolver {
         Ok(Value::Str(replaced.into_owned()))
     }
 
-    /// Lookup a dotted expression against the execution context.
+    /// 在执行上下文里查找一个带点表达式。
     pub fn lookup(expr: &str, ctx: &ExecutionContext) -> Result<Value, EngineError> {
         let expr = expr.trim();
         if expr.is_empty() {
@@ -195,21 +195,21 @@ impl Resolver {
                     })?;
                 get_required_path(val, path, expr)
             }
-            // Bare name → variables, then input.
+            // 裸名 → 先查 variables，再查 input。
             other => {
                 if let Some(v) = ctx.variables.get(other) {
                     return get_required_path(v.clone(), rest, expr);
                 }
-                if rest.is_empty() {
-                    if let Some(v) = ctx.input.get(other) {
-                        return Ok(v.clone());
-                    }
+                if rest.is_empty()
+                    && let Some(v) = ctx.input.get(other)
+                {
+                    return Ok(v.clone());
                 }
-                // Allow JSON-ish literals in conditions: true/false/null/numbers
-                if rest.is_empty() {
-                    if let Ok(v) = literal(other) {
-                        return Ok(v);
-                    }
+                // 条件里允许类 JSON 字面量：true/false/null/数字
+                if rest.is_empty()
+                    && let Ok(v) = literal(other)
+                {
+                    return Ok(v);
                 }
                 Err(EngineError::UndefinedVariable(expr.to_string()))
             }
@@ -224,7 +224,7 @@ fn split_first(expr: &str) -> (&str, &str) {
     }
 }
 
-/// Fail-closed nested path lookup: missing keys/indices → `UndefinedVariable`.
+/// 失败即报错的嵌套路径查找：键/下标缺失 → `UndefinedVariable`。
 fn get_required_path(val: Value, path: &str, expr: &str) -> Result<Value, EngineError> {
     if path.is_empty() {
         Ok(val)
@@ -247,7 +247,7 @@ fn literal(s: &str) -> Result<Value, ()> {
             if let Ok(f) = s.parse::<f64>() {
                 return Ok(Value::Float(f));
             }
-            // quoted string literal
+            // 带引号的字符串字面量
             if (s.starts_with('"') && s.ends_with('"'))
                 || (s.starts_with('\'') && s.ends_with('\''))
             {
@@ -332,8 +332,8 @@ mod tests {
 
     #[test]
     fn seed_variables_resolves_cross_refs_any_order() {
-        // HashMap iteration order is nondeterministic; run enough times that a
-        // single-pass seeder would flake if `dist` were resolved before `base`.
+        // HashMap 遍历顺序不确定；跑足够多次，若单趟注入把 `dist` 放在 `base`
+        // 前面，测试就会随机失败。
         for _ in 0..64 {
             let mut vars = HashMap::new();
             vars.insert("dist".into(), Value::Str("{{base}}/dist-iwellnew".into()));

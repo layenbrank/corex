@@ -1,11 +1,11 @@
-//! Resolve directive variables for trigger configs at supervisor startup.
+//! supervisor 启动时，为触发器配置解析指令变量。
 
 use crate::definition::Directive;
 use crate::resolver::Resolver;
 use crate::trigger::WatchConfig;
 use corex_core::{EngineError, ExecutionContext, RuntimeConfig};
 
-/// Seed top-level directive variables into an execution context.
+/// 把指令的顶层变量注入执行上下文。
 pub fn seed_directive_variables(
     directive: &Directive,
     runtime: RuntimeConfig,
@@ -19,7 +19,7 @@ fn resolve_string(ctx: &ExecutionContext, raw: &str) -> Result<String, EngineErr
     Ok(Resolver::resolve_string(raw, ctx)?.to_string())
 }
 
-/// Resolve placeholders in a watch trigger config.
+/// 解析 watch 触发器配置里的占位符。
 pub fn resolve_watch_config(
     directive: &Directive,
     runtime: RuntimeConfig,
@@ -44,7 +44,7 @@ pub fn resolve_watch_config(
     Ok(config)
 }
 
-/// Resolve placeholders in a cron expression.
+/// 解析 cron 表达式里的占位符。
 pub fn resolve_cron_expr(
     directive: &Directive,
     runtime: RuntimeConfig,
