@@ -1,66 +1,62 @@
-# cargo-deny configuration for the corex workspace.
-# Adapted from tyr-rust-bootcamp/template + current cargo-deny defaults.
-# Docs: https://embarkstudios.github.io/cargo-deny/
+# corex 工作区的 cargo-deny 配置。
+# 改编自 tyr-rust-bootcamp/template + 当前 cargo-deny 默认值。
+# 文档：https://embarkstudios.github.io/cargo-deny/
 
 [graph]
-# Primary shipping target is Windows x64; include it so Unix-only screenshot
-# deps (wayland / quick-xml) are not pulled into advisory checks by default.
-targets = [
-    "x86_64-pc-windows-msvc",
-]
+# 主要发布目标是 Windows x64；把它包含进来，缺省就不会把仅 Unix 的截图
+# 依赖（wayland / quick-xml）拉进安全公告检查。
+targets      = ["x86_64-pc-windows-msvc"]
 all-features = false
 
 [advisories]
 yanked = "warn"
-# Fail unmaintained advisories only when they hit workspace crates directly.
+# 仅当无人维护的公告直接命中工作区 crate 时才失败。
 unmaintained = "workspace"
 ignore = [
-    # Direct workspace dep today; migrating YAML crates is a separate product change.
-    { id = "RUSTSEC-2025-0068", reason = "serde_yml is the current directive YAML stack; tracked for future migration to a maintained fork (e.g. serde_norway)" },
+  # 目前是工作区直接依赖；迁移 YAML 相关 crate 属于独立的产品变更。
+  { id = "RUSTSEC-2025-0068", reason = "serde_yml is the current directive YAML stack; tracked for future migration to a maintained fork (e.g. serde_norway)" },
 ]
 
 [licenses]
 confidence-threshold = 0.8
 allow = [
-    "MIT",
-    "Apache-2.0",
-    "Apache-2.0 WITH LLVM-exception",
-    "BSD-2-Clause",
-    "BSD-3-Clause",
-    "BSL-1.0",
-    "ISC",
-    "Zlib",
-    "Unicode-3.0",
-    "CC0-1.0",
-    "MPL-2.0",
-    "0BSD",
+  "MIT",
+  "Apache-2.0",
+  "Apache-2.0 WITH LLVM-exception",
+  "BSD-2-Clause",
+  "BSD-3-Clause",
+  "BSL-1.0",
+  "ISC",
+  "Zlib",
+  "Unicode-3.0",
+  "CC0-1.0",
+  "MPL-2.0",
+  "0BSD",
 ]
 exceptions = []
 
-# display-info publishes license-file only (Apache-2.0 text), not a license field.
+# display-info 只发布 license-file（Apache-2.0 正文），没有 license 字段。
 [[licenses.clarify]]
-crate = "display-info"
-expression = "Apache-2.0"
-license-files = [
-    { path = "LICENSE", hash = 0x0a6d4ed6 },
-]
+crate         = "display-info"
+expression    = "Apache-2.0"
+license-files = [{ path = "LICENSE", hash = 0x0a6d4ed6 }]
 
 [licenses.private]
-# Workspace members are MIT-licensed but unpublished — skip private package license noise.
+# 工作区成员是 MIT 许可但未发布——跳过私有包的许可证噪声。
 ignore = true
 
 [bans]
-# Duplicate versions are common in large Windows/UI graphs; warn instead of deny.
+# 大型 Windows / UI 依赖图里版本重复很常见；警告而不拒绝。
 multiple-versions = "warn"
-wildcards = "allow"
-highlight = "all"
-allow = []
-deny = []
-skip = []
-skip-tree = []
+wildcards         = "allow"
+highlight         = "all"
+allow             = []
+deny              = []
+skip              = []
+skip-tree         = []
 
 [sources]
 unknown-registry = "warn"
-unknown-git = "warn"
-allow-registry = ["https://github.com/rust-lang/crates.io-index"]
-allow-git = []
+unknown-git      = "warn"
+allow-registry   = ["https://github.com/rust-lang/crates.io-index"]
+allow-git        = []

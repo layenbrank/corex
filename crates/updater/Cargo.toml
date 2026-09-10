@@ -1,0 +1,28 @@
+[package]
+name        = "corex-updater"
+version     = { workspace = true }
+edition     = { workspace = true }
+description = "Corex self-update: GitHub Releases discovery, checksum verification, atomic replace"
+authors     = { workspace = true }
+license     = { workspace = true }
+
+[dependencies]
+corex-core   = { workspace = true }
+corex-ipc    = { workspace = true }
+chrono       = { workspace = true }
+reqwest      = { workspace = true }
+self-replace = { workspace = true }
+semver       = { workspace = true }
+serde        = { workspace = true }
+serde_json   = { workspace = true }
+sha2         = { workspace = true }
+tempfile     = { workspace = true }
+thiserror    = { workspace = true }
+tokio        = { workspace = true }
+tracing      = { workspace = true }
+zip          = { workspace = true }
+
+# 系统代理发现：reqwest 不会读其它 Windows 应用都会读的 WinINET 设置，
+# 导致本地代理后面无法下载资产。
+[target.'cfg(windows)'.dependencies]
+winreg = { workspace = true }

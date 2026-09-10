@@ -11,7 +11,9 @@ async-trait = { workspace = true }
 serde       = { workspace = true }
 serde_json  = { workspace = true }
 thiserror   = { workspace = true }
-tracing     = { workspace = true }
+# 解析 `corex.toml` 的代码在 `src/config`，与它所填充的类型放在一起。
+toml    = { workspace = true }
+tracing = { workspace = true }
 
 [dev-dependencies]
 tempfile = { workspace = true }

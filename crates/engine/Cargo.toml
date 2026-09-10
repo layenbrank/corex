@@ -7,54 +7,63 @@ authors     = { workspace = true }
 license     = { workspace = true }
 
 [dependencies]
-corex-core   = { workspace = true }
-async-trait  = { workspace = true }
-futures      = { workspace = true }
-once_cell    = { workspace = true }
-regex        = { workspace = true }
-serde        = { workspace = true }
-serde_json   = { workspace = true }
-serde_yml    = { workspace = true }
-thiserror    = { workspace = true }
-tokio        = { workspace = true }
-tracing      = { workspace = true }
-uuid         = { workspace = true, optional = true }
+corex-core  = { workspace = true }
+async-trait = { workspace = true }
+futures     = { workspace = true }
+once_cell   = { workspace = true }
+regex       = { workspace = true }
+schemars    = { workspace = true, optional = true }
+serde       = { workspace = true }
+serde_json  = { workspace = true }
+serde_yml   = { workspace = true }
+thiserror   = { workspace = true }
+tokio       = { workspace = true }
+tracing     = { workspace = true }
+uuid        = { workspace = true, optional = true }
 
 [dev-dependencies]
 tempfile       = { workspace = true }
 tokio          = { workspace = true, features = ["rt-multi-thread", "macros"] }
-corex-registry = { workspace = true, features = ["full"] }
-proptest      = { workspace = true }
+corex-registry = { workspace = true }
+proptest       = { workspace = true }
 
 [features]
 default = []
-cron = ["dep:tokio-cron-scheduler", "dep:uuid", "dep:chrono"]
-watch = ["dep:notify", "dep:notify-debouncer-full", "dep:glob"]
+# 为 Directive 类型派生 `JsonSchema`，这样 `schemas/directive.schema.json` 可以直接由
+# 它们生成，而不必在旁边手工维护。默认关闭：输出 schema 是执行该动作的工具在构建期
+# 关心的事，不是引擎的事。
+schema   = ["dep:schemars"]
+cron     = ["dep:tokio-cron-scheduler", "dep:uuid", "dep:chrono"]
+watch    = ["dep:notify", "dep:notify-debouncer-full", "dep:glob"]
 triggers = ["cron", "watch"]
 
 [[test]]
-name = "triggers_smoke"
+name              = "triggers_smoke"
 required-features = ["triggers"]
+
+[[test]]
+name              = "directive_schema"
+required-features = ["schema"]
 
 [dependencies.tokio-cron-scheduler]
 workspace = true
-optional = true
+optional  = true
 
 [dependencies.chrono]
 workspace = true
-optional = true
+optional  = true
 
 [dependencies.notify]
 workspace = true
-optional = true
+optional  = true
 
 [dependencies.notify-debouncer-full]
 workspace = true
-optional = true
+optional  = true
 
 [dependencies.glob]
 workspace = true
-optional = true
+optional  = true
 
 [target.'cfg(windows)'.dependencies]
 windows = { workspace = true, features = [

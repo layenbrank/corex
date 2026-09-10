@@ -1,7 +1,7 @@
-# git-cliff ~ configuration for layenbrank/corex
-# Docs: https://git-cliff.org/docs/configuration
-# Templating: https://git-cliff.org/docs/templating
-# Tips: https://git-cliff.org/docs/tips-and-tricks
+# git-cliff ~ layenbrank/corex 的配置
+# 文档：https://git-cliff.org/docs/configuration
+# 模板：https://git-cliff.org/docs/templating
+# 技巧：https://git-cliff.org/docs/tips-and-tricks
 #
 # 常用命令:
 #   git-cliff -l                         # 预览上一 tag → HEAD
@@ -121,8 +121,8 @@ output = "CHANGELOG.md"
 
 # 输出前字符串替换（与 commit_preprocessors 语法相同）
 postprocessors = [
-    # 统一 Windows 路径分隔符展示（若模板里误带入）
-    { pattern = '\\\\', replace = "/" },
+  # 统一 Windows 路径分隔符展示（若模板里误带入）
+  { pattern = '\\\\', replace = "/" },
 ]
 
 # ---------------------------------------------------------------------------
@@ -138,12 +138,12 @@ offline = true
 
 [remote.github]
 owner = "layenbrank"
-repo = "corex"
+repo  = "corex"
 # 勿把 token 写进仓库；用环境变量 GITHUB_TOKEN / --github-token
 # token = ""
 
 # ---------------------------------------------------------------------------
-# Git history parsing
+# Git 历史解析
 # https://git-cliff.org/docs/configuration/git
 # ---------------------------------------------------------------------------
 [git]
@@ -159,52 +159,52 @@ split_commits = false
 # 预处理：规范化消息（在 parsers 之前）
 # https://git-cliff.org/docs/tips-and-tricks
 commit_preprocessors = [
-    # 将 (#123) 转为可被 link_parsers 识别的 #123
-    { pattern = '\\(#([0-9]+)\\)', replace = " #${1}" },
-    # 去掉常见 bot 前缀噪声（保留正文）
-    { pattern = '^\\[skip ci\\]\\s*', replace = "" },
+  # 将 (#123) 转为可被 link_parsers 识别的 #123
+  { pattern = '\\(#([0-9]+)\\)', replace = " #${1}" },
+  # 去掉常见 bot 前缀噪声（保留正文）
+  { pattern = '^\\[skip ci\\]\\s*', replace = "" },
 ]
 
 # 分组顺序靠 HTML 注释强制；模板里用 striptags 去掉
 # https://git-cliff.org/docs/tips-and-tricks#changing-the-group-order
 # 注意用两位数字，避免 <!-- 10 --> 排在 <!-- 2 --> 前
 commit_parsers = [
-    # --- skip ---
-    { message = "\\[skip", skip = true },
-    { message = "\\[changelog\\s*skip\\]", skip = true },
-    { footer = "^changelog:\\s?ignore", skip = true },
-    # 纯中文标题（本仓库常见规划/笔记提交）不进 changelog
-    { message = "^\\p{Han}", skip = true },
-    { message = "^chore\\(version\\):", skip = true },
-    { message = "^chore\\(release\\):\\s*prepare for", skip = true },
-    { message = "^chore\\(deps", skip = true },
-    { message = "^chore\\(pr\\)", skip = true },
-    { message = "^chore\\(pull\\)", skip = true },
-    { message = "^Merge (branch|pull request|remote-tracking)", skip = true },
-    { message = "^Pull request", skip = true },
+  # --- 跳过 ---
+  { message = "\\[skip", skip = true },
+  { message = "\\[changelog\\s*skip\\]", skip = true },
+  { footer = "^changelog:\\s?ignore", skip = true },
+  # 纯中文标题（本仓库常见规划/笔记提交）不进 changelog
+  { message = "^\\p{Han}", skip = true },
+  { message = "^chore\\(version\\):", skip = true },
+  { message = "^chore\\(release\\):\\s*prepare for", skip = true },
+  { message = "^chore\\(deps", skip = true },
+  { message = "^chore\\(pr\\)", skip = true },
+  { message = "^chore\\(pull\\)", skip = true },
+  { message = "^Merge (branch|pull request|remote-tracking)", skip = true },
+  { message = "^Pull request", skip = true },
 
-    # --- groups (ordered) ---
-    { message = "^feat", group = "<!-- 00 -->🚀 Features" },
-    { message = "^fix", group = "<!-- 01 -->🐛 Bug Fixes" },
-    { message = "^doc", group = "<!-- 02 -->📚 Documentation" },
-    { message = "^perf", group = "<!-- 03 -->⚡ Performance" },
-    { message = "^refactor", group = "<!-- 04 -->♻️ Refactoring" },
-    { message = "^style", group = "<!-- 05 -->🎨 Style" },
-    { message = "^test", group = "<!-- 06 -->🧪 Tests" },
-    { message = "^ci", group = "<!-- 07 -->🤖 CI" },
-    { message = "^build", group = "<!-- 08 -->🏗️ Build" },
-    { message = "^revert", group = "<!-- 09 -->⏪ Revert" },
-    { body = ".*security", group = "<!-- 10 -->🔐 Security" },
-    { message = "^chore\\(release\\)", group = "<!-- 11 -->📦 Release" },
-    { message = "^chore\\(tooling\\)", group = "<!-- 12 -->🧰 Tooling" },
-    { message = "^chore", group = "<!-- 13 -->🔧 Miscellaneous" },
-    { message = ".*", group = "<!-- 14 -->🌀 Other" },
+  # --- 分组（有顺序）---
+  { message = "^feat", group = "<!-- 00 -->🚀 Features" },
+  { message = "^fix", group = "<!-- 01 -->🐛 Bug Fixes" },
+  { message = "^doc", group = "<!-- 02 -->📚 Documentation" },
+  { message = "^perf", group = "<!-- 03 -->⚡ Performance" },
+  { message = "^refactor", group = "<!-- 04 -->♻️ Refactoring" },
+  { message = "^style", group = "<!-- 05 -->🎨 Style" },
+  { message = "^test", group = "<!-- 06 -->🧪 Tests" },
+  { message = "^ci", group = "<!-- 07 -->🤖 CI" },
+  { message = "^build", group = "<!-- 08 -->🏗️ Build" },
+  { message = "^revert", group = "<!-- 09 -->⏪ Revert" },
+  { body = ".*security", group = "<!-- 10 -->🔐 Security" },
+  { message = "^chore\\(release\\)", group = "<!-- 11 -->📦 Release" },
+  { message = "^chore\\(tooling\\)", group = "<!-- 12 -->🧰 Tooling" },
+  { message = "^chore", group = "<!-- 13 -->🔧 Miscellaneous" },
+  { message = ".*", group = "<!-- 14 -->🌀 Other" },
 ]
 
 # breaking 提交即使命中 skip 规则也保留
 protect_breaking_commits = true
 # 未被任何 parser 匹配的提交是否丢弃（末尾有 .*，一般用不到）
-filter_commits = false
+filter_commits           = false
 fail_on_unmatched_commit = false
 
 # 仅处理 vN… 形式的 tag（与发布工作流一致）
@@ -217,24 +217,19 @@ ignore_tags = "v[0-9].*-(alpha|beta|rc)(\\.[0-9]+)?$"
 # 仅统计正式版（可选；空=全部）
 count_tags = ""
 
-topo_order = false
+topo_order         = false
 topo_order_commits = true
 # 组内提交顺序：oldest = 先写的在上（时间正序）
 sort_commits = "oldest"
 
 # Issue / RFC 自动链接
 link_parsers = [
-    { pattern = "#(\\d+)", href = "https://github.com/layenbrank/corex/issues/$1" },
+  { pattern = "#(\\d+)", href = "https://github.com/layenbrank/corex/issues/$1" },
 ]
 
 # 仅改规划笔记 / lock 的提交不进入 changelog，减少噪音
 # https://git-cliff.org/docs/configuration/git#include_paths-exclude_paths
-exclude_paths = [
-    "task_plan.md",
-    "progress.md",
-    "findings.md",
-    "Cargo.lock",
-]
+exclude_paths = ["task_plan.md", "progress.md", "findings.md", "Cargo.lock"]
 # include_paths = []  # 空=不过滤路径
 
 recurse_submodules = false

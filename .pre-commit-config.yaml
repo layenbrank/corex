@@ -1,13 +1,13 @@
-# pre-commit hooks for corex (Windows-friendly entries; no bash wrappers).
-# Adapted from tyr-rust-bootcamp/template — without Python black / nextest.
-# Install: `uv tool install pre-commit` then `pre-commit install`
-# Run all: `pre-commit run --all-files`
+# corex 的 pre-commit 钩子（面向 Windows 的条目；不用 bash 包装）。
+# 改编自 tyr-rust-bootcamp/template —— 去掉了 Python black / nextest。
+# 安装：`uv tool install pre-commit`，然后 `pre-commit install`
+# 全部运行：`pre-commit run --all-files`
 
 fail_fast: false
 default_language_version:
   python: python3
 
-# Editor / build / binary trees — not project source under review.
+# 编辑器 / 构建 / 二进制目录——不属于要审查的项目源码。
 exclude: ^(target/|assets/|pdfium/|\.cursor/|\.idea/|\.agents/)
 
 repos:
@@ -28,7 +28,7 @@ repos:
     hooks:
       - id: cargo-fmt
         name: cargo fmt
-        description: Format Rust sources with rustfmt (check mode).
+        description: 用 rustfmt 格式化 Rust 源码（仅检查模式）。
         entry: cargo fmt -- --check
         language: system
         types: [rust]
@@ -36,7 +36,7 @@ repos:
 
       - id: cargo-deny
         name: cargo deny check
-        description: Check dependency licenses, advisories, bans, and sources.
+        description: 检查依赖的许可证、安全公告、禁用项与来源。
         entry: cargo deny check
         language: system
         files: ^(Cargo\.(toml|lock)|deny\.toml|crates/|bins/|pdfium/)
@@ -44,14 +44,14 @@ repos:
 
       - id: typos
         name: typos
-        description: Spell-check source and docs with typos.
+        description: 用 typos 对源码与文档做拼写检查。
         entry: typos
         language: system
         pass_filenames: false
 
       - id: cargo-check
         name: cargo check
-        description: Type-check the workspace.
+        description: 对整个工作区做类型检查。
         entry: cargo check --workspace --locked
         language: system
         types: [rust]

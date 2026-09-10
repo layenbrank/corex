@@ -1,23 +1,33 @@
 [workspace]
-members = ["crates/*", "bins/*", "pdfium"]
+# `pdfium/` 故意**不**作为成员。没有任何东西能加载那个 DLL：没有 crate 依赖
+# `pdfium-render`，整个依赖图里找不到 `libloading`，工作区也没有
+# `#[link]` / `extern "C"`。两个提到它的动作（`morph.meta`、`morph.render`）
+# 是无条件打枢——返回固定文案，从不探测文件是否存在——而基于 `lopdf` 的
+# 那几个在没有它时也能跑（已在 DLL 不可达的情况下跑过 `morph.export` 验证）。
+# 但把它列为成员会让**新克隆或 CI** 的构建去下载一个 7.2 MB 的本地库
+# （它被 gitignore，永远不会进代码树），下载失败就直接构建失败。
+# 等那两个动作真正落地时，再把 `"pdfium"` 和 `pdfium-render` 依赖一起加回来。
+members  = ["crates/*", "bins/*"]
 resolver = "2"
 
 [workspace.package]
-version = "6.0.1"
-edition = "2024"
-description = "corex — composable Directive / action runtime"
-authors = ["layen"]
-license = "MIT"
+version      = "6.0.1"
+edition      = "2024"
+rust-version = "1.95"
+description  = "corex — composable Directive / action runtime"
+authors      = ["layen"]
+license      = "MIT"
 
 [workspace.dependencies]
-# Internal crates
-corex-core = { path = "crates/core" }
-corex-engine = { path = "crates/engine" }
-corex-registry = { path = "crates/registry" }
-corex-ipc = { path = "crates/ipc" }
+# 仓库内部 crate
+corex-core       = { path = "crates/core" }
+corex-engine     = { path = "crates/engine" }
+corex-registry   = { path = "crates/registry" }
+corex-ipc        = { path = "crates/ipc" }
 corex-plugin-sdk = { path = "crates/plugin-sdk" }
+corex-updater    = { path = "crates/updater" }
 
-# Async / runtime
+# 异步 / 运行时
 tokio = { version = "1.53", features = [
   "rt-multi-thread",
   "macros",
@@ -34,13 +44,18 @@ futures = "0.3.34"
 tokio-cron-scheduler = "0.15.1"
 fs2 = "0.4"
 
-# Serialization
-serde = { version = "1.0", features = ["derive"] }
+# 序列化
+serde      = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
-serde_yml = "0.0.13"
-toml = "1.1.4"
+serde_yml  = "0.0.13"
+toml       = "1.1.5"
 
-# Error / logging
+# JSON Schema 生成（可选；由 `corex-engine` 的 `schema` feature 开启）。
+# 1.x 输出 draft 2020-12（用 `$defs` 而非 `definitions`），因此已发布的
+# `schemas/directive.schema.json` 从 draft-07 往上走了一版——这是有意为之且已记录的变化。
+schemars = "1.2.2"
+
+# 错误 / 日志
 anyhow = "1.0"
 thiserror = "2.0.20"
 tracing = "0.1"
@@ -50,21 +65,29 @@ tracing-subscriber = { version = "0.3", features = [
   "chrono",
 ] }
 
-# CLI / util
-clap = { version = "4.6.6", features = ["derive"] }
-regex = "1.11"
-ropey = "1.6"
-diffy = "0.5.2"
-once_cell = "1.20"
+# CLI / 工具
+clap        = { version = "4.6.6", features = ["derive"] }
+regex       = "1.11"
+ropey       = "1.6"
+diffy       = "0.5.2"
+once_cell   = "1.20"
 directories = "6.0.0"
-dirs = "6.0"
-uuid = { version = "1.26.0", features = ["v4"] }
-chrono = { version = "0.4", features = ["serde"] }
-tempfile = "3.14"
-proptest = "1.5"
+dirs        = "7.0.0"
+uuid        = { version = "1.26.1", features = ["v4"] }
+chrono      = { version = "0.4", features = ["serde"] }
+tempfile    = "3.14"
+proptest    = "1.5"
 
-# Builtin action deps
-reqwest = { version = "0.13.4", default-features = false, features = [
+# 自更新（`corex update`）；见 crates/updater。
+sha2         = "0.11.0"
+self-replace = "1.5.0"
+semver       = "1.0.28"
+indicatif    = "0.18.6"
+dialoguer    = "0.12.0"
+winreg       = "0.56.0"
+
+# 内置动作依赖
+reqwest = { version = "0.13.5", default-features = false, features = [
   "json",
   "query",
   "form",
@@ -74,7 +97,7 @@ arboard = "3.4"
 notify-rust = "4.11"
 minijinja = "2.5"
 keyring = "4.2.0"
-interprocess = { version = "2.2", features = ["tokio"] }
+interprocess = { version = "2.4.4", features = ["tokio"] }
 walkdir = "2.5"
 glob = "0.3"
 notify = "8.0"
@@ -91,18 +114,18 @@ image = { version = "0.25", default-features = false, features = [
   "tiff",
 ] }
 zip = { version = "8.6.0", default-features = false, features = ["deflate"] }
-flate2 = "1.0"
+flate2 = "1.1.10"
 tar = "0.4"
 sevenz-rust2 = { version = "0.22.2", default-features = false, features = [
   "util",
 ] }
 rand = "0.10.2"
-lopdf = "0.44.0"
+lopdf = "0.45.0"
 
-# Windows API — features enabled per consumer crate / act-* gate (default-features = false).
+# Windows API —— 按消费方 crate / act-* 闸门开启 feature（default-features = false）。
 windows = { version = "0.62.2", default-features = false }
 
-# WASM plugins (optional; enabled via corex-registry `wasm` feature)
+# WASM 插件（可选；经 corex-registry 的 `wasm` feature 开启）
 wasmtime = { version = "48.0.1", default-features = false, features = [
   "component-model",
   "async",
@@ -112,14 +135,10 @@ wasmtime = { version = "48.0.1", default-features = false, features = [
 ] }
 wasmtime-wasi = { version = "48.0.1" }
 
-# Test
-assert_cmd = "2.0"
-predicates = "3.1"
-
 [profile.release]
-opt-level = 3
-lto = true
+opt-level     = 3
+lto           = true
 codegen-units = 1
-incremental = false
-panic = "abort"
-strip = "symbols"
+incremental   = false
+panic         = "abort"
+strip         = "symbols"
