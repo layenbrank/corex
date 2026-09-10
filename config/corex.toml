@@ -1,47 +1,70 @@
-# Corex runtime configuration
+# Corex 运行时配置
 # 中文说明见 docs/guide/运行时配置.md
 
 [daemon]
-# Paths below that are not absolute are resolved under the platform data dir
-# (e.g. ~/.local/share/corex on Linux). Windows named pipes like \\.\pipe\corex are used as-is.
-# IPC endpoint: Unix socket path or Windows named pipe
-# Windows pipe is \\.\pipe\corex when unset at runtime
+# 下列路径若非绝对路径，则在平台数据目录下解析
+# （例如 Linux 的 ~/.local/share/corex）。Windows 命名管道如 \\.\pipe\corex 原样使用。
+# IPC 端点：Unix socket 路径或 Windows 命名管道
+# 运行时未设置时，Windows 管道为 \\.\pipe\corex
 socket_path = "corex.sock"
-# Singleton lock file
+# 单例锁文件
 lock_path = "corex.lock"
-# Shared IPC auth secret. Prefer env COREX_TOKEN when set.
-# Empty / omitted → daemon reads or creates `<data_dir>/token` (random 32-byte hex, mode 0600 on Unix).
+# IPC 共享认证密钥。设置环境变量 COREX_TOKEN 时以它优先。
+# 留空 / 省略 → 守护进程读取或创建 `<data_dir>/token`（随机 32 字节 hex，Unix 上权限 0600）。
 # token = ""
 
 [plugins]
-# Plugin directory (relative to data dir, or absolute)
+# 插件目录（相对数据目录，或绝对路径）
 plugin_dir = "plugins"
-# Disable entire plugins by id
+# 按 id 禁用整个插件
 disabled = []
-# Disable individual action ids (e.g. "shell.run")
+# 禁用单个动作 id（如 "shell.run"）
 disabled_actions = []
 
 [history]
-# Append-only JSONL under the data directory
+# 数据目录下的追加式 JSONL
 enabled = true
-file = "history.jsonl"
+file    = "history.jsonl"
 
 [logging]
 level = "info"
-json = false
+json  = false
 
 [runtime]
-# Max parallel steps in a parallel block
+# parallel 块内最大并行步数
 max_parallel = 8
-# Step timeout in seconds (0 = none)
+# 单步超时秒数（0 = 不限制）
 step_timeout_secs = 0
-# Enterprise: deny directives with no permissions block when true
+# 企业模式：为 true 时拒绝没有 permissions 块的指令
 strict_permissions = false
-# Allowed roots for file.* (empty = no confine; enterprise sets data dir)
+# file.* 允许的根目录（留空 = 不限制；企业模式设为数据目录）
 # filesystem_roots = []
-# Cap total ui.wait ms per directive run (0 = unlimited)
+# 单次指令运行内 ui.wait 总毫秒上限（0 = 不限制）
 # ui_max_settle_ms = 0
-# UI automation profile: baseline | fast | patient
+# UI 自动化档位：baseline | fast | patient
 # ui_profile = "baseline"
-# Max selectors[] fallback chain for ui.element.* (baseline=8, fast=5, patient=12)
+# ui.element.* 的 selectors[] 回退链上限（baseline=8，fast=5，patient=12）
 # ui_max_selector_chain = 8
+
+[update]
+# 通过 GitHub Releases 自更新（`corex update`）。见 docs/reference/自更新.md
+# 总开关；企业 / 内网部署设为 false
+enabled = true
+# CLI 启动时限频检查新版本（在 stderr 提示）
+check_on_start = true
+# 两次后台检查之间的最小小时间隔（0 = 每次运行都查）
+check_interval_hours = 24
+# 发布渠道：stable | alpha | beta | rc
+channel = "stable"
+# GitHub 仓库 slug
+repository = "layenbrank/corex"
+# 覆盖 GitHub API 基址（GitHub Enterprise / 内部镜像）
+# api_base_url = "https://github.example.com/api/v3"
+# 存放 GitHub token 的环境变量；可突破匿名 60 次/小时的 API 限制
+token_env = "COREX_GITHUB_TOKEN"
+# 仅 Windows：未设置 HTTPS_PROXY 时回退到系统（WinINET）代理
+use_system_proxy = true
+# 替换正在运行的可执行文件前先询问
+require_confirmation = true
+# 单次 HTTP 请求超时秒数
+timeout_secs = 30

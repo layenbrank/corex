@@ -1,4 +1,4 @@
-//! Corex daemon — loads config, registers builtins, serves IPC.
+//! Corex 守护进程 —— 读配置、注册内置动作、服务 IPC。
 
 use anyhow::{Context, Result, bail};
 use clap::Parser;
@@ -25,15 +25,15 @@ use tracing::{info, warn};
 #[derive(Parser, Debug)]
 #[command(name = "corex-daemon", version, about = "Corex background daemon")]
 struct Args {
-    /// Override IPC endpoint (Unix socket path, or Windows named pipe e.g. \\.\pipe\corex)
+    /// 覆盖 IPC 端点（Unix socket 路径，或 Windows 命名管道，如 \\.\pipe\corex）
     #[arg(long, alias = "pipe")]
     socket: Option<PathBuf>,
 
-    /// Override directives directory
+    /// 覆盖指令目录
     #[arg(long)]
     directives: Option<PathBuf>,
 
-    /// Config file (toml)
+    /// 配置文件（toml）
     #[arg(long)]
     config: Option<PathBuf>,
 }
@@ -53,8 +53,21 @@ async fn main() -> Result<()> {
     let args = Args::parse();
 
     let data = data_dir()?;
-    let config = load_runtime_config(args.config.as_deref())?;
+    // 配置文存在却解析失败是致命错误：回退到默认值会静默丢掉 `strict_permissions`。
+    let paths: Vec<PathBuf> = args
+        .config
+        .as_deref()
+        .map(|p| vec![p.to_path_buf()])
+        .unwrap_or_else(config_paths);
+    let resolved = corex_core::config::read(&paths)?;
+    let config = resolved.config;
     init_tracing(&config.logging);
+    if let Some(source) = &resolved.source {
+        info!(path = %source.display(), "配置已加载");
+    }
+    for issue in &resolved.warnings {
+        warn!(key = issue.key, "{}", issue.message);
+    }
 
     let endpoint = resolve_endpoint(args.socket, &config.daemon, &data);
     let lock_path = resolve_lock_path(&config.daemon, &data);
@@ -67,7 +80,7 @@ async fn main() -> Result<()> {
 
     let mut registry = ActionRegistry::new();
     registry.register_builtins();
-    registry.apply_runtime_config(&config);
+    registry.remove_disabled(&config.plugins);
     info!(actions = registry.len(), "内置动作已注册");
 
     {
@@ -95,13 +108,13 @@ async fn main() -> Result<()> {
         shutdown: AtomicBool::new(false),
     });
 
-    // Signal handling
+    // 信号处理
     let flag = Arc::clone(&state);
     tokio::spawn(async move {
         shutdown_signal().await;
         info!("收到停止信号");
         flag.shutdown.store(true, Ordering::SeqCst);
-        // Best-effort: remove socket so serve loop errors out / clients fail fast.
+        // 尽力而为：删掉 socket，使服务循环报错退出 / 客户端快速失败。
     });
 
     info!(endpoint = %endpoint.display(), "corex-daemon 启动");
@@ -138,9 +151,9 @@ async fn handle_request(state: &DaemonState, req: Request) -> Response {
             Response::Bye { id }
         }
         Request::ListActions { id, .. } => {
-            let list: Vec<Value> = state
+            let actions: Vec<Value> = state
                 .registry
-                .list()
+                .actions()
                 .into_iter()
                 .map(|m| {
                     let mut map = BTreeMap::new();
@@ -150,14 +163,14 @@ async fn handle_request(state: &DaemonState, req: Request) -> Response {
                     Value::Map(map)
                 })
                 .collect();
-            Response::ok(id, Value::List(list))
+            Response::ok(id, Value::Array(actions))
         }
         Request::ListDirectives { id, dir, .. } => {
-            match resolve_list_dir(&state.directives_dir, dir.as_deref()) {
-                Ok(base) => match list_directives(&base) {
+            match resolve_dir(&state.directives_dir, dir.as_deref()) {
+                Ok(base) => match directives(&base) {
                     Ok(names) => {
-                        let list = names.into_iter().map(Value::Str).collect();
-                        Response::ok(id, Value::List(list))
+                        let entries = names.into_iter().map(Value::Str).collect();
+                        Response::ok(id, Value::Array(entries))
                     }
                     Err(e) => Response::error(id, RpcError::internal(e.to_string())),
                 },
@@ -222,7 +235,7 @@ async fn run_directive(
 }
 
 async fn invoke_action(state: &DaemonState, action_id: &str, params: Value) -> Result<Value> {
-    check_invoke_allowed(&state.config, action_id)?;
+    check_invoke_allowed(&state.config, &*state.registry, action_id)?;
     let action = state
         .registry
         .get(action_id)
@@ -248,13 +261,17 @@ async fn invoke_action(state: &DaemonState, action_id: &str, params: Value) -> R
     Ok(outcome?)
 }
 
-/// Strict mode + config disablement (shared with `corex ui` via [`check_runtime_allowed`]).
-/// Disabled actions are also removed from the registry via `apply_runtime_config`.
-fn check_invoke_allowed(config: &RuntimeConfig, action_id: &str) -> Result<()> {
-    check_runtime_allowed(config, action_id).map_err(|e| anyhow::anyhow!("{e}"))
+/// 严格模式 + 配置层面的停用（与 `corex ui` 共用 [`check_runtime_allowed`]）。
+/// 被禁用的动作也会通过 `remove_disabled` 从注册表里移除。
+fn check_invoke_allowed(
+    config: &RuntimeConfig,
+    store: &dyn corex_core::ActionStore,
+    action_id: &str,
+) -> Result<()> {
+    check_runtime_allowed(config, store, action_id).map_err(|e| anyhow::anyhow!("{e}"))
 }
 
-/// Resolve a Directive by name: only `{name}.yaml` / `{name}.yml` under `dir`.
+/// 按名称解析指令：只在 `dir` 下找 `{name}.yaml` / `{name}.yml`。
 fn resolve_directive(dir: &Path, name: &str) -> Result<PathBuf> {
     if name.is_empty()
         || name.contains("..")
@@ -275,12 +292,12 @@ fn resolve_directive(dir: &Path, name: &str) -> Result<PathBuf> {
     bail!("指令未找到: {name}");
 }
 
-/// Ensure `path` resolves under `root` (after joining relative paths).
+/// 保证 `path`（拼接相对路径之后）解析在 `root` 之下。
 fn confine_under(root: &Path, path: &Path) -> Result<PathBuf> {
     corex_core::path::confine_under(root, path).map_err(|e| anyhow::anyhow!(e.0))
 }
 
-fn resolve_list_dir(directives_dir: &Path, dir: Option<&str>) -> Result<PathBuf> {
+fn resolve_dir(directives_dir: &Path, dir: Option<&str>) -> Result<PathBuf> {
     match dir {
         None => Ok(directives_dir.to_path_buf()),
         Some(d) => {
@@ -293,7 +310,7 @@ fn resolve_list_dir(directives_dir: &Path, dir: Option<&str>) -> Result<PathBuf>
     }
 }
 
-fn list_directives(dir: &Path) -> Result<Vec<String>> {
+fn directives(dir: &Path) -> Result<Vec<String>> {
     let mut names = Vec::new();
     if !dir.exists() {
         return Ok(names);
@@ -303,10 +320,9 @@ fn list_directives(dir: &Path) -> Result<Vec<String>> {
         if matches!(
             path.extension().and_then(|e| e.to_str()),
             Some("yaml") | Some("yml")
-        ) {
-            if let Some(stem) = path.file_stem() {
-                names.push(stem.to_string_lossy().to_string());
-            }
+        ) && let Some(stem) = path.file_stem()
+        {
+            names.push(stem.to_string_lossy().to_string());
         }
     }
     names.sort();
@@ -342,8 +358,8 @@ fn open_history(data: &Path, config: &RuntimeConfig) -> Result<Option<ExecutionH
     ))
 }
 
-/// Resolve a path from config: absolute stays absolute; relative joins `data`.
-/// On Windows, `\\.\pipe\...` (and `//./pipe/...`) are used as-is.
+/// 解析配置里的路径：绝对路径原样；相对路径拼到 `data` 下。
+/// Windows 上 `\\.\pipe\...`（以及 `//./pipe/...`）那一类属于命名管道名字，直接用。
 fn resolve_data_relative(data: &Path, path: &Path) -> PathBuf {
     #[cfg(windows)]
     {
@@ -377,15 +393,15 @@ fn resolve_lock_path(daemon: &DaemonConfig, data: &Path) -> PathBuf {
 }
 
 fn resolve_auth_token(data: &Path, daemon: &DaemonConfig) -> Result<String> {
-    if let Ok(t) = std::env::var("COREX_TOKEN") {
-        if !t.is_empty() {
-            return Ok(t);
-        }
+    if let Ok(t) = std::env::var("COREX_TOKEN")
+        && !t.is_empty()
+    {
+        return Ok(t);
     }
-    if let Some(t) = &daemon.token {
-        if !t.is_empty() {
-            return Ok(t.clone());
-        }
+    if let Some(t) = &daemon.token
+        && !t.is_empty()
+    {
+        return Ok(t.clone());
     }
     read_or_create_token_file(&data.join("token"))
 }
@@ -444,111 +460,6 @@ fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
     diff == 0
 }
 
-fn load_runtime_config(path: Option<&Path>) -> Result<RuntimeConfig> {
-    let candidates: Vec<PathBuf> = path
-        .map(|p| vec![p.to_path_buf()])
-        .unwrap_or_else(config_paths);
-
-    for p in candidates {
-        if p.as_os_str().is_empty() || !p.exists() {
-            continue;
-        }
-        let text = std::fs::read_to_string(&p)?;
-        match toml::from_str::<ConfigFile>(&text) {
-            Ok(cf) => return Ok(cf.into_runtime()),
-            Err(e) => warn!(path = %p.display(), error = %e, "配置解析失败，尝试下一个"),
-        }
-    }
-    Ok(RuntimeConfig::default())
-}
-
-#[derive(Debug, serde::Deserialize, Default)]
-struct ConfigFile {
-    #[serde(default)]
-    plugins: Option<corex_core::PluginConfig>,
-    #[serde(default)]
-    history: Option<corex_core::HistoryConfig>,
-    #[serde(default)]
-    daemon: Option<DaemonConfig>,
-    #[serde(default)]
-    logging: Option<LoggingConfig>,
-    #[serde(default)]
-    runtime: Option<RuntimeSection>,
-}
-
-#[derive(Debug, serde::Deserialize, Default)]
-struct RuntimeSection {
-    #[serde(default)]
-    max_parallel: Option<usize>,
-    #[serde(default)]
-    step_timeout_secs: Option<u64>,
-    #[serde(default)]
-    strict_permissions: Option<bool>,
-    #[serde(default)]
-    filesystem_roots: Option<Vec<std::path::PathBuf>>,
-    #[serde(default)]
-    ui_profile: Option<String>,
-    #[serde(default)]
-    ui_max_selector_chain: Option<usize>,
-    #[serde(default)]
-    ui_max_settle_ms: Option<u64>,
-    #[serde(default)]
-    cron_timezone: Option<String>,
-}
-
-impl ConfigFile {
-    fn into_runtime(self) -> RuntimeConfig {
-        let mut cfg = RuntimeConfig::default();
-        if let Some(p) = self.plugins {
-            cfg.plugins = p;
-        }
-        if let Some(h) = self.history {
-            cfg.history = h;
-        }
-        if let Some(d) = self.daemon {
-            cfg.daemon = d;
-        }
-        if let Some(l) = self.logging {
-            cfg.logging = l;
-        }
-        if let Some(r) = self.runtime {
-            if let Some(m) = r.max_parallel {
-                cfg.max_parallel = m;
-            }
-            if let Some(t) = r.step_timeout_secs {
-                cfg.step_timeout_secs = t;
-            }
-            if let Some(s) = r.strict_permissions {
-                cfg.strict_permissions = s;
-            }
-            if let Some(roots) = r.filesystem_roots {
-                cfg.filesystem_roots = roots;
-            }
-            let overrides = corex_core::UiProfileOverrides {
-                max_selector_chain: r.ui_max_selector_chain,
-                max_settle_ms: r.ui_max_settle_ms,
-            };
-            if let Some(profile) = r.ui_profile {
-                cfg.apply_ui_profile(&profile, overrides);
-            } else {
-                if let Some(n) = r.ui_max_selector_chain {
-                    cfg.ui_max_selector_chain = n;
-                }
-                if let Some(ms) = r.ui_max_settle_ms {
-                    cfg.ui_max_settle_ms = ms;
-                }
-            }
-            if let Some(tz) = r.cron_timezone {
-                let trimmed = tz.trim();
-                if !trimmed.is_empty() {
-                    cfg.cron_timezone = trimmed.to_string();
-                }
-            }
-        }
-        cfg
-    }
-}
-
 fn init_tracing(logging: &LoggingConfig) {
     let filter = tracing_subscriber::EnvFilter::try_from_default_env()
         .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new(&logging.level));
@@ -600,33 +511,49 @@ async fn shutdown_signal() {
 mod tests {
     use super::*;
 
+    /// 用真实的内置声明，使写错的权限要求不会悄悄溜过。
+    fn store() -> ActionRegistry {
+        let mut registry = ActionRegistry::new();
+        registry.register_builtins();
+        registry
+    }
+
     #[test]
     fn strict_invoke_denies_file_write() {
-        let mut cfg = RuntimeConfig::default();
-        cfg.strict_permissions = true;
-        assert!(check_invoke_allowed(&cfg, "file.write").is_err());
-        assert!(check_invoke_allowed(&cfg, "shell.run").is_err());
+        let cfg = RuntimeConfig {
+            strict_permissions: true,
+            ..Default::default()
+        };
+        assert!(check_invoke_allowed(&cfg, &store(), "file.write").is_err());
+        assert!(check_invoke_allowed(&cfg, &store(), "shell.run").is_err());
     }
 
     #[test]
     fn non_strict_invoke_allows_file_write() {
         let cfg = RuntimeConfig::default();
-        assert!(check_invoke_allowed(&cfg, "file.write").is_ok());
+        assert!(check_invoke_allowed(&cfg, &store(), "file.write").is_ok());
     }
 
     #[test]
     fn strict_invoke_allows_none_kind() {
-        let mut cfg = RuntimeConfig::default();
-        cfg.strict_permissions = true;
-        assert!(check_invoke_allowed(&cfg, "template.render").is_ok());
-        assert!(check_invoke_allowed(&cfg, "generate.uuid").is_ok());
+        let cfg = RuntimeConfig {
+            strict_permissions: true,
+            ..Default::default()
+        };
+        assert!(check_invoke_allowed(&cfg, &store(), "template.render").is_ok());
+        assert!(check_invoke_allowed(&cfg, &store(), "generate.uuid").is_ok());
     }
 
     #[test]
     fn invoke_denied_when_action_disabled() {
-        let mut cfg = RuntimeConfig::default();
-        cfg.plugins.disabled_actions = vec!["shell.run".into()];
-        assert!(check_invoke_allowed(&cfg, "shell.run").is_err());
-        assert!(check_invoke_allowed(&cfg, "template.render").is_ok());
+        let cfg = RuntimeConfig {
+            plugins: corex_core::PluginConfig {
+                disabled_actions: vec!["shell.run".into()],
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        assert!(check_invoke_allowed(&cfg, &store(), "shell.run").is_err());
+        assert!(check_invoke_allowed(&cfg, &store(), "template.render").is_ok());
     }
 }

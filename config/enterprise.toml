@@ -1,15 +1,15 @@
-# Enterprise preset (locked-down)
+# 企业预设（锁紧配置）
 
-# Copy or merge into your runtime config for production.
+# 生产环境请复制或合并进你的运行时配置。
 
 [runtime]
 strict_permissions = true
-# Confine file/copy/codec/exec script/cwd … path I/O under these roots (use absolute paths in deploy)
+# 把 file/copy/codec/exec 脚本/cwd 等路径 I/O 限制在这些根目录下（部署时用绝对路径）
 filesystem_roots = ["C:/ProgramData/corex/data"]
 ui_max_settle_ms = 500
 
 [plugins]
-# Or disable the whole UI plugin: disabled = ["ui"]
+# 也可以直接禁用整个 UI 插件：disabled = ["ui"]
 disabled_actions = [
   "shell.run",
   "exec.run",
@@ -50,8 +50,14 @@ disabled_actions = [
 
 [logging]
 level = "info"
-json = true
+json  = true
 
 [history]
 enabled = true
-file = "history.jsonl"
+file    = "history.jsonl"
+
+[update]
+# 锁紧：不使用 `corex update`，也不做外联版本检查。
+# 只在受审计的内部镜像（`api_base_url`）后方才重新开启。
+enabled        = false
+check_on_start = false
