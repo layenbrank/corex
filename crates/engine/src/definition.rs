@@ -1,12 +1,13 @@
-//! Directive YAML definitions.
+//! 指令 YAML 定义。
 
 use corex_core::Value;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::Path;
 
-/// Top-level Directive document.
+/// 顶层指令文档。
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct Directive {
     pub name: String,
     #[serde(default)]
@@ -16,6 +17,10 @@ pub struct Directive {
     #[serde(default)]
     pub inputs: Vec<InputDecl>,
     #[serde(default)]
+    #[cfg_attr(
+        feature = "schema",
+        schemars(with = "std::collections::HashMap<String, serde_json::Value>")
+    )]
     pub variables: HashMap<String, Value>,
     #[serde(default)]
     pub triggers: Vec<Trigger>,
@@ -38,8 +43,9 @@ impl Directive {
     }
 }
 
-/// Declared Directive input.
+/// 声明的指令输入。
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct InputDecl {
     pub name: String,
     #[serde(default)]
@@ -47,31 +53,35 @@ pub struct InputDecl {
     #[serde(default)]
     pub required: bool,
     #[serde(default)]
+    #[cfg_attr(feature = "schema", schemars(with = "Option<serde_json::Value>"))]
     pub default: Option<Value>,
 }
 
-/// A single pipeline step or control-flow node.
+/// 单个流水线步骤或控制流节点。
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(untagged)]
 pub enum Step {
-    /// Regular action invocation.
+    /// 普通动作调用。
     Action(ActionStep),
-    /// Conditional branch.
+    /// 条件分支。
     If(IfStep),
-    /// Repeat / loop.
+    /// 重复 / 循环。
     Repeat(RepeatStep),
-    /// Run child steps in parallel.
+    /// 并行运行子步骤。
     Parallel(ParallelStep),
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct ActionStep {
     pub id: String,
-    /// Action id, e.g. `shell.run`, `file.write`.
+    /// 动作 id，如 `shell.run`、`file.write`。
     pub action: String,
     #[serde(default)]
+    #[cfg_attr(feature = "schema", schemars(with = "serde_json::Value"))]
     pub params: Value,
-    /// Save step output into a variable name.
+    /// 把步骤输出存进某个变量名。
     #[serde(default)]
     pub save_to: Option<String>,
     #[serde(default)]
@@ -83,6 +93,7 @@ pub struct ActionStep {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct IfStep {
     pub id: String,
     #[serde(rename = "if")]
@@ -93,18 +104,20 @@ pub struct IfStep {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct RepeatStep {
     pub id: String,
     pub repeat: RepeatSpec,
     pub steps: Vec<Step>,
 }
 
-/// Loop specification: either `count` or `each` must be set.
+/// 循环规格：`count` 与 `each` 必须设其一。
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct RepeatSpec {
     #[serde(default)]
     pub count: Option<u64>,
-    /// Expression resolving to a list, e.g. `"{{items}}"`.
+    /// 能解析成数组的表达式，如 `"{{items}}"`。
     #[serde(default)]
     pub each: Option<String>,
     #[serde(default = "init_repeat_item", rename = "as")]
@@ -122,6 +135,7 @@ fn init_repeat_item() -> String {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct ParallelStep {
     pub id: String,
     pub parallel: Vec<Step>,
@@ -129,22 +143,27 @@ pub struct ParallelStep {
     pub max_concurrency: Option<usize>,
 }
 
-/// Boolean / comparison condition for `when` / `if`.
+/// `when` / `if` 用的布尔 / 比较条件。
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(untagged)]
 pub enum Condition {
-    /// Truthy expression string, e.g. `"{{variables.enabled}}"`.
+    /// 真值表达式字符串，如 `"{{variables.enabled}}"`。
     Expr(String),
     Eq {
+        #[cfg_attr(feature = "schema", schemars(with = "[serde_json::Value; 2]"))]
         eq: [Value; 2],
     },
     Ne {
+        #[cfg_attr(feature = "schema", schemars(with = "[serde_json::Value; 2]"))]
         ne: [Value; 2],
     },
     Gt {
+        #[cfg_attr(feature = "schema", schemars(with = "[serde_json::Value; 2]"))]
         gt: [Value; 2],
     },
     Lt {
+        #[cfg_attr(feature = "schema", schemars(with = "[serde_json::Value; 2]"))]
         lt: [Value; 2],
     },
     And {
@@ -158,8 +177,9 @@ pub enum Condition {
     },
 }
 
-/// How to react when a step fails.
+/// 步骤失败时的反应方式。
 #[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(rename_all = "snake_case")]
 pub enum OnError {
     #[default]
@@ -168,12 +188,13 @@ pub enum OnError {
     Skip,
 }
 
-/// Declared permissions a Directive may need.
+/// 指令可能需要的声明权限。
 ///
-/// When **all** flags are false (YAML omitted / empty), the Directive is treated as
-/// unrestricted (allow-all) for backward compatibility with simple directives.
-/// Once any flag is `true`, undeclared categories are denied.
+/// 当**所有**标志都为 false（YAML 省略或为空）时，该指令被视为
+/// 不设限（allow-all），以兼容简单指令的既有行为。
+/// 一旦任一标志为 `true`，未声明的类别即被拒绝。
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct Permissions {
     #[serde(default)]
     pub network: bool,
@@ -194,7 +215,7 @@ pub struct Permissions {
 }
 
 impl Permissions {
-    /// `true` when no category was explicitly enabled → allow all actions.
+    /// 没有任何类别被显式启用时为 `true` → 允许所有动作。
     pub fn is_unrestricted(&self) -> bool {
         !self.network
             && !self.filesystem
@@ -206,57 +227,80 @@ impl Permissions {
             && !self.secret
     }
 
-    /// Check whether `action_id` is permitted under this declaration.
-    pub fn allows_action(&self, action_id: &str) -> Result<(), corex_core::ActionError> {
+    /// 检查该声明下是否允许 `action_id`。
+    pub fn allows_action(
+        &self,
+        store: &dyn corex_core::ActionStore,
+        action_id: &str,
+    ) -> Result<(), corex_core::ActionError> {
         if self.is_unrestricted() {
             return Ok(());
         }
-        let need = corex_core::permission_kind_for(action_id);
-        let ok = match need {
-            corex_core::PermissionKind::None => true,
-            corex_core::PermissionKind::Network => self.network,
-            corex_core::PermissionKind::Filesystem => self.filesystem,
-            corex_core::PermissionKind::Shell => self.shell,
-            corex_core::PermissionKind::Clipboard => self.clipboard,
-            corex_core::PermissionKind::Notifications => self.notifications,
-            corex_core::PermissionKind::Ui => self.ui,
-            corex_core::PermissionKind::Capture => self.capture,
-            corex_core::PermissionKind::Secret => self.secret,
-        };
-        if ok {
+        let missing: Vec<_> = store
+            .permissions_of(action_id)
+            .iter()
+            .filter(|kind| !self.grants(*kind))
+            .map(|kind| kind.name())
+            .collect();
+        if missing.is_empty() {
             Ok(())
         } else {
             Err(corex_core::ActionError::PermissionDenied(format!(
-                "指令未声明权限以执行 {action_id}"
+                "指令未声明权限 {} 以执行 {action_id}",
+                missing.join("+")
             )))
+        }
+    }
+
+    /// 该声明是否授予 `kind`。
+    fn grants(&self, kind: corex_core::PermissionKind) -> bool {
+        use corex_core::PermissionKind as Kind;
+        match kind {
+            Kind::None => true,
+            Kind::Network => self.network,
+            Kind::Filesystem => self.filesystem,
+            Kind::Shell => self.shell,
+            Kind::Clipboard => self.clipboard,
+            Kind::Notifications => self.notifications,
+            Kind::Ui => self.ui,
+            Kind::Capture => self.capture,
+            Kind::Secret => self.secret,
         }
     }
 }
 
-/// Validate that declared permissions cover all action steps (enterprise `--strict`).
-pub fn validate_permissions(directive: &Directive) -> Result<(), String> {
+/// 校验声明的权限覆盖了全部动作步骤（企业 `--strict`）。
+pub fn validate_permissions(
+    store: &dyn corex_core::ActionStore,
+    directive: &Directive,
+) -> Result<(), String> {
     if directive.permissions.is_unrestricted() {
         return Err("strict: 必须声明 permissions（当前为 unrestricted / allow-all）".into());
     }
-    fn walk(steps: &[Step], perms: &Permissions, errs: &mut Vec<String>) {
+    fn walk(
+        steps: &[Step],
+        perms: &Permissions,
+        store: &dyn corex_core::ActionStore,
+        errs: &mut Vec<String>,
+    ) {
         for step in steps {
             match step {
                 Step::Action(a) => {
-                    if let Err(e) = perms.allows_action(&a.action) {
+                    if let Err(e) = perms.allows_action(store, &a.action) {
                         errs.push(format!("{}: {e}", a.id));
                     }
                 }
                 Step::If(i) => {
-                    walk(&i.then, perms, errs);
-                    walk(&i.else_steps, perms, errs);
+                    walk(&i.then, perms, store, errs);
+                    walk(&i.else_steps, perms, store, errs);
                 }
-                Step::Repeat(r) => walk(&r.steps, perms, errs),
-                Step::Parallel(p) => walk(&p.parallel, perms, errs),
+                Step::Repeat(r) => walk(&r.steps, perms, store, errs),
+                Step::Parallel(p) => walk(&p.parallel, perms, store, errs),
             }
         }
     }
     let mut errs = Vec::new();
-    walk(&directive.steps, &directive.permissions, &mut errs);
+    walk(&directive.steps, &directive.permissions, store, &mut errs);
     if errs.is_empty() {
         Ok(())
     } else {
@@ -268,13 +312,20 @@ pub fn validate_permissions(directive: &Directive) -> Result<(), String> {
 mod tests {
     use super::*;
 
+    /// 用真实的内置声明，使写错的权限要求不会悄悄溜过。
+    fn store() -> corex_registry::ActionRegistry {
+        let mut registry = corex_registry::ActionRegistry::new();
+        registry.register_builtins();
+        registry
+    }
+
     #[test]
     fn unrestricted_allows_everything() {
         let p = Permissions::default();
         assert!(p.is_unrestricted());
-        assert!(p.allows_action("shell.run").is_ok());
-        assert!(p.allows_action("http.send").is_ok());
-        assert!(p.allows_action("template.render").is_ok());
+        assert!(p.allows_action(&store(), "shell.run").is_ok());
+        assert!(p.allows_action(&store(), "http.send").is_ok());
+        assert!(p.allows_action(&store(), "template.render").is_ok());
     }
 
     #[test]
@@ -284,10 +335,10 @@ mod tests {
             ..Permissions::default()
         };
         assert!(!p.is_unrestricted());
-        assert!(p.allows_action("file.write").is_ok());
-        assert!(p.allows_action("template.render").is_ok()); // None kind
-        assert!(p.allows_action("shell.run").is_err());
-        assert!(p.allows_action("http.send").is_err());
+        assert!(p.allows_action(&store(), "file.write").is_ok());
+        assert!(p.allows_action(&store(), "template.render").is_ok()); // needs nothing
+        assert!(p.allows_action(&store(), "shell.run").is_err());
+        assert!(p.allows_action(&store(), "http.send").is_err());
     }
 
     #[test]
@@ -296,8 +347,8 @@ mod tests {
             shell: true,
             ..Permissions::default()
         };
-        assert!(p.allows_action("shell.run").is_ok());
-        assert!(p.allows_action("http.send").is_err());
+        assert!(p.allows_action(&store(), "shell.run").is_ok());
+        assert!(p.allows_action(&store(), "http.send").is_err());
     }
 
     #[test]
@@ -311,20 +362,20 @@ steps:
       template: "x"
 "#;
         let s = Directive::from_yaml_str(yaml).unwrap();
-        assert!(validate_permissions(&s).is_err());
+        assert!(validate_permissions(&store(), &s).is_err());
     }
 }
 
-/// Directive trigger definitions (automated sources only; manual run via `corex run`).
+/// 指令触发器定义（仅自动化来源；手动执行走 `corex run`）。
 #[derive(Debug, Clone)]
 pub enum Trigger {
     Cron {
         expr: String,
-        /// Optional IANA / `local` / `utc`; falls back to `RuntimeConfig.cron_timezone`.
+        /// 可选的 IANA / `local` / `utc`；缺省时用 `RuntimeConfig.cron_timezone`。
         timezone: Option<String>,
     },
     Watch(WatchTrigger),
 }
 
-/// Watch trigger fields (`type: watch`).
+/// watch 触发器字段（`type: watch`）。
 pub type WatchTrigger = crate::trigger::WatchConfig;

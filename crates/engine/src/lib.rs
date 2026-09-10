@@ -1,4 +1,4 @@
-//! Directive pipeline engine: load YAML, resolve variables, execute steps.
+//! 指令流水线引擎：读 YAML、解析变量、执行步骤。
 
 pub mod audit;
 pub mod control_flow;
@@ -9,17 +9,19 @@ pub mod inputs;
 pub mod pipeline;
 pub mod resolver;
 pub mod run;
+#[cfg(feature = "schema")]
+pub mod schema;
 pub mod supervisor;
 pub mod trigger;
 pub mod watch;
 
 pub use audit::{AuditEntry, ExecutionAudit};
-pub use corex_core::{PermissionKind, permission_kind_for};
+pub use corex_core::{PermissionKind, PermissionSet};
 pub use definition::{
     Condition, Directive, InputDecl, OnError, Permissions, Step, Trigger, validate_permissions,
 };
 pub use history::{ExecutionHistory, HistoryEntry};
-pub use inputs::{apply_input_defaults, is_input_unset};
+pub use inputs::{fill_input_defaults, is_input_unset};
 pub use pipeline::Pipeline;
 pub use resolver::Resolver;
 pub use run::{DirectiveRunner, run_directive_file};

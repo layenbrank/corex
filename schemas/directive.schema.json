@@ -1,71 +1,517 @@
 {
-  "$schema": "http://json-schema.org/draft-07/schema#",
-  "$id": "https://corex.local/schemas/directive.schema.json",
-  "title": "Corex Directive",
-  "description": "YAML directive document executed by corex-engine",
-  "type": "object",
-  "required": ["name", "steps"],
-  "properties": {
-    "name": { "type": "string" },
-    "description": { "type": "string" },
-    "version": { "type": "string" },
-    "inputs": { "type": "array" },
-    "variables": { "type": "object" },
-    "triggers": {
-      "type": "array",
-      "items": {
-        "oneOf": [
-          {
-            "type": "object",
-            "required": ["type", "expr"],
-            "properties": {
-              "type": { "const": "cron" },
-              "expr": { "type": "string" },
-              "timezone": {
-                "type": "string",
-                "description": "local | utc | ±HH:MM; overrides runtime.cron_timezone"
-              }
+  "$defs": {
+    "ActionStep": {
+      "properties": {
+        "action": {
+          "description": "动作 id，如 `shell.run`、`file.write`。",
+          "type": "string"
+        },
+        "id": {
+          "type": "string"
+        },
+        "on_error": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/OnError"
             },
-            "additionalProperties": false
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "params": {
+          "default": null
+        },
+        "retry": {
+          "default": null,
+          "format": "uint32",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "save_to": {
+          "default": null,
+          "description": "把步骤输出存进某个变量名。",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "when": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Condition"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "required": [
+        "id",
+        "action"
+      ],
+      "type": "object"
+    },
+    "Condition": {
+      "anyOf": [
+        {
+          "description": "真值表达式字符串，如 `\"{{variables.enabled}}\"`。",
+          "type": "string"
+        },
+        {
+          "properties": {
+            "eq": {
+              "items": true,
+              "maxItems": 2,
+              "minItems": 2,
+              "type": "array"
+            }
           },
-          {
-            "type": "object",
-            "required": ["type", "paths"],
-            "properties": {
-              "type": { "const": "watch" },
-              "paths": {
-                "type": "array",
-                "items": { "type": "string" },
-                "minItems": 1
+          "required": [
+            "eq"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "ne": {
+              "items": true,
+              "maxItems": 2,
+              "minItems": 2,
+              "type": "array"
+            }
+          },
+          "required": [
+            "ne"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "gt": {
+              "items": true,
+              "maxItems": 2,
+              "minItems": 2,
+              "type": "array"
+            }
+          },
+          "required": [
+            "gt"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "lt": {
+              "items": true,
+              "maxItems": 2,
+              "minItems": 2,
+              "type": "array"
+            }
+          },
+          "required": [
+            "lt"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "and": {
+              "items": {
+                "$ref": "#/$defs/Condition"
               },
-              "includes": {
-                "type": "array",
-                "items": { "type": "string" }
+              "type": "array"
+            }
+          },
+          "required": [
+            "and"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "or": {
+              "items": {
+                "$ref": "#/$defs/Condition"
               },
-              "excludes": {
-                "type": "array",
-                "items": { "type": "string" }
-              },
-              "debounce_ms": { "type": "integer", "minimum": 0 },
-              "throttle_ms": { "type": "integer", "minimum": 1 },
-              "immediate": { "type": "boolean", "default": false },
-              "poll": { "type": "boolean", "default": false },
-              "events": {
-                "type": "array",
-                "items": {
-                  "type": "string",
-                  "enum": ["create", "modify", "remove", "access"]
-                }
-              }
+              "type": "array"
+            }
+          },
+          "required": [
+            "or"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "not": {
+              "$ref": "#/$defs/Condition"
+            }
+          },
+          "required": [
+            "not"
+          ],
+          "type": "object"
+        }
+      ],
+      "description": "`when` / `if` 用的布尔 / 比较条件。"
+    },
+    "IfStep": {
+      "properties": {
+        "else": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/Step"
+          },
+          "type": "array"
+        },
+        "id": {
+          "type": "string"
+        },
+        "if": {
+          "$ref": "#/$defs/Condition"
+        },
+        "then": {
+          "items": {
+            "$ref": "#/$defs/Step"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "id",
+        "if",
+        "then"
+      ],
+      "type": "object"
+    },
+    "InputDecl": {
+      "description": "声明的指令输入。",
+      "properties": {
+        "default": {
+          "default": null
+        },
+        "description": {
+          "default": "",
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "required": {
+          "default": false,
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "type": "object"
+    },
+    "OnError": {
+      "description": "步骤失败时的反应方式。",
+      "enum": [
+        "abort",
+        "continue",
+        "skip"
+      ],
+      "type": "string"
+    },
+    "ParallelStep": {
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "max_concurrency": {
+          "default": null,
+          "format": "uint",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "parallel": {
+          "items": {
+            "$ref": "#/$defs/Step"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "id",
+        "parallel"
+      ],
+      "type": "object"
+    },
+    "Permissions": {
+      "description": "指令可能需要的声明权限。\n\n当**所有**标志都为 false（YAML 省略或为空）时，该指令被视为\n不设限（allow-all），以兼容简单指令的既有行为。\n一旦任一标志为 `true`，未声明的类别即被拒绝。",
+      "properties": {
+        "capture": {
+          "default": false,
+          "type": "boolean"
+        },
+        "clipboard": {
+          "default": false,
+          "type": "boolean"
+        },
+        "filesystem": {
+          "default": false,
+          "type": "boolean"
+        },
+        "network": {
+          "default": false,
+          "type": "boolean"
+        },
+        "notifications": {
+          "default": false,
+          "type": "boolean"
+        },
+        "secret": {
+          "default": false,
+          "type": "boolean"
+        },
+        "shell": {
+          "default": false,
+          "type": "boolean"
+        },
+        "ui": {
+          "default": false,
+          "type": "boolean"
+        }
+      },
+      "type": "object"
+    },
+    "RepeatSpec": {
+      "description": "循环规格：`count` 与 `each` 必须设其一。",
+      "properties": {
+        "as": {
+          "default": "item",
+          "type": "string"
+        },
+        "count": {
+          "default": null,
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "each": {
+          "default": null,
+          "description": "能解析成数组的表达式，如 `\"{{items}}\"`。",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "index": {
+          "default": "index",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "RepeatStep": {
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "repeat": {
+          "$ref": "#/$defs/RepeatSpec"
+        },
+        "steps": {
+          "items": {
+            "$ref": "#/$defs/Step"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "id",
+        "repeat",
+        "steps"
+      ],
+      "type": "object"
+    },
+    "Step": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/ActionStep",
+          "description": "普通动作调用。"
+        },
+        {
+          "$ref": "#/$defs/IfStep",
+          "description": "条件分支。"
+        },
+        {
+          "$ref": "#/$defs/RepeatStep",
+          "description": "重复 / 循环。"
+        },
+        {
+          "$ref": "#/$defs/ParallelStep",
+          "description": "并行运行子步骤。"
+        }
+      ],
+      "description": "单个流水线步骤或控制流节点。"
+    },
+    "Trigger": {
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "properties": {
+            "expr": {
+              "type": "string"
             },
-            "additionalProperties": false
-          }
-        ]
+            "timezone": {
+              "description": "local | utc | ±HH:MM; overrides runtime.cron_timezone",
+              "type": "string"
+            },
+            "type": {
+              "const": "cron"
+            }
+          },
+          "required": [
+            "type",
+            "expr"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "debounce_ms": {
+              "minimum": 0,
+              "type": "integer"
+            },
+            "events": {
+              "items": {
+                "enum": [
+                  "create",
+                  "modify",
+                  "remove",
+                  "access"
+                ],
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "excludes": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "immediate": {
+              "default": false,
+              "type": "boolean"
+            },
+            "includes": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "paths": {
+              "items": {
+                "type": "string"
+              },
+              "minItems": 1,
+              "type": "array"
+            },
+            "poll": {
+              "default": false,
+              "type": "boolean"
+            },
+            "throttle_ms": {
+              "minimum": 1,
+              "type": "integer"
+            },
+            "type": {
+              "const": "watch"
+            }
+          },
+          "required": [
+            "type",
+            "paths"
+          ],
+          "type": "object"
+        }
+      ]
+    }
+  },
+  "$id": "https://corex.local/schemas/directive.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "description": "YAML directive document executed by corex-engine",
+  "properties": {
+    "description": {
+      "default": "",
+      "type": "string"
+    },
+    "inputs": {
+      "default": [],
+      "items": {
+        "$ref": "#/$defs/InputDecl"
+      },
+      "type": "array"
+    },
+    "name": {
+      "type": "string"
+    },
+    "on_error": {
+      "$ref": "#/$defs/OnError",
+      "default": "abort"
+    },
+    "permissions": {
+      "$ref": "#/$defs/Permissions",
+      "default": {
+        "capture": false,
+        "clipboard": false,
+        "filesystem": false,
+        "network": false,
+        "notifications": false,
+        "secret": false,
+        "shell": false,
+        "ui": false
       }
     },
-    "permissions": { "type": "object" },
-    "steps": { "type": "array", "minItems": 1 },
-    "on_error": { "type": "string" }
+    "steps": {
+      "items": {
+        "$ref": "#/$defs/Step"
+      },
+      "type": "array"
+    },
+    "triggers": {
+      "default": [],
+      "items": {
+        "$ref": "#/$defs/Trigger"
+      },
+      "type": "array"
+    },
+    "variables": {
+      "additionalProperties": true,
+      "default": {},
+      "type": "object"
+    },
+    "version": {
+      "default": null,
+      "type": [
+        "string",
+        "null"
+      ]
+    }
   },
-  "additionalProperties": true
+  "required": [
+    "name",
+    "steps"
+  ],
+  "title": "Corex Directive",
+  "type": "object"
 }

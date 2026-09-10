@@ -1,4 +1,4 @@
-//! Parse directive triggers into runtime configs.
+//! 把指令触发器解析成运行时配置。
 
 use crate::definition::Trigger;
 use serde::{Deserialize, Serialize, Serializer};
@@ -6,18 +6,18 @@ use serde::{Deserialize, Serialize, Serializer};
 pub const DEBOUNCE_MS: u64 = 300;
 pub const THROTTLE_MS: u64 = 1_000;
 
-/// Default excludes (Vite-style): always skip VCS, deps, and test output unless overridden.
+/// 默认排除项（Vite 风格）：除非被覆盖，否则总是跳过版本库目录、依赖和测试产物。
 pub const WATCH_EXCLUDES: &[&str] = &["**/.git/**", "**/node_modules/**", "**/test-results/**"];
 
-/// Parsed watch trigger (paths may include files or directories).
+/// 解析好的 watch 触发器（paths 可以是文件也可以是目录）。
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WatchConfig {
     pub paths: Vec<String>,
     pub includes: Vec<String>,
     pub excludes: Vec<String>,
-    /// FS quiet-period debounce (`notify_debouncer_full`), not lodash debounce.
+    /// 文件系统静默期去抖（`notify_debouncer_full`），不是 lodash debounce。
     pub debounce_ms: u64,
-    /// Throttle interval for pipeline runs (lodash-like leading+trailing).
+    /// 流水线运行的节流间隔（类 lodash 的 leading+trailing）。
     pub throttle_ms: u64,
     #[serde(default)]
     pub immediate: bool,
@@ -27,15 +27,72 @@ pub struct WatchConfig {
     pub events: Vec<String>,
 }
 
-/// Parsed cron trigger.
+/// 触发器的对外格式，由上面手写的 `Serialize` / `Deserialize` 定义：
+/// 内部标签的 `type: cron | watch`；`expr` 对 cron 是必需的，对 watch 则会被拒绍。
+/// 没有哪个 derive 能表达这一点，所以约束写在这里——紧挨着定义格式的那些
+/// 实现，而不是放在生成的文件里。
+#[cfg(feature = "schema")]
+impl schemars::JsonSchema for Trigger {
+    fn schema_name() -> std::borrow::Cow<'static, str> {
+        "Trigger".into()
+    }
+
+    fn json_schema(_generator: &mut schemars::SchemaGenerator) -> schemars::Schema {
+        schemars::json_schema!({
+            "oneOf": [
+                {
+                    "type": "object",
+                    "required": ["type", "expr"],
+                    "properties": {
+                        "type": { "const": "cron" },
+                        "expr": { "type": "string" },
+                        "timezone": {
+                            "type": "string",
+                            "description": "local | utc | ±HH:MM; overrides runtime.cron_timezone"
+                        }
+                    },
+                    "additionalProperties": false
+                },
+                {
+                    "type": "object",
+                    "required": ["type", "paths"],
+                    "properties": {
+                        "type": { "const": "watch" },
+                        "paths": {
+                            "type": "array",
+                            "items": { "type": "string" },
+                            "minItems": 1
+                        },
+                        "includes": { "type": "array", "items": { "type": "string" } },
+                        "excludes": { "type": "array", "items": { "type": "string" } },
+                        "debounce_ms": { "type": "integer", "minimum": 0 },
+                        "throttle_ms": { "type": "integer", "minimum": 1 },
+                        "immediate": { "type": "boolean", "default": false },
+                        "poll": { "type": "boolean", "default": false },
+                        "events": {
+                            "type": "array",
+                            "items": {
+                                "type": "string",
+                                "enum": ["create", "modify", "remove", "access"]
+                            }
+                        }
+                    },
+                    "additionalProperties": false
+                }
+            ]
+        })
+    }
+}
+
+/// 解析好的 cron 触发器。
 #[derive(Debug, Clone)]
 pub struct CronConfig {
     pub expr: String,
-    /// Optional override; empty/`None` → use `RuntimeConfig.cron_timezone`.
+    /// 可选覆盖；为空 / `None` → 使用 `RuntimeConfig.cron_timezone`。
     pub timezone: Option<String>,
 }
 
-/// Raw YAML trigger.
+/// 原始 YAML 触发器。
 #[derive(Debug, Deserialize)]
 struct RawTrigger {
     #[serde(rename = "type")]
@@ -52,7 +109,7 @@ struct RawTrigger {
     debounce_ms: Option<u64>,
     #[serde(default)]
     throttle_ms: Option<u64>,
-    /// Removed field — present only so we can hard-fail (no alias).
+    /// 已移除的字段——保留只为能硬失败（不做别名）。
     #[serde(default)]
     cooldown_ms: Option<u64>,
     #[serde(default)]
@@ -230,7 +287,7 @@ triggers:
         let w = find_watch_trigger(&d.triggers).unwrap().unwrap();
         assert_eq!(w.paths, vec!["./src"]);
         assert_eq!(w.debounce_ms, 500);
-        // Default throttle: max(debounce*2, 1000)
+        // 默认节流：max(debounce*2, 1000)
         assert_eq!(w.throttle_ms, 1000);
     }
 
