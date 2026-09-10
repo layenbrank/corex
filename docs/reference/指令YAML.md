@@ -1,11 +1,16 @@
-# 指令 YAML（Directive，v5）
+# 指令 YAML（Directive，v6）
 
 > **简体中文指南（推荐新手阅读）：** [guide/指令与输入配置.md](../guide/指令与输入配置.md) · [文档中心](../README.md)
 
 指令（directive）是由 `corex-engine` 执行的单个 YAML 文档。
 
 权威来源：[`crates/engine/src/definition.rs`](../../crates/engine/src/definition.rs)，解析器 [`crates/engine/src/resolver.rs`](../../crates/engine/src/resolver.rs)。
-编辑器 schema：[`schemas/directive.schema.json`](../../schemas/directive.schema.json)。
+编辑器 schema：[`schemas/directive.schema.json`](../../schemas/directive.schema.json) —— 该文件**由类型生成，请勿手改**；改完
+`definition.rs` / `trigger.rs` 后用以下命令重新生成（CI 会断言两者一致）：
+
+```text
+COREX_BLESS_SCHEMA=1 cargo test -p corex-engine --features schema --test directive_schema
+```
 
 ## 顶层结构
 
@@ -172,7 +177,7 @@ permissions:
 | **全部标志省略 / false** | **全部允许**（无限制）— 像 `hello.yaml` 这类简单指令无需声明 |
 | **任一标志为 `true`** | 仅允许已声明的类别；其余 → permission denied（`on_error: continue` **不能**吞掉） |
 
-类别映射（摘要）：`shell.run` / `exec.run` / bootstrap → shell；`http.send` → network；`clipboard.*` → clipboard；`notify.send` → notifications；`ui.*` → ui；`capture.screenshot` / `capture.monitors` / `capture.ocr` → capture；`keyring.*` → secret；file/copy/scrub/shade/compression/morph/generate.path/codec（除 `codec.json.parse` 外）/capture.crop → filesystem。
+类别映射（摘要）：`shell.run` / `exec.run` / bootstrap → shell；`http.send` → network；`clipboard.get` → clipboard（`clipboard.set` 为 clipboard **+ filesystem**，因为它的 `image` 模式会读磁盘）；`notify.send` → notifications；`ui.*` → ui；`capture.screenshot` / `capture.monitors` → capture（`capture.ocr` / `capture.find` / `capture.crop` 只读图片文件，归 filesystem）；`keyring.*` → secret；file/copy/scrub/shade/compression/morph/generate.path/codec（除 `codec.json.parse` 外）/capture.crop/capture.ocr/capture.find → filesystem。
 
 在配置中设置 `[runtime].strict_permissions = true`，可 **拒绝** 省略全部权限标志的指令（企业模式）。
 

@@ -77,7 +77,7 @@ Token 不匹配 → 响应 `error`，code **401**。
 | type | 说明 |
 |------|------|
 | `ok` | 成功，`data` 为结果 Value |
-| `error` | 失败，`message` / `code` |
+| `error` | 失败，`error: { code, message }`（嵌套对象） |
 
 ---
 

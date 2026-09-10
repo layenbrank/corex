@@ -1,6 +1,6 @@
 # Corex 文档
 
-可组合的**指令（Directive）/ Action** 运行时。当前版本：**v6.0.0**。
+可组合的**指令（Directive）/ Action** 运行时。当前版本：**v6.0.1**。
 
 按用途选文档即可；找不到时先回本页。
 
@@ -18,9 +18,11 @@
 | 接到 Tauri / 别的应用 | [integration/接入总览.md](./integration/接入总览.md) |
 | 配 `corex.toml` | [guide/运行时配置.md](./guide/运行时配置.md) |
 | 了解架构 / watch·cron / 开发门禁 | [reference/架构.md](./reference/架构.md) |
+| 升级 / 回滚 corex 自身 | [reference/自更新.md](./reference/自更新.md) |
 | 企业锁定 / 合规 | [ops/企业部署.md](./ops/企业部署.md) |
 | 发版 / 写 CHANGELOG | [ops/发布与Changelog.md](./ops/发布与Changelog.md) |
-| 升级迁移 | [changelog/破坏性变更-v5.md](./changelog/破坏性变更-v5.md) |
+| 体积 / 冷启动基线 | [ops/性能基线.md](./ops/性能基线.md) |
+| 升级迁移 | [changelog/破坏性变更-v6.md](./changelog/破坏性变更-v6.md) |
 
 ---
 
@@ -54,6 +56,7 @@ docs/
 | [内置 Action](./reference/内置Action.md) | Action ID 与示例 |
 | [架构](./reference/架构.md) | crate 布局、Supervisor、错误/审计 API、开发工具链 |
 | [IPC 协议](./reference/IPC协议.md) | NDJSON 请求/响应 |
+| [自更新](./reference/自更新.md) | `corex update`、校验链、`[update]` 配置 |
 
 Schema：[schemas/directive.schema.json](../schemas/directive.schema.json)
 
@@ -80,6 +83,7 @@ Schema：[schemas/directive.schema.json](../schemas/directive.schema.json)
 |------|------|
 | [企业部署](./ops/企业部署.md) | 锁定配置、最小构建、CLI 边界 |
 | [发布与 Changelog](./ops/发布与Changelog.md) | tag 前 `git-cliff`、版本对齐、Publish Release |
+| [性能基线](./ops/性能基线.md) | 发布体积与 `corex --version` 冷启动的实测值与复测方法 |
 | [合规说明](./ops/合规说明.md) | 授权与控制项 |
 | [威胁模型](./ops/威胁模型.md) | 高风险 Action |
 
@@ -87,7 +91,8 @@ Schema：[schemas/directive.schema.json](../schemas/directive.schema.json)
 
 | 文档 | 说明 |
 |------|------|
-| [破坏性变更 v5](./changelog/破坏性变更-v5.md) | Shortcut→Directive、审计字段、`find_*` API 等 |
+| [破坏性变更 v6](./changelog/破坏性变更-v6.md) | `get_*`→`find_*`、`cooldown_ms` 移除、稳定错误 `kind()`、typed `AuditEntry` |
+| [破坏性变更 v5](./changelog/破坏性变更-v5.md) | Shortcut→Directive、审计字段、`find_*` API 前身 |
 | [破坏性变更 v4](./changelog/破坏性变更-v4.md) | v3→v4 重构 |
 | [archive/](./archive/) | ≤v3 与已 superseded 草稿 |
 
@@ -102,4 +107,7 @@ corex run hello -i who=Corex
 corex schedule
 corex actions
 corex validate examples/directives/hello.yaml
+
+# 升级 corex 自身（见 reference/自更新.md）
+corex update --check
 ```

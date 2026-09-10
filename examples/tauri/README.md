@@ -1,8 +1,8 @@
-# Tauri × corex 集成示例（v5）
+# Tauri × corex 集成示例（v6）
 
 将重依赖隔离在 **`corex-daemon`** 中，Tauri 仅通过 NDJSON IPC 调用。
 
-> **中文接入指南：** [docs/integration/Tauri接入指南.md](../../docs/integration/Tauri接入指南.md)  
+> **中文接入指南：** [docs/integration/Tauri接入指南.md](../../docs/integration/Tauri接入指南.md)
 > **文档中心：** [docs/README.md](../../docs/README.md)
 
 ## 文件清单

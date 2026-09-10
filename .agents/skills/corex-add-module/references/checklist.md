@@ -1,4 +1,4 @@
-# 新增 Action 检查清单（v4）
+# 新增 Action 检查清单（v6）
 
 复制此清单，逐项勾选。Action 名记为 `<name>`，ID 记为 `<id>`（如 `foo.bar`）。
 
@@ -25,7 +25,7 @@
 ## 4. Cargo.toml（registry）
 
 - [ ] `act-<name> = []` 或 `["dep:..."]`
-- [ ] 按需加入 `full` feature 列表
+- [ ] 按需加入 `all-actions` feature 列表
 - [ ] 新依赖写入 workspace + registry `optional`
 
 ## 5. builtin/mod.rs

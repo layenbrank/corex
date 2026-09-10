@@ -14,10 +14,16 @@ corex-registry = { path = "../crates/registry" }
 tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
 ```
 
-按需启用 registry features（与 CLI 默认 `full` 对齐）：
+按需启用 registry features（与 CLI 默认 `all-actions` 对齐）：
 
 ```toml
-corex-registry = { path = "../crates/registry", features = ["full"] }
+corex-registry = { path = "../crates/registry", features = ["all-actions"] }
+```
+
+`all-actions` 覆盖全部内置 Action，但**不含** `wasm`。WASM 插件只能由宿主进程自己加载（`corex-daemon` 就是这么做的），所以需要插件时才额外加上：
+
+```toml
+corex-registry = { path = "../crates/registry", features = ["all-actions", "wasm"] }
 ```
 
 ---
@@ -108,7 +114,7 @@ reg.register(Arc::new(EchoAction));
 与 CLI 相同，从 `config/corex.toml` 或 `<数据目录>/config.toml` 加载 `RuntimeConfig`，传给 `ExecutionContext::new(config)`。
 
 ```rust
-reg.apply_runtime_config(&config);  // 应用 disabled_actions 等
+reg.remove_disabled(&config.plugins);  // 应用 disabled_actions 等
 ```
 
 见 [运行时配置](../guide/运行时配置.md)。

@@ -1,8 +1,8 @@
-# 内置 Action（v5）
+# 内置 Action（v6）
 
 > **文档导航：** [文档中心](../README.md) · [指令与输入配置](../guide/指令与输入配置.md)
 
-由 `corex-registry` 内置模块注册的 Action ID（`crates/registry/src/builtin/`）。功能门控为 `act-*`（默认 daemon/CLI 构建通过 `full` 启用）。
+由 `corex-registry` 内置模块注册的 Action ID（`crates/registry/src/builtin/`）。功能门控为 `act-*`（默认 daemon/CLI 构建通过 `all-actions` 启用）。
 
 在 Windows 上，`windows` crate 的 feature 按**门控**启用（而非全局）：
 
@@ -84,8 +84,8 @@
 | `dialog.alert` / `confirm` / `prompt` | `act-sys` | `message`；`title?` | 原生对话框 |
 | `url.open` | `act-sys` | `url` | ShellExecute 打开 |
 | `process.list` / `kill` | `act-sys` | list:`name_contains?`；kill:`pid` | 进程枚举/结束 |
-| `morph.meta` | `act-morph` | `path` | PDF 元数据（启用时需要 pdfium） |
-| `morph.render` | `act-morph` | `path`；`offset?`、`scale?` | PDF 页面渲染 |
+| `morph.meta` | `act-morph` | `path` | **未实现** —— 调用即返回错误 |
+| `morph.render` | `act-morph` | `path`；`offset?`、`scale?` | **未实现** —— 调用即返回错误 |
 | `morph.export` | `act-morph` | `src`、`dest` | PDF 导出 |
 | `morph.merge` | `act-morph` | `paths`、`dest` | 合并 PDF |
 | `morph.split` | `act-morph` | `path`、`dir`；`limit?`、`ranges?` | 拆分 PDF |
@@ -94,7 +94,7 @@
 
 ## 各 Action 示例
 
-每条包含最小 Directive 步骤、IPC invoke 行，以及可运行文件链接。平台标签：**Win** = 仅 Windows，**pdfium** = 需要原生 pdfium，**cron sup** = 需要 `corex cron run`。
+每条包含最小 Directive 步骤、IPC invoke 行，以及可运行文件链接。平台标签：**Win** = 仅 Windows，**cron sup** = 需要 `corex cron run`。
 
 ### 系统与 shell
 
@@ -460,7 +460,9 @@ IPC: `{"type":"invoke","action":"capture.screenshot","params":{"to":"C:/Temp/sho
     dest: "{{env.TEMP}}/copy.pdf"
 ```
 
-#### `morph.meta` / `morph.render` (**pdfium**)
+#### `morph.meta` / `morph.render`（未实现）
+
+这两个动作注册了参数与元数据，但**没有实现**：调用会直接返回「当前构建未启用」的错误。仓库里 `pdfium/` 只是构建助手，**没有任何代码加载 pdfium**；要实现它们需引入 `pdfium-render` 并把 `pdfium` 加回 workspace 成员（`Cargo.toml` 有注释）。下面保留其预期的调用形式。
 
 - 示例：[`examples/actions/morph.meta.yaml`](../../examples/actions/morph.meta.yaml)
 

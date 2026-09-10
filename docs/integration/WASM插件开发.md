@@ -1,6 +1,6 @@
 # WASM 插件开发
 
-> **文档定位：** 本文只描述 **动态 WASM 插件**（`.wasm` 热加载）。  
+> **文档定位：** 本文只描述 **动态 WASM 插件**（`.wasm` 热加载）。
 > 若你要在 **Rust 源码里**扩展 Action（企业内建、与 corex 同版本发布），见 [Rust 嵌入指南 — 注册自定义 Action](./Rust嵌入指南.md#3-注册自定义-action)（生产环境首选）。
 
 通过 **WebAssembly Component** 为 Corex 扩展自定义 Action。插件由 **`corex-daemon`**（或嵌入 `ActionRegistry` 的应用）在启动时发现并加载。
@@ -88,6 +88,8 @@ disabled_actions = ["acme.echo"]
 ---
 
 ## 5. 从 Directive 调用
+
+> **插件动作只在 daemon 中可用。** `corex run` 在进程内执行指令、**从不加载插件**（这也是 CLI 不链接 wasmtime 的原因）。要用插件动作，先启动 daemon（`corex daemon start`），再通过 IPC `invoke` 调用；直接 `corex run` 会报 `动作未注册`。
 
 插件 Action 与 builtin **用法相同**：
 

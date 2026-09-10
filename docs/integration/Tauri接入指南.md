@@ -115,7 +115,7 @@ corex_ipc::run_directive("hello", input_map)?;
 | Sidecar 未启动 | Tauri shell 权限、`externalBin` 路径 |
 | 401 | Tauri 与 daemon 是否同一 `token` |
 | Pipe 连接失败 | Windows `\\.\pipe\corex` 是否被占用；`corex daemon status` |
-| Action 不存在 | daemon 是否 `full` features 构建 |
+| Action 不存在 | daemon 是否 `all-actions` features 构建 |
 
 ---
 

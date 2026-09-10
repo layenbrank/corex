@@ -6,7 +6,7 @@
 
 | 文档 | 说明 |
 |------|------|
-| [../architecture.md](../reference/架构.md) | 现行 v5 架构（含 supervisor / watch） |
+| [../architecture.md](../reference/架构.md) | 现行 v6 架构（含 supervisor / watch） |
 | [pipeline-v3.md](./pipeline-v3.md) | Pipeline v3 配置、DAG、watch / schedule（已废弃） |
 | [../ipc-protocol.md](../reference/IPC协议.md) | 现行 NDJSON IPC 协议 |
 | [../integration/Tauri接入指南.md](../integration/Tauri接入指南.md) | 现行 Tauri 2 接入指南 |
@@ -321,7 +321,7 @@ sequenceDiagram
 
 | 文件 | 内容 |
 |------|------|
-| [../architecture.md](../reference/架构.md) | 现行 v5 架构（历史「阶段 1–3」叙述已过时） |
+| [../architecture.md](../reference/架构.md) | 现行 v6 架构（历史「阶段 1–3」叙述已过时） |
 | [../ipc-protocol.md](../reference/IPC协议.md) | 现行 NDJSON 协议 |
 | [../integration/Tauri接入指南.md](../integration/Tauri接入指南.md) | Tauri 2 sidecar、托盘、快捷键 |
 | [cron.md](./cron.md) | cron 7 字段格式 |

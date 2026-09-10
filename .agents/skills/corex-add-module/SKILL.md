@@ -1,11 +1,11 @@
 ---
 name: corex-add-module
-description: "在 corex v4 中新增内置 Action 的标准流程。当用户提到「新增模块」「添加命令」「迁移到 corex」「实现 Action」「注册 builtin」「补全功能模块」或要在 corex 里加类似 copy/codec/scan 的能力时，务必使用本 skill。适用于从外部项目迁入可移植逻辑，或从零实现新的 Action（CLI run / Daemon IPC / Directive YAML 共用）。"
+description: "在 corex v6 中新增内置 Action 的标准流程。当用户提到「新增模块」「添加命令」「迁移到 corex」「实现 Action」「注册 builtin」「补全功能模块」或要在 corex 里加类似 copy/codec/scan 的能力时，务必使用本 skill。适用于从外部项目迁入可移植逻辑，或从零实现新的 Action（CLI run / Daemon IPC / Directive YAML 共用）。"
 argument-hint: "<action-name> [--feature-only]"
 allowed-tools: ["Read", "Glob", "Grep", "Edit", "Write", "Shell"]
 ---
 
-# Corex 新增 Action（v4）
+# Corex 新增 Action（v6）
 
 在 **`crates/registry`** 中按统一契约添加内置 Action，使其可被：
 
@@ -167,7 +167,7 @@ some-crate = { workspace = true, optional = true }
 ```
 
 - 新依赖先写入 **workspace** `Cargo.toml` 的 `[workspace.dependencies]`，再在 registry 中 `optional = true`。
-- 未稳定前可不进 `full`，用 `cargo test -p corex-registry --features act-foo` 验证。
+- 未稳定前可不进 `all-actions`，用 `cargo test -p corex-registry --features act-foo` 验证。
 
 ## 不再使用的旧路径（禁止）
 
@@ -239,7 +239,7 @@ cargo test --workspace
 | 症状 | 原因 | 修复 |
 |------|------|------|
 | `动作未注册` | feature 未开或未 `register` | 查 `act-*` + `register_all` |
-| CLI 有、daemon 无 | daemon 未开对应 feature | daemon 依赖 `corex-registry` 的 `full` |
+| CLI 有、daemon 无 | daemon 未开对应 feature | daemon 依赖 `corex-registry` 的 `all-actions` |
 | 编译失败（可选依赖） | feature 未声明 `dep:` | 修正 `Cargo.toml` |
 | 仍改 `invoke/registry` | 用了旧 skill | 改走 `builtin/<name>.rs` |
 

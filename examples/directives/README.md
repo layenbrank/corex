@@ -2,8 +2,8 @@
 
 本目录为 `corex run <name>` 可直接运行的 YAML 指令示例。文件名（不含扩展名）即指令名。
 
-**单 Action 最小示例：** [examples/actions/](../actions/README.md)  
-**编写与配置说明：** [docs/guide/指令与输入配置.md](../../docs/guide/指令与输入配置.md)  
+**单 Action 最小示例：** [examples/actions/](../actions/README.md)
+**编写与配置说明：** [docs/guide/指令与输入配置.md](../../docs/guide/指令与输入配置.md)
 **完整文档入口：** [docs/README.md](../../docs/README.md)
 
 同步到用户数据目录（可选）：
@@ -17,7 +17,7 @@
 验证全部示例能否解析且 action 已注册：
 
 ```powershell
-cargo test -p corex-engine example_directives_validate
+cargo test -p corex-engine --test examples
 corex validate examples/directives/<file>.yaml
 corex validate examples/actions/<file>.yaml
 ```

@@ -2,7 +2,7 @@
 
 本目录用于存放 **WebAssembly Component** 插件（`.wasm`）。完整开发指南见 [docs/integration/WASM插件开发.md](../docs/integration/WASM插件开发.md)。
 
-> **文档定位：** 此处为 **动态 WASM 插件**（热加载 `.wasm`）。  
+> **文档定位：** 此处为 **动态 WASM 插件**（热加载 `.wasm`）。
 > 若在 **Rust 源码**中扩展 Action（企业内建），见 [Rust 嵌入指南](../docs/integration/Rust嵌入指南.md#3-注册自定义-action-内置--rust)（生产环境首选）。
 
 第三方 Action 以 WASM **组件**形式发布，需导出 WIT 接口 `corex:plugin-sdk/action`，定义见 [`crates/plugin-sdk/wit/corex-action.wit`](../crates/plugin-sdk/wit/corex-action.wit)。
@@ -53,7 +53,7 @@ plugin_dir = "plugins"
 2. 成功 → 注册到 ActionRegistry，可在 Directive / IPC `invoke` 中使用
 3. 失败 → 记录日志并跳过，不影响其他插件
 
-> **状态：** WIT **bindgen 接线尚未完成**。bindgen 未就绪时 `load_plugin` 会在解析后报错，discovery 跳过该文件。第三方 WASM 插件目前视为**实验能力**。
+> **状态：** WIT **bindgen 接线尚未完成**。bindgen 未就绪时 `instantiate` 会在解析后报错，discovery 跳过该文件。第三方 WASM 插件目前视为**实验能力**。
 
 ---
 
@@ -75,7 +75,7 @@ corex-daemon
 
 ## 宿主实现
 
-`corex-registry`（feature `wasm`，`full` 默认启用）使用 wasmtime **async** + **component model**，准备 `WasiCtxBuilder` 并解析组件字节。完整 `bindgen!` 接入完成后即可在不改结构的前提下启用 execute。
+`corex-registry`（feature `wasm`，已从 `all-actions` 摘出，仅 `corex-daemon` 启用）使用 wasmtime **async** + **component model**，准备 `WasiCtxBuilder` 并解析组件字节。完整 `bindgen!` 接入完成后即可在不改结构的前提下启用 execute。
 
 禁用插件：
 
