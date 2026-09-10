@@ -1,20 +1,9 @@
 {
   "tasks": [
     {
-      "args": [
-        "--bin",
-        "corex",
-        "--",
-        "scrub",
-        "--source",
-        "C:\\Users\\MACHENIKE\\Documents\\Vue3\\i-thinking",
-        "--target",
-        ".turbo",
-        "--recursive",
-        "true",
-      ],
+      "args": ["--bin", "corex", "--", "run", "examples/directives/hello.yaml", "-i", "who=Corex"],
       "command": "run",
-      "label": "Scrub",
+      "label": "Run Hello",
       "presentation": {
         "clear": false,
         "echo": true,
@@ -23,18 +12,11 @@
         "reveal": "always",
         "showReuseMessage": true
       },
-      "problemMatcher": [
-        "$rustc"
-      ],
+      "problemMatcher": ["$rustc"],
       "type": "cargo"
     },
     {
-      "args": [
-        "--bin",
-        "corex",
-        "--",
-        "schedule"
-      ],
+      "args": ["--bin", "corex", "--", "schedule"],
       "command": "run",
       "label": "Schedule",
       "presentation": {
@@ -45,20 +27,13 @@
         "reveal": "always",
         "showReuseMessage": true
       },
-      "problemMatcher": [
-        "$rustc"
-      ],
+      "problemMatcher": ["$rustc"],
       "type": "cargo"
     },
     {
-      "args": [
-        "--bin",
-        "corex",
-        "--",
-        "generate"
-      ],
+      "args": ["--bin", "corex", "--", "actions"],
       "command": "run",
-      "label": "Generate",
+      "label": "Actions",
       "presentation": {
         "clear": false,
         "echo": true,
@@ -67,20 +42,13 @@
         "reveal": "always",
         "showReuseMessage": true
       },
-      "problemMatcher": [
-        "$rustc"
-      ],
+      "problemMatcher": ["$rustc"],
       "type": "cargo"
     },
     {
-      "args": [
-        "--bin",
-        "corex",
-        "--",
-        "copy"
-      ],
+      "args": ["--bin", "corex", "--", "validate", "examples/directives/hello.yaml", "--strict"],
       "command": "run",
-      "label": "Copy",
+      "label": "Validate",
       "presentation": {
         "clear": false,
         "echo": true,
@@ -89,20 +57,13 @@
         "reveal": "always",
         "showReuseMessage": true
       },
-      "problemMatcher": [
-        "$rustc"
-      ],
+      "problemMatcher": ["$rustc"],
       "type": "cargo"
     },
     {
-      "args": [
-        "--bin",
-        "corex",
-        "--",
-        "bootstrap"
-      ],
+      "args": ["--bin", "corex", "--", "update", "--check"],
       "command": "run",
-      "label": "Bootstrap",
+      "label": "Update Check",
       "presentation": {
         "clear": false,
         "echo": true,
@@ -111,15 +72,11 @@
         "reveal": "always",
         "showReuseMessage": true
       },
-      "problemMatcher": [
-        "$rustc"
-      ],
+      "problemMatcher": ["$rustc"],
       "type": "cargo"
     },
     {
-      "args": [
-        "--release"
-      ],
+      "args": ["--release"],
       "command": "build",
       "label": "Release",
       "presentation": {
@@ -130,9 +87,22 @@
         "reveal": "always",
         "showReuseMessage": true
       },
-      "problemMatcher": [
-        "$rustc"
-      ],
+      "problemMatcher": ["$rustc"],
+      "type": "cargo"
+    },
+    {
+      "args": ["--workspace", "--locked"],
+      "command": "test",
+      "label": "Test Workspace",
+      "presentation": {
+        "clear": false,
+        "echo": true,
+        "focus": false,
+        "panel": "shared",
+        "reveal": "always",
+        "showReuseMessage": true
+      },
+      "problemMatcher": ["$rustc"],
       "type": "cargo"
     }
   ],

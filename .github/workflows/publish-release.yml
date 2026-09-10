@@ -3,12 +3,12 @@ name: Publish Release
 # 企业级 Windows x64 发版（供 i-thinking / Tauri 消费）
 # - SemVer tag 与 workspace.package.version 强制对齐
 # - 渠道：stable | alpha | beta | rc（由 tag 后缀决定）
-# - ZIP：corex.exe + corex-daemon.exe + pdfium.dll（若存在）
+# - ZIP：corex.exe + corex-daemon.exe
 # - 资产名：corex-{tag}-windows-x64.zip（prepare.ts 约定）
 #
 # 发布示例（changelog 须在 tag 前本地用 git-cliff 生成并提交，本 workflow 不跑 cliff）：
 #   git-cliff --bumped-version
-#   # bump Cargo.toml [workspace.package].version + git-cliff -o CHANGELOG.md + commit
+#   # 提升 Cargo.toml [workspace.package].version + git-cliff -o CHANGELOG.md + 提交
 #   git tag v4.0.0 && git push && git push --tags
 #   git tag v4.0.0-beta.1 && git push --tags
 #   # 或 Actions → Publish Release → workflow_dispatch 指定 tag
@@ -21,11 +21,11 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: Tag to publish (e.g. v4.0.0 / v4.0.0-beta.1); required when not on a tag push
+        description: 要发布的 tag（如 v4.0.0 / v4.0.0-beta.1）；非 tag 推送时必须提供
         required: false
         type: string
       draft:
-        description: Create draft Release (manual publish after review)
+        description: 创建草稿 Release（审阅后手动发布）
         required: false
         type: boolean
         default: false
@@ -119,14 +119,10 @@ jobs:
         with:
           shared-key: publish-${{ env.RUST_TARGET }}
 
-      - name: Download native dependencies
-        shell: pwsh
-        run: pwsh -File scripts/download-pdfium.ps1
-
       - name: Build release binaries
         shell: pwsh
         run: |
-          cargo build -p corex -p corex-daemon -p pdfium --release --locked --target $env:RUST_TARGET --verbose
+          cargo build -p corex -p corex-daemon --release --locked --target $env:RUST_TARGET --verbose
 
       - name: Test workspace (release)
         shell: pwsh
@@ -146,14 +142,6 @@ jobs:
             }
             $sizeMb = (Get-Item $path).Length / 1MB
             Write-Host "OK $name ($([math]::Round($sizeMb, 2)) MB)"
-          }
-
-          $pdfium = Join-Path $dir 'pdfium.dll'
-          if (Test-Path $pdfium) {
-            $sizeMb = (Get-Item $pdfium).Length / 1MB
-            Write-Host "OK pdfium.dll ($([math]::Round($sizeMb, 2)) MB)"
-          } else {
-            Write-Warning "pdfium.dll not found under $dir (optional until morph lands)"
           }
 
           $daemon = Join-Path $dir 'corex-daemon.exe'
@@ -176,6 +164,24 @@ jobs:
           }
           Write-Host "corex CLI check OK"
 
+          # `corex update` 会把 `corex --version` 与发布 tag 对比，
+          # 这里不一致会让本次发布的所有用户自更新失败。
+          # 宁可直接让构建失败。
+          $expectedVersion = "${{ steps.meta.outputs.version }}"
+          $cliVersion = (& $cli --version 2>&1 | Out-String).Trim()
+          if ($cliVersion -notmatch [regex]::Escape($expectedVersion)) {
+            Write-Error "corex.exe reports '$cliVersion' but this release is $expectedVersion. Self-update would loop; aborting."
+            exit 1
+          }
+          Write-Host "corex version check OK: $cliVersion"
+
+          $updateHelp = & $cli update --help 2>&1 | Out-String
+          if ($updateHelp -notmatch '--check') {
+            Write-Error "corex.exe has no functional 'update' subcommand (missing --check). Self-update would be unavailable. Output:`n$updateHelp"
+            exit 1
+          }
+          Write-Host "corex update subcommand check OK"
+
       - name: Create release package
         shell: pwsh
         run: |
@@ -191,10 +197,6 @@ jobs:
 
           Copy-Item (Join-Path $dir 'corex.exe') $pkg
           Copy-Item (Join-Path $dir 'corex-daemon.exe') $pkg
-          $pdfium = Join-Path $dir 'pdfium.dll'
-          if (Test-Path $pdfium) {
-            Copy-Item $pdfium $pkg
-          }
 
           if (Test-Path 'README.md') { Copy-Item README.md $pkg }
           if (Test-Path 'LICENSE') { Copy-Item LICENSE $pkg }
@@ -208,13 +210,33 @@ jobs:
           Write-Host "SHA256 ${zipName}: $hash"
 
           $sums = Join-Path $out 'SHA256SUMS.txt'
+
+          # 先写包内文件：`corex update` 会读 `corex.exe` 和
+          # `corex-daemon.exe` 这两条记录来校验解包出的二进制，
+          # 并判断守护进程是否需要重启。
           Get-ChildItem $pkg -File | ForEach-Object {
             $h = (Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
             "$h  $($_.Name)" | Out-File -Encoding ascii -Append $sums
             Write-Host "SHA256 $($_.Name): $h"
           }
-          $zipHashLine = "$hash  $zipName"
-          $zipHashLine | Out-File -Encoding ascii -Append $sums
+          "$hash  $zipName" | Out-File -Encoding ascii -Append $sums
+
+          # 单文件 CLI 资产。`corex update` 比归档包更偏爱它，
+          # 因为它无需解包，也便于用户直接替换二进制而不用动 sidecar。
+          # （每个 `run:` 块都是新的 shell，所以这里重新推导路径。）
+          $cli = Join-Path $dir 'corex.exe'
+          Copy-Item $cli (Join-Path $out 'corex.exe')
+          $cliHash = (Get-FileHash (Join-Path $out 'corex.exe') -Algorithm SHA256).Hash.ToLowerInvariant()
+          "$cliHash  corex.exe" | Out-File -Encoding ascii -Append $sums
+          "$cliHash  corex.exe" | Out-File -Encoding ascii (Join-Path $out 'corex.exe.sha256')
+          Write-Host "SHA256 corex.exe: $cliHash"
+
+          # 一次性安装脚本：面向首次安装，以及无法自更新的安装
+          # （只读目录、由包管理器接管、内网隔离）。
+          Copy-Item 'scripts/install.ps1' (Join-Path $out 'install.ps1')
+          $installerHash = (Get-FileHash (Join-Path $out 'install.ps1') -Algorithm SHA256).Hash.ToLowerInvariant()
+          "$installerHash  install.ps1" | Out-File -Encoding ascii -Append $sums
+          Write-Host "SHA256 install.ps1: $installerHash"
 
           Write-Host "Release artifacts:"
           Get-ChildItem $out -File | ForEach-Object { Write-Host " - $($_.Name)" }
@@ -259,12 +281,26 @@ jobs:
             ### Build
             - Rust: ${{ steps.build_info.outputs.rust_version }}
             - Cargo: ${{ steps.build_info.outputs.cargo_version }}
-            - `cargo build -p corex -p corex-daemon -p pdfium --release --locked --target x86_64-pc-windows-msvc`
+            - `cargo build -p corex -p corex-daemon --release --locked --target x86_64-pc-windows-msvc`
 
-            ### Artifacts (i-thinking / Tauri)
-            - `${{ steps.meta.outputs.zip_name }}` — `corex.exe` (CLI) + `corex-daemon.exe` (sidecar) + `pdfium.dll`（若存在；解压后同目录）
-            - `${{ steps.meta.outputs.zip_name }}.sha256` — ZIP SHA-256
-            - `SHA256SUMS.txt` — 包内文件与 ZIP 校验清单
+            ### Artifacts
+            - `corex.exe` — 单文件 CLI（`corex update` 优先使用，无需解压）
+            - `install.ps1` — 一键安装脚本（首次安装，或无法自更新的机器）
+            - `${{ steps.meta.outputs.zip_name }}` — 完整包：`corex.exe` + `corex-daemon.exe`（解压后同目录）
+            - `${{ steps.meta.outputs.zip_name }}.sha256` · `corex.exe.sha256` — 单文件 SHA-256 旁车
+            - `SHA256SUMS.txt` — 全部产物校验清单（`corex update` 以此校验下载）
+
+            ### Install / Update
+            ```powershell
+            # 首次安装（用户目录，无需管理员权限）
+            irm https://github.com/${{ github.repository }}/releases/latest/download/install.ps1 | iex
+
+            # 已安装 corex（需含 update 子命令的版本）
+            corex update          # 升级到通道最新版
+            corex update --check  # 只检查不安装
+            ```
+
+            文档：[`docs/reference/自更新.md`](https://github.com/${{ github.repository }}/blob/master/docs/reference/%E8%87%AA%E6%9B%B4%E6%96%B0.md)
 
             ### Full commit
             [`${{ steps.build_info.outputs.short }}`](https://github.com/${{ github.repository }}/commit/${{ steps.build_info.outputs.hash }})

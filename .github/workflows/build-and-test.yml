@@ -2,14 +2,14 @@ name: Build and Test
 
 on:
   push:
-    branches: ["master"]
+    branches: ['master']
   pull_request:
-    branches: ["master"]
+    branches: ['master']
 
 env:
   CARGO_TERM_COLOR: always
-  RUSTC_WRAPPER: ""
-  CARGO_INCREMENTAL: "0"
+  RUSTC_WRAPPER: ''
+  CARGO_INCREMENTAL: '0'
 
 jobs:
   windows:
@@ -32,9 +32,6 @@ jobs:
             ~/.cargo/git
           key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
 
-      - name: Download native dependencies
-        run: pwsh -File scripts/download-pdfium.ps1
-
       - name: Build workspace (debug)
         run: cargo build --workspace --locked --verbose
 
@@ -53,3 +50,26 @@ jobs:
             exit 1
           }
           Write-Host 'corex-daemon artifact OK'
+
+      # 冷启动是 CLI 对用户可见的性质：不能因为新增依赖而逐步变慢。
+      # 这个上限刻意放宽（docs/ops/性能基线.md 里的发布基线大约低两个数量级），
+      # 以便拦住结构性回归——启动时扫插件目录或加载运行时——而不是计时噪声。
+      - name: Cold start and binary size
+        shell: pwsh
+        run: |
+          $exe = 'target/debug/corex.exe'
+          $times = 1..10 | ForEach-Object {
+            (Measure-Command { & $exe --version | Out-Null }).TotalMilliseconds
+          }
+          $sorted = $times | Sort-Object
+          $median = $sorted[[int]($sorted.Count / 2)]
+          $max = ($times | Measure-Object -Maximum).Maximum
+          Write-Host ('cold start: median {0:N0} ms, max {1:N0} ms over {2} runs' -f $median, $max, $times.Count)
+          foreach ($name in @('corex.exe', 'corex-daemon.exe')) {
+            $p = Join-Path 'target/debug' $name
+            Write-Host ('{0}: {1:N2} MB' -f $name, ((Get-Item $p).Length / 1MB))
+          }
+          if ($median -gt 2000) {
+            Write-Error ('cold start regressed: median {0:N0} ms > 2000 ms' -f $median)
+            exit 1
+          }
