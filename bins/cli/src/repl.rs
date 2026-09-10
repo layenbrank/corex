@@ -1,22 +1,22 @@
-//! Interactive REPL for exploring directives and actions.
+//! 用于探索指令与动作的交互式 REPL。
 
+use crate::output::{self, errln, outln};
 use anyhow::Result;
-use std::io::{self, Write};
+use std::io;
 use std::path::PathBuf;
 
-/// Run the interactive `corex repl` loop.
+/// 运行 `corex repl` 交互循环。
 pub async fn run(dir: Option<PathBuf>) -> Result<()> {
-    println!("corex repl — type `help` for commands, `quit` to exit");
+    outln!("corex repl — 输入 `help` 查看命令，`quit` 退出");
     let stdin = io::stdin();
     let mut line = String::new();
 
     loop {
-        print!("corex> ");
-        io::stdout().flush()?;
+        output::prompt("corex> ");
         line.clear();
         let n = stdin.read_line(&mut line)?;
         if n == 0 {
-            println!();
+            outln!("");
             break;
         }
         let trimmed = line.trim();
@@ -37,10 +37,10 @@ pub async fn run(dir: Option<PathBuf>) -> Result<()> {
                     Some(target) => {
                         let rest: Vec<String> = parts.map(|s| s.to_string()).collect();
                         if let Err(e) = crate::cmd_run(target, &rest, dir.as_deref()).await {
-                            eprintln!("error: {e:#}");
+                            errln!("错误: {e:#}");
                         }
                     }
-                    None => eprintln!("usage: run <name> [KEY=VALUE ...]"),
+                    None => errln!("用法: run <name> [KEY=VALUE ...]"),
                 }
             }
             "edit" => {
@@ -48,26 +48,26 @@ pub async fn run(dir: Option<PathBuf>) -> Result<()> {
                 match name {
                     Some(target) => {
                         if let Err(e) = crate::cmd_edit(target, dir.as_deref()) {
-                            eprintln!("error: {e:#}");
+                            errln!("错误: {e:#}");
                         }
                     }
-                    None => eprintln!("usage: edit <name>"),
+                    None => errln!("用法: edit <name>"),
                 }
             }
-            other => eprintln!("unknown command: {other} (type `help`)"),
+            other => errln!("未知命令: {other}（输入 `help`）"),
         }
     }
     Ok(())
 }
 
 fn print_help() {
-    println!(
-        "Commands:
-  help              Show this help
-  actions           List registered actions
-  schedule          List available directives
-  edit <name>       Open Directive YAML in your editor
-  run <name> [...]  Run a Directive (optional KEY=VALUE inputs)
-  quit              Exit the REPL"
+    outln!(
+        "命令:
+  help              显示本帮助
+  actions           列出已注册动作
+  schedule          列出可用指令
+  edit <name>       用编辑器打开指令 YAML
+  run <name> [...]  运行指令（可跟 KEY=VALUE 输入）
+  quit              退出 REPL"
     );
 }

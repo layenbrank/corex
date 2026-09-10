@@ -1,5 +1,6 @@
-//! `corex ui` — interactive element probe commands.
+//! `corex ui` —— 交互式元素探测命令。
 
+use crate::output::{errln, outln};
 #[cfg(windows)]
 use anyhow::Context;
 use anyhow::{Result, bail};
@@ -10,19 +11,19 @@ use corex_registry::ui_probe::{self, TreeFormat};
 use std::collections::BTreeMap;
 #[cfg(windows)]
 use std::io::Write;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 #[cfg(windows)]
 use std::process::{Command, Stdio};
 use std::time::Instant;
 
 #[derive(Subcommand, Debug)]
 pub enum UiCommands {
-    /// Window-level probes
+    /// 窗口级探测
     Window {
         #[command(subcommand)]
         cmd: WindowCmd,
     },
-    /// In-window UIA element probes
+    /// 窗口内 UIA 元素探测
     Element {
         #[command(subcommand)]
         cmd: ElementCmd,
@@ -31,15 +32,15 @@ pub enum UiCommands {
 
 #[derive(Subcommand, Debug)]
 pub enum WindowCmd {
-    /// List visible top-level windows
+    /// 列出可见的顶层窗口
     List,
-    /// List desktop shell icons
+    /// 列出桌面图标
     Desktop,
 }
 
 #[derive(Subcommand, Debug)]
 pub enum ElementCmd {
-    /// List UIA elements under a window (requires --hwnd or --title)
+    /// 列出窗口下的 UIA 元素（需要 --hwnd 或 --title）
     Tree {
         #[arg(long)]
         hwnd: Option<i64>,
@@ -51,10 +52,10 @@ pub enum ElementCmd {
         limit: i64,
         #[arg(long, value_enum, default_value_t = OutputFormat::Flat)]
         format: OutputFormat,
-        #[arg(long, help = "Redact element name fields in output")]
+        #[arg(long, help = "输出时隐去元素名称字段")]
         redact: bool,
     },
-    /// Find element by selector flags (requires window scope)
+    /// 按 selector 参数查找元素（需要窗口范围）
     Get {
         #[arg(long)]
         hwnd: Option<i64>,
@@ -68,14 +69,14 @@ pub enum ElementCmd {
         automation_id: Option<String>,
         #[arg(long)]
         control_type: Option<String>,
-        #[arg(long, help = "Win32 / UIA class name")]
+        #[arg(long, help = "Win32 / UIA 类名")]
         class: Option<String>,
         #[arg(long, default_value = "3000")]
         timeout_ms: i64,
         #[arg(long)]
         redact: bool,
     },
-    /// Hit-test at screen coordinates (no overlay)
+    /// 按屏幕坐标做命中测试（不显示浮层）
     Point {
         #[arg(long)]
         x: i64,
@@ -84,11 +85,11 @@ pub enum ElementCmd {
         #[arg(long)]
         redact: bool,
     },
-    /// Interactive pick: hover highlight + click to capture selectors
+    /// 交互式拾取：悬停高亮 + 点击采集 selector
     Pick {
-        #[arg(long, help = "Limit picking to this top-level HWND")]
+        #[arg(long, help = "把拾取范围限制在该顶层 HWND")]
         scope_hwnd: Option<i64>,
-        #[arg(long, help = "Copy selectors_yaml to clipboard (Windows clip.exe)")]
+        #[arg(long, help = "把 selectors_yaml 复制到剪贴板（Windows clip.exe）")]
         copy_yaml: bool,
         #[arg(long)]
         redact: bool,
@@ -107,81 +108,6 @@ impl OutputFormat {
             OutputFormat::Flat => TreeFormat::Flat,
             OutputFormat::Tree => TreeFormat::Tree,
         }
-    }
-}
-
-#[derive(Debug, serde::Deserialize, Default)]
-struct RuntimeConfigWrapper {
-    #[serde(default)]
-    plugins: Option<corex_core::PluginConfig>,
-    #[serde(default)]
-    runtime: Option<RuntimeSectionFields>,
-}
-
-#[derive(Debug, serde::Deserialize, Default)]
-struct RuntimeSectionFields {
-    #[serde(default)]
-    ui_profile: Option<String>,
-    #[serde(default)]
-    ui_max_selector_chain: Option<usize>,
-    #[serde(default)]
-    ui_max_settle_ms: Option<u64>,
-    #[serde(default)]
-    strict_permissions: Option<bool>,
-    #[serde(default)]
-    cron_timezone: Option<String>,
-}
-
-fn load_runtime_config(data_dir: &Path) -> RuntimeConfig {
-    let candidates = [
-        data_dir.join("config").join("corex.toml"),
-        data_dir.join("config.toml"),
-        PathBuf::from("config/corex.toml"),
-    ];
-    for path in candidates {
-        if path.exists() {
-            if let Ok(text) = std::fs::read_to_string(&path) {
-                if let Ok(cfg) = toml::from_str::<RuntimeConfigWrapper>(&text) {
-                    return cfg.into_runtime();
-                }
-            }
-        }
-    }
-    RuntimeConfig::default()
-}
-
-impl RuntimeConfigWrapper {
-    fn into_runtime(self) -> RuntimeConfig {
-        let mut cfg = RuntimeConfig::default();
-        if let Some(p) = self.plugins {
-            cfg.plugins = p;
-        }
-        if let Some(r) = self.runtime {
-            let overrides = corex_core::UiProfileOverrides {
-                max_selector_chain: r.ui_max_selector_chain,
-                max_settle_ms: r.ui_max_settle_ms,
-            };
-            if let Some(profile) = r.ui_profile {
-                cfg.apply_ui_profile(&profile, overrides);
-            } else {
-                if let Some(n) = r.ui_max_selector_chain {
-                    cfg.ui_max_selector_chain = n;
-                }
-                if let Some(ms) = r.ui_max_settle_ms {
-                    cfg.ui_max_settle_ms = ms;
-                }
-            }
-            if let Some(s) = r.strict_permissions {
-                cfg.strict_permissions = s;
-            }
-            if let Some(tz) = r.cron_timezone {
-                let trimmed = tz.trim();
-                if !trimmed.is_empty() {
-                    cfg.cron_timezone = trimmed.to_string();
-                }
-            }
-        }
-        cfg
     }
 }
 
@@ -209,8 +135,8 @@ fn redact_value(v: &mut Value) {
                 redact_value(val);
             }
         }
-        Value::List(list) => {
-            for item in list {
+        Value::Array(items) => {
+            for item in items {
                 redact_value(item);
             }
         }
@@ -224,7 +150,7 @@ fn print_value(v: &Value, redact: bool) -> Result<()> {
         redact_value(&mut out);
     }
     let json = out.to_json();
-    println!("{}", serde_json::to_string_pretty(&json)?);
+    outln!("{}", serde_json::to_string_pretty(&json)?);
     Ok(())
 }
 
@@ -241,7 +167,7 @@ fn copy_yaml_to_clipboard(yaml: &str) -> Result<()> {
     if !status.success() {
         bail!("clip.exe 失败");
     }
-    eprintln!("已复制 selectors_yaml 到剪贴板");
+    errln!("已复制 selectors_yaml 到剪贴板");
     Ok(())
 }
 
@@ -266,7 +192,10 @@ async fn run_probe<F>(
 where
     F: std::future::Future<Output = Result<Value, corex_core::ActionError>>,
 {
-    ui_probe::check_probe_allowed(config, action_id).map_err(|e| anyhow::anyhow!("{e}"))?;
+    let registry = crate::build_registry();
+    // 保留错误类型：`ActionError::PermissionDenied` 必须仍可 downcast，
+    // 退出码才能报“拒绝”（3）而不是“失败”（1）。
+    ui_probe::check_probe_allowed(config, &registry, action_id).map_err(anyhow::Error::new)?;
     let t0 = Instant::now();
     let result = f.await;
     let duration_ms = t0.elapsed().as_millis() as u64;
@@ -276,11 +205,11 @@ where
         duration_ms,
         result.as_ref().map(|_| ()),
     );
-    result.map_err(|e| anyhow::anyhow!("{e}"))
+    result.map_err(anyhow::Error::new)
 }
 
 pub async fn run(command: UiCommands, data_dir: &Path) -> Result<()> {
-    let config = load_runtime_config(data_dir);
+    let config = crate::settings::effective().clone();
     let ctx = ui_probe::probe_context(config.clone());
 
     match command {
@@ -371,12 +300,11 @@ pub async fn run(command: UiCommands, data_dir: &Path) -> Result<()> {
                         corex_registry::ui_pick::probe_pick(scope_hwnd).await
                     })
                     .await?;
-                    if copy_yaml {
-                        if let Value::Map(m) = &v {
-                            if let Some(yaml) = m.get("selectors_yaml").and_then(|v| v.as_str()) {
-                                copy_yaml_to_clipboard(yaml)?;
-                            }
-                        }
+                    if copy_yaml
+                        && let Value::Map(m) = &v
+                        && let Some(yaml) = m.get("selectors_yaml").and_then(|v| v.as_str())
+                    {
+                        copy_yaml_to_clipboard(yaml)?;
                     }
                     print_value(&v, redact)?;
                 }
@@ -402,7 +330,7 @@ mod tests {
         m.insert("automation_id".into(), Value::Str("btnSecret".into()));
         m.insert(
             "children".into(),
-            Value::List(vec![Value::Map(BTreeMap::from([(
+            Value::Array(vec![Value::Map(BTreeMap::from([(
                 "name".into(),
                 Value::Str("child".into()),
             )]))]),

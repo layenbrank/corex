@@ -1,10 +1,10 @@
-//! Open a Directive YAML in the user's editor or OS default app.
+//! 用用户的编辑器或系统默认程序打开指令 YAML。
 
 use anyhow::{Context, Result};
 use std::path::Path;
 use std::process::Command;
 
-/// Open `path` with `COREX_EDITOR` / `VISUAL` / `EDITOR`, else the platform default handler.
+/// 依次用 `COREX_EDITOR` / `VISUAL` / `EDITOR` 打开 `path`，都没有时回退到平台默认处理程序。
 pub fn open_in_editor(path: &Path) -> Result<()> {
     if let Ok(spec) = std::env::var("COREX_EDITOR")
         .or_else(|_| std::env::var("VISUAL"))
