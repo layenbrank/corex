@@ -1,7 +1,8 @@
-//! Action trait and metadata.
+//! Action trait 与其元数据。
 
 use crate::context::ExecutionContext;
 use crate::error::ActionError;
+use crate::permission::PermissionSet;
 use crate::schema::SchemaType;
 use crate::value::Value;
 use async_trait::async_trait;
@@ -9,7 +10,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
-/// High-level grouping for discovery / UI.
+/// 供发现 / UI 使用的高层分组。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ActionCategory {
@@ -21,7 +22,7 @@ pub enum ActionCategory {
     Plugin,
 }
 
-/// Declares a single parameter for an action.
+/// 声明动作的一个参数。
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ParamSchema {
     pub name: String,
@@ -55,7 +56,7 @@ impl ParamSchema {
     }
 }
 
-/// Static metadata describing an action.
+/// 描述一个动作的静态元数据。
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ActionMeta {
     pub id: String,
@@ -96,12 +97,18 @@ impl ActionMeta {
     }
 }
 
-/// Executable unit registered in the action registry.
+/// 注册进动作注册表的可执行单元。
 #[async_trait]
 pub trait Action: Send + Sync {
     fn meta(&self) -> ActionMeta;
 
-    /// Validate parameters before execution. Default: check required params exist.
+    /// 该动作运行前需要的权限类别。
+    ///
+    /// 刻意**没有默认实现**：忘记声明权限要求的动作必须编译不过，
+    /// 而不是悄悄不受限地跑起来。
+    fn permissions(&self) -> PermissionSet;
+
+    /// 执行前校验参数。默认实现：检查必填参数是否存在。
     async fn validate(&self, params: &Value) -> Result<(), ActionError> {
         let meta = self.meta();
         let map = match params {
@@ -126,9 +133,18 @@ pub trait Action: Send + Sync {
     ) -> Result<Value, ActionError>;
 }
 
-/// Lookup facade so the engine can resolve actions without depending on the registry crate.
+/// 查找门面，使引擎能在不依赖 registry crate 的前提下解析动作。
 pub trait ActionStore: Send + Sync {
     fn find_action(&self, id: &str) -> Option<Arc<dyn Action>>;
+
+    /// `action_id` 声明的权限要求。
+    ///
+    /// 未知 id 什么都不声明：它本来就无法执行，缺注册这件事由引擎自己的
+    /// 查找来报，而不是由权限门禁报。
+    fn permissions_of(&self, action_id: &str) -> PermissionSet {
+        self.find_action(action_id)
+            .map_or(PermissionSet::NONE, |action| action.permissions())
+    }
 
     fn actions(&self) -> Vec<ActionMeta> {
         Vec::new()
@@ -145,7 +161,7 @@ impl ActionStore for HashMapStore {
     }
 }
 
-/// Simple in-memory store used by tests and lightweight runners.
+/// 供测试与轻量运行器使用的内存 store。
 #[derive(Default)]
 pub struct HashMapStore(pub std::collections::HashMap<String, Arc<dyn Action>>);
 

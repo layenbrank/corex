@@ -1,4 +1,4 @@
-//! Step-level audit log (redacted; no bodies / OCR / clipboard content).
+//! 步骤级审计日志（已脱敏；不含请求体 / OCR / 剪贴板内容）。
 
 use corex_core::{ActionError, EngineError};
 use serde::{Deserialize, Serialize};
@@ -8,10 +8,10 @@ use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tracing::{debug, info, warn};
 
-/// One step execution audit record.
+/// 一条步骤执行审计记录。
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct AuditEntry {
-    /// Directive (or Directive) name.
+    /// 指令名。
     pub name: String,
     pub step_id: String,
     pub action_id: String,
@@ -19,22 +19,22 @@ pub struct AuditEntry {
     pub ok: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub error_kind: Option<String>,
-    /// `true` when the step was rejected by permission / policy checks.
+    /// 该步骤被权限 / 策略检查拒绝时为 `true`。
     #[serde(default = "default_denied")]
     pub denied: bool,
-    /// UI automation phase hint (launch/login/act/verify).
+    /// UI 自动化阶段提示（launch/login/act/verify）。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub ui_phase: Option<String>,
-    /// Structured error code (e.g. ui_login_pending).
+    /// 结构化错误码（如 ui_login_pending）。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub error_code: Option<String>,
-    /// Redacted selector hint (no PII); from [`ActionError::selector_hint`].
+    /// 脱敏后的 selector 提示（不含隐私）；来自 [`ActionError::selector_hint`]。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub selector_hint: Option<String>,
 }
 
 impl AuditEntry {
-    /// Build from a typed [`EngineError`] (pipeline steps).
+    /// 由带类型的 [`EngineError`] 构造（流水线步骤）。
     pub fn from_engine(
         name: impl Into<String>,
         step_id: impl Into<String>,
@@ -56,7 +56,7 @@ impl AuditEntry {
         }
     }
 
-    /// Build from a typed [`ActionError`] (IPC invoke / UI probe).
+    /// 由带类型的 [`ActionError`] 构造（IPC invoke / UI 探测）。
     pub fn from_action(
         name: impl Into<String>,
         step_id: impl Into<String>,
@@ -78,7 +78,7 @@ impl AuditEntry {
         }
     }
 
-    /// Whether this entry records a permission / policy denial.
+    /// 该记录是否是一次权限 / 策略拒绝。
     pub fn is_denied(&self) -> bool {
         self.denied
     }
@@ -153,15 +153,7 @@ fn infer_ui_phase(action_id: &str) -> Option<String> {
     )
 }
 
-/// Actions whose params must not appear in logs.
-pub fn is_sensitive_action(action_id: &str) -> bool {
-    matches!(
-        action_id,
-        "http.send" | "capture.ocr" | "clipboard.get" | "clipboard.set"
-    ) || action_id.starts_with("capture.")
-}
-
-/// Append-only JSONL audit writer (`audit.jsonl`).
+/// 只追加的 JSONL 审计写入器（`audit.jsonl`）。
 #[derive(Debug, Clone)]
 pub struct ExecutionAudit {
     path: PathBuf,
@@ -190,8 +182,7 @@ impl ExecutionAudit {
             .create(true)
             .append(true)
             .open(&self.path)?;
-        serde_json::to_writer(&mut file, entry)
-            .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
+        serde_json::to_writer(&mut file, entry).map_err(std::io::Error::other)?;
         file.write_all(b"\n")?;
         file.flush()?;
         debug!(
@@ -229,7 +220,7 @@ impl ExecutionAudit {
     }
 }
 
-/// Emit a redacted step log line (no body / OCR / clipboard payloads).
+/// 输出一行脱敏的步骤日志（不含请求体 / OCR / 剪贴板负载）。
 pub fn log_step_start(name: &str, step_id: &str, action_id: &str) {
     info!(
         directive = %name,
@@ -262,13 +253,6 @@ pub fn now_ms() -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn redact_sensitive_actions() {
-        assert!(is_sensitive_action("http.send"));
-        assert!(is_sensitive_action("capture.ocr"));
-        assert!(!is_sensitive_action("template.render"));
-    }
 
     #[test]
     fn classify_ui_error_code() {
