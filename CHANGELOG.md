@@ -8,14 +8,49 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 See also [Conventional Commits](https://www.conventionalcommits.org/).
 
 ---
+## [Unreleased](https://github.com/layenbrank/corex/compare/v6.0.1..HEAD)
+
+### 🚀 Features
+- **(core)** 抽出 config 模块，配置解析失败即报错 · ([`24087ad`](https://github.com/layenbrank/corex/commit/24087ad92f94126a7df8874eeea8c3216cec1ae5)) · lh
+- **(engine)** Directive schema 改由类型生成 · ([`63a51e4`](https://github.com/layenbrank/corex/commit/63a51e45afa3611fabca0844c446f6c6a7acf549)) · lh
+- **(updater)** 新增 corex-updater 与 corex update 自更新链路 · ([`1bef5f4`](https://github.com/layenbrank/corex/commit/1bef5f446de9871870c12a4b2c2c3aebc6cbfc86)) · lh
+
+
+### 🐛 Bug Fixes
+- **(engine)** 让 schema 快照测试忽略签出换行风格 · ([`5fd12d9`](https://github.com/layenbrank/corex/commit/5fd12d9ac380ee2ab8d867c5403544284e558cba)) · lh
+
+
+### 📚 Documentation
+- 重组文档导航并补充 v6 变更说明 · ([`c3e1951`](https://github.com/layenbrank/corex/commit/c3e1951f0c14af88b2d2ec42606fff83c42dabac)) · lh
+
+
+### ♻️ Refactoring
+- **(cli)** 拆分 main.rs，把退出码与输出收敛到 exit / output · ([`3d8c60d`](https://github.com/layenbrank/corex/commit/3d8c60db14623f6a2ae67a567539a2d0a16be568)) · lh
+- **(core)** 权限声明改由动作提供（PermissionSet） · ([`aa13967`](https://github.com/layenbrank/corex/commit/aa139670e57d285c117621c4c392d58e31e13b63)) · lh
+- **(registry)** 拆出 file/ 与 ui/win/ 子模块，归位 ui::kernel · ([`fe6cf49`](https://github.com/layenbrank/corex/commit/fe6cf497e3811131d043cbbfb60bcdcb18788e75)) · lh
+- **(registry)** 各内置动作自行声明权限，并修正 capture / clipboard 的声明 · ([`933eaf5`](https://github.com/layenbrank/corex/commit/933eaf51c77afca126df86c51136295a0cc8a85a)) · lh
+
+
+### 🎨 Style
+- 统一命名与文案（去掉 list / apply / load，注释与显示名中文化） · ([`d102344`](https://github.com/layenbrank/corex/commit/d1023442d02ff74279221d712319cf9f7e94fc98)) · lh
+
+
+### 🔧 Miscellaneous
+- **(ci)** 新增质量闸门工作流，发布产物不再包含 pdfium · ([`71713de`](https://github.com/layenbrank/corex/commit/71713de0218034fbdc3d439c0a01e9a4f3f83650)) · lh
+
+---
 ## [6.0.1](https://github.com/layenbrank/corex/compare/v6.0.0..v6.0.1) - 2026-09-03
 
 ### 🐛 Bug Fixes
-- **(engine)** 多轮解析 variables 交叉引用，消除偶发未定义 · ([`f92e3c7`](https://github.com/layenbrank/corex/commit/f92e3c7d56d0acd0e81ecd6be1d29382f9e6a40b)) · lh
+- **(engine)** 多轮解析 variables 交叉引用，消除偶发未定义 · ([`f92e3c7`](https://github.com/layenbrank/corex/commit/f92e3c7d56d0acd0e81ecd6be1d29382f9e6a40b)) · layen
+
+
+### 📚 Documentation
+- document git-cliff release flow and enrich cliff.toml · ([`a3d922b`](https://github.com/layenbrank/corex/commit/a3d922be6a71b39b3ee7587d30b550acb9a04c14)) · lh
 
 
 ### 📦 Release
-- **(release)** bump version to 6.0.1
+- **(release)** bump version to 6.0.1 · ([`57c9e69`](https://github.com/layenbrank/corex/commit/57c9e69616663dedf19c586b310c6c7fe12b6b68)) · layen
 
 ---
 ## [6.0.0](https://github.com/layenbrank/corex/compare/v5.3.1..v6.0.0) - 2026-09-01
@@ -389,6 +424,8 @@ See also [Conventional Commits](https://www.conventionalcommits.org/).
 - fluxor.yml · ([`322cb9c`](https://github.com/layenbrank/corex/commit/322cb9cb8c1e91f0b0a0b47e0014ae4c872fa846)) · layenbrank
 - Remove legacy notification examples and related files to streamline the project structure and focus on the updated notification system. This includes deleting old test files, configuration files, and XML templates that are no longer in use. · ([`fc89b31`](https://github.com/layenbrank/corex/commit/fc89b313725223dd1b0ce38ed5ad6b877f9a16e8)) · 李贺
 
+[unreleased]: https://github.com/layenbrank/corex/compare/v6.0.1..HEAD
+[6.0.1]: https://github.com/layenbrank/corex/compare/v6.0.0..v6.0.1
 [6.0.0]: https://github.com/layenbrank/corex/compare/v5.3.1..v6.0.0
 [5.3.1]: https://github.com/layenbrank/corex/compare/v5.3.0..v5.3.1
 [5.3.0]: https://github.com/layenbrank/corex/compare/v5.2.0..v5.3.0
