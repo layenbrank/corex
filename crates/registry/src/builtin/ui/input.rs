@@ -1,10 +1,10 @@
-//! `ui.click` / `ui.type` / `ui.key` / `ui.wait` Action facades.
+//! `ui.click` / `ui.type` / `ui.key` / `ui.wait` 动作门面。
 
 use crate::ActionRegistry;
 use async_trait::async_trait;
 use corex_core::{
-    Action, ActionCategory, ActionError, ActionMeta, ExecutionContext, ParamSchema, SchemaType,
-    Value,
+    Action, ActionCategory, ActionError, ActionMeta, ExecutionContext, ParamSchema, PermissionSet,
+    SchemaType, Value,
 };
 use std::sync::Arc;
 
@@ -17,10 +17,14 @@ pub struct UiDrag;
 
 #[async_trait]
 impl Action for UiWait {
+    fn permissions(&self) -> PermissionSet {
+        PermissionSet::UI
+    }
+
     fn meta(&self) -> ActionMeta {
         ActionMeta::new(
             "ui.wait",
-            "Wait",
+            "等待",
             "固定毫秒等待（兜底；优先使用 ui.element.wait）",
             ActionCategory::Ui,
         )
@@ -38,7 +42,7 @@ impl Action for UiWait {
 impl_ui_action!(
     UiClick,
     "ui.click",
-    "Click",
+    "点击",
     "在屏幕坐标点击",
     vec![
         ParamSchema::new("x", SchemaType::Int, true),
@@ -54,7 +58,7 @@ impl_ui_action!(
 impl_ui_action!(
     UiType,
     "ui.type",
-    "Type Text",
+    "输入文本",
     "键盘输入文本",
     vec![ParamSchema::new("text", SchemaType::Str, true)],
     ui_type_impl
@@ -63,7 +67,7 @@ impl_ui_action!(
 impl_ui_action!(
     UiKey,
     "ui.key",
-    "Send Key",
+    "发送按键",
     "发送按键或组合键（如 Enter、Ctrl+F）",
     vec![ParamSchema::new("keys", SchemaType::Str, true)],
     ui_key_impl
@@ -72,7 +76,7 @@ impl_ui_action!(
 impl_ui_action!(
     UiScroll,
     "ui.scroll",
-    "Scroll",
+    "滚动",
     "鼠标滚轮（dy/dx，单位与 Win32 WHEEL_DELTA 一致）",
     vec![
         ParamSchema::new("dy", SchemaType::Int, false),
@@ -86,7 +90,7 @@ impl_ui_action!(
 impl_ui_action!(
     UiDrag,
     "ui.drag",
-    "Drag",
+    "拖拽",
     "屏幕坐标拖拽",
     vec![
         ParamSchema::new("from_x", SchemaType::Int, true),

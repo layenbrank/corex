@@ -1,4 +1,4 @@
-//! Windows UI probe integration tests (run on Windows CI / dev machine).
+//! Windows UI 探测集成测试（在 Windows CI / 开发机上跑）。
 
 #[cfg(windows)]
 mod windows {
@@ -6,7 +6,7 @@ mod windows {
     use corex_registry::ui_probe::{self, TreeFormat};
     use std::collections::BTreeMap;
 
-    /// Pure gate check — no desktop session required.
+    /// 纯门禁检查——不需要桌面会话。
     #[tokio::test]
     async fn probe_scope_required_without_hwnd() {
         let ctx = ui_probe::probe_context(Default::default());

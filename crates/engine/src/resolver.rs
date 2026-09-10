@@ -336,18 +336,12 @@ mod tests {
         // single-pass seeder would flake if `dist` were resolved before `base`.
         for _ in 0..64 {
             let mut vars = HashMap::new();
-            vars.insert(
-                "dist".into(),
-                Value::Str("{{base}}/dist-iwellnew".into()),
-            );
+            vars.insert("dist".into(), Value::Str("{{base}}/dist-iwellnew".into()));
             vars.insert(
                 "base".into(),
                 Value::Str("C:/Documents/source code of business".into()),
             );
-            vars.insert(
-                "client".into(),
-                Value::Str("{{base}}/iwellnew".into()),
-            );
+            vars.insert("client".into(), Value::Str("{{base}}/iwellnew".into()));
 
             let mut c = ExecutionContext::new(RuntimeConfig::default());
             Resolver::seed_variables(&vars, &mut c).expect("cross-ref seed");

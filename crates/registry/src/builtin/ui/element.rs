@@ -1,14 +1,14 @@
-//! `ui.element.*` Action facades.
+//! `ui.element.*` 动作门面。
 
 use crate::ActionRegistry;
 use async_trait::async_trait;
 use corex_core::{
-    Action, ActionCategory, ActionError, ActionMeta, ExecutionContext, ParamSchema, SchemaType,
-    Value,
+    Action, ActionCategory, ActionError, ActionMeta, ExecutionContext, ParamSchema, PermissionSet,
+    SchemaType, Value,
 };
 use std::sync::Arc;
 
-pub struct UiElementList;
+pub struct UiElements;
 pub struct UiElementFind;
 pub struct UiElementClick;
 pub struct UiElementWait;
@@ -19,9 +19,9 @@ pub struct UiElementGet;
 pub struct UiElementSet;
 
 impl_ui_action_ctx!(
-    UiElementList,
+    UiElements,
     "ui.element.list",
-    "List Elements",
+    "枚举元素",
     "枚举窗口下子元素（UIAutomation）",
     vec![
         ParamSchema::new("hwnd", SchemaType::Int, false),
@@ -29,13 +29,13 @@ impl_ui_action_ctx!(
         ParamSchema::new("depth", SchemaType::Int, false).with_default(3),
         ParamSchema::new("limit", SchemaType::Int, false).with_default(50),
     ],
-    ui_element_list_impl
+    ui_elements_impl
 );
 
 impl_ui_action_ctx!(
     UiElementFind,
     "ui.element.find",
-    "Find Element",
+    "查找元素",
     "按 name / automation_id / control_type 查找元素",
     vec![
         ParamSchema::new("hwnd", SchemaType::Int, false),
@@ -44,7 +44,7 @@ impl_ui_action_ctx!(
         ParamSchema::new("name_contains", SchemaType::Str, false),
         ParamSchema::new("automation_id", SchemaType::Str, false),
         ParamSchema::new("control_type", SchemaType::Str, false),
-        ParamSchema::new("selectors", SchemaType::List, false),
+        ParamSchema::new("selectors", SchemaType::Array, false),
         ParamSchema::new("timeout_ms", SchemaType::Int, false).with_default(3000),
     ],
     ui_element_find_impl
@@ -53,7 +53,7 @@ impl_ui_action_ctx!(
 impl_ui_action_ctx!(
     UiElementClick,
     "ui.element.click",
-    "Click Element",
+    "点击元素",
     "点击元素（按 selector）",
     vec![
         ParamSchema::new("hwnd", SchemaType::Int, false),
@@ -61,7 +61,7 @@ impl_ui_action_ctx!(
         ParamSchema::new("name", SchemaType::Str, false),
         ParamSchema::new("automation_id", SchemaType::Str, false),
         ParamSchema::new("control_type", SchemaType::Str, false),
-        ParamSchema::new("selectors", SchemaType::List, false),
+        ParamSchema::new("selectors", SchemaType::Array, false),
         ParamSchema::new("timeout_ms", SchemaType::Int, false).with_default(3000),
         ParamSchema::new("safe", SchemaType::Bool, false).with_default(true),
     ],
@@ -71,7 +71,7 @@ impl_ui_action_ctx!(
 impl_ui_action_ctx!(
     UiElementWait,
     "ui.element.wait",
-    "Wait Element",
+    "等待元素",
     "等待元素 present/absent/enabled",
     vec![
         ParamSchema::new("hwnd", SchemaType::Int, false),
@@ -79,7 +79,7 @@ impl_ui_action_ctx!(
         ParamSchema::new("name", SchemaType::Str, false),
         ParamSchema::new("automation_id", SchemaType::Str, false),
         ParamSchema::new("control_type", SchemaType::Str, false),
-        ParamSchema::new("selectors", SchemaType::List, false),
+        ParamSchema::new("selectors", SchemaType::Array, false),
         ParamSchema::new("state", SchemaType::Str, false).with_default("present"),
         ParamSchema::new("timeout_ms", SchemaType::Int, true),
         ParamSchema::new("poll_interval_ms", SchemaType::Int, false).with_default(200),
@@ -90,7 +90,7 @@ impl_ui_action_ctx!(
 impl_ui_action_ctx!(
     UiElementExists,
     "ui.element.exists",
-    "Element Exists",
+    "元素存在探测",
     "探测元素是否存在（非阻塞语义）",
     vec![
         ParamSchema::new("hwnd", SchemaType::Int, false),
@@ -98,7 +98,7 @@ impl_ui_action_ctx!(
         ParamSchema::new("name", SchemaType::Str, false),
         ParamSchema::new("automation_id", SchemaType::Str, false),
         ParamSchema::new("control_type", SchemaType::Str, false),
-        ParamSchema::new("selectors", SchemaType::List, false),
+        ParamSchema::new("selectors", SchemaType::Array, false),
         ParamSchema::new("timeout_ms", SchemaType::Int, false).with_default(2000),
     ],
     ui_element_exists_impl
@@ -107,7 +107,7 @@ impl_ui_action_ctx!(
 impl_ui_action_ctx!(
     UiElementGet,
     "ui.element.get",
-    "Get Element Value",
+    "读取元素值",
     "读取元素 ValuePattern / Name",
     vec![
         ParamSchema::new("hwnd", SchemaType::Int, false),
@@ -115,7 +115,7 @@ impl_ui_action_ctx!(
         ParamSchema::new("name", SchemaType::Str, false),
         ParamSchema::new("automation_id", SchemaType::Str, false),
         ParamSchema::new("control_type", SchemaType::Str, false),
-        ParamSchema::new("selectors", SchemaType::List, false),
+        ParamSchema::new("selectors", SchemaType::Array, false),
         ParamSchema::new("timeout_ms", SchemaType::Int, false).with_default(3000),
     ],
     ui_element_get_impl
@@ -124,7 +124,7 @@ impl_ui_action_ctx!(
 impl_ui_action_ctx!(
     UiElementSet,
     "ui.element.set",
-    "Set Element Value",
+    "写入元素值",
     "写入元素 ValuePattern",
     vec![
         ParamSchema::new("hwnd", SchemaType::Int, false),
@@ -132,7 +132,7 @@ impl_ui_action_ctx!(
         ParamSchema::new("name", SchemaType::Str, false),
         ParamSchema::new("automation_id", SchemaType::Str, false),
         ParamSchema::new("control_type", SchemaType::Str, false),
-        ParamSchema::new("selectors", SchemaType::List, false),
+        ParamSchema::new("selectors", SchemaType::Array, false),
         ParamSchema::new("value", SchemaType::Str, true),
         ParamSchema::new("timeout_ms", SchemaType::Int, false).with_default(3000),
     ],
@@ -141,10 +141,14 @@ impl_ui_action_ctx!(
 
 #[async_trait]
 impl Action for UiElementPoint {
+    fn permissions(&self) -> PermissionSet {
+        PermissionSet::UI
+    }
+
     fn meta(&self) -> ActionMeta {
         ActionMeta::new(
             "ui.element.point",
-            "Element At Point",
+            "坐标处元素",
             "按屏幕坐标取 UIA 元素",
             ActionCategory::Ui,
         )
@@ -164,10 +168,14 @@ impl Action for UiElementPoint {
 
 #[async_trait]
 impl Action for UiElementPick {
+    fn permissions(&self) -> PermissionSet {
+        PermissionSet::UI
+    }
+
     fn meta(&self) -> ActionMeta {
         ActionMeta::new(
             "ui.element.pick",
-            "Pick Element",
+            "选择元素",
             "交互式点选 UI 元素（需桌面会话）",
             ActionCategory::Ui,
         )
@@ -183,7 +191,7 @@ impl Action for UiElementPick {
 }
 
 pub fn register(registry: &mut ActionRegistry) {
-    registry.register(Arc::new(UiElementList));
+    registry.register(Arc::new(UiElements));
     registry.register(Arc::new(UiElementFind));
     registry.register(Arc::new(UiElementClick));
     registry.register(Arc::new(UiElementWait));
@@ -197,7 +205,7 @@ pub fn register(registry: &mut ActionRegistry) {
 #[cfg(windows)]
 use super::win::{
     ui_element_click_impl, ui_element_exists_impl, ui_element_find_impl, ui_element_get_impl,
-    ui_element_list_impl, ui_element_set_impl, ui_element_wait_impl,
+    ui_element_set_impl, ui_element_wait_impl, ui_elements_impl,
 };
 
 #[cfg(windows)]
@@ -229,7 +237,7 @@ async fn ui_element_pick_impl(params: Value) -> Result<Value, ActionError> {
 }
 
 #[cfg(not(windows))]
-async fn ui_element_list_impl(_: Value, _: &mut ExecutionContext) -> Result<Value, ActionError> {
+async fn ui_elements_impl(_: Value, _: &mut ExecutionContext) -> Result<Value, ActionError> {
     ui_unavailable!()
 }
 #[cfg(not(windows))]

@@ -1,4 +1,4 @@
-//! Built-in actions, each behind a Cargo feature.
+//! 内置动作，每一个各自受一个 Cargo feature 控制。
 
 use crate::ActionRegistry;
 
@@ -58,10 +58,13 @@ pub mod sys;
 pub mod template;
 #[cfg(feature = "act-ui")]
 pub mod ui;
-#[cfg(feature = "act-ui")]
-pub mod ui_kernel;
 
-/// Register every feature-enabled builtin into `registry`.
+/// 把每个已启用 feature 的内置动作注册进 `registry`。
+///
+/// 一个 `act-*` feature 都没启用时没有任何东西可注册，参数刻意不去碰——
+/// 那是合法的最小构建，不是错误，所以未使用变量的 lint 在这里关掉，
+/// 而不是在每个调用点关。
+#[allow(unused_variables)]
 pub fn register_all(registry: &mut ActionRegistry) {
     #[cfg(feature = "act-shell")]
     shell::register(registry);

@@ -1,4 +1,4 @@
-//! Shared UI automation selector / sync primitives (platform-agnostic).
+//! 共用的 UI 自动化 selector / 同步原语（与平台无关）。
 
 use corex_core::{ActionError, ExecutionContext, Value};
 use std::collections::BTreeMap;
@@ -76,7 +76,7 @@ impl ElementSelector {
     }
 }
 
-/// Parse window query + optional explicit hwnd from params; falls back to ui_session scope.
+/// 从参数里解析窗口查询与可选的显式 hwnd；缺省时回退到 ui_session 范围。
 pub fn window_query_from_params(
     map: &BTreeMap<String, Value>,
     ctx: &ExecutionContext,
@@ -94,8 +94,8 @@ pub fn window_query_from_params(
             .unwrap_or(false),
         ..Default::default()
     };
-    if let Some(list) = map.get("title_excludes").and_then(|v| v.as_list()) {
-        q.title_excludes = list
+    if let Some(excludes) = map.get("title_excludes").and_then(|v| v.as_array()) {
+        q.title_excludes = excludes
             .iter()
             .filter_map(|v| v.as_str().map(|s| s.to_string()))
             .collect();
@@ -104,30 +104,31 @@ pub fn window_query_from_params(
     if q.hwnd.is_none() && !q.prefer_largest {
         q.hwnd = ctx.ui_session.scope_hwnd;
     }
-    if q.title_contains.is_none() && q.hwnd.is_none() {
-        if let Some(title) = &ctx.ui_session.scope_title {
-            q.title_contains = Some(title.clone());
-        }
+    if q.title_contains.is_none()
+        && q.hwnd.is_none()
+        && let Some(title) = &ctx.ui_session.scope_title
+    {
+        q.title_contains = Some(title.clone());
     }
     Ok(q)
 }
 
-/// Flat params or `selectors: [{...}, ...]` fallback chain (length capped by runtime).
+/// 扁平参数，或 `selectors: [{...}, ...]` 回退链（长度由运行时限制）。
 pub fn selector_chain_from_params(
     map: &BTreeMap<String, Value>,
     max_chain: usize,
 ) -> Result<Vec<ElementSelector>, ActionError> {
-    if let Some(list) = map.get("selectors").and_then(|v| v.as_list()) {
-        if list.is_empty() {
+    if let Some(selectors) = map.get("selectors").and_then(|v| v.as_array()) {
+        if selectors.is_empty() {
             return Err(ActionError::InvalidParams("selectors 不能为空".into()));
         }
-        if list.len() > max_chain {
+        if selectors.len() > max_chain {
             return Err(ActionError::InvalidParams(format!(
                 "selectors 最多 {max_chain} 条（可在 [runtime] 调整 ui_max_selector_chain / ui_profile）"
             )));
         }
-        let mut out = Vec::with_capacity(list.len());
-        for item in list {
+        let mut out = Vec::with_capacity(selectors.len());
+        for item in selectors {
             let m = item
                 .as_map()
                 .ok_or_else(|| ActionError::InvalidParams("selectors[] 每项必须为 map".into()))?;
@@ -170,7 +171,7 @@ fn opt_str(map: &BTreeMap<String, Value>, key: &str) -> Option<String> {
     map.get(key).and_then(|v| v.as_str()).map(|s| s.to_string())
 }
 
-/// Suggested selector fallback chain (AutomationId → name+type → name → class+type → control_type).
+/// 建议的 selector 回退链（AutomationId → name+type → name → class+type → control_type）。
 pub fn suggest_selectors(
     automation_id: Option<&str>,
     name: Option<&str>,
@@ -202,29 +203,29 @@ pub fn suggest_selectors(
             ..Default::default()
         });
     }
-    if let Some(c) = class.filter(|s| !s.is_empty()) {
-        if let Some(ref ct_val) = ct {
-            out.push(ElementSelector {
-                class: Some(c.to_string()),
-                control_type: Some(ct_val.clone()),
-                depth: 12,
-                ..Default::default()
-            });
-        }
+    if let Some(c) = class.filter(|s| !s.is_empty())
+        && let Some(ref ct_val) = ct
+    {
+        out.push(ElementSelector {
+            class: Some(c.to_string()),
+            control_type: Some(ct_val.clone()),
+            depth: 12,
+            ..Default::default()
+        });
     }
-    if out.is_empty() {
-        if let Some(ref ct_val) = ct {
-            out.push(ElementSelector {
-                control_type: Some(ct_val.clone()),
-                depth: 12,
-                ..Default::default()
-            });
-        }
+    if out.is_empty()
+        && let Some(ref ct_val) = ct
+    {
+        out.push(ElementSelector {
+            control_type: Some(ct_val.clone()),
+            depth: 12,
+            ..Default::default()
+        });
     }
     out
 }
 
-/// Probe commands must pass `--hwnd` or `--title` explicitly (no session fallback).
+/// 探测命令必须显式给 `--hwnd` 或 `--title`（不回退到会话范围）。
 pub fn probe_scope_explicit(map: &BTreeMap<String, Value>) -> Result<(), ActionError> {
     let has_hwnd = map.get("hwnd").and_then(|v| v.as_i64()).is_some();
     let has_title = map
@@ -251,7 +252,7 @@ fn node_key(map: &BTreeMap<String, Value>) -> String {
         .get("control_type")
         .and_then(|v| v.as_str())
         .unwrap_or("");
-    // Include bounds so same-name siblings are not merged into one TreeNode.
+    // 把 bounds 算进去，避免同名兄弟节点被合并成一个 TreeNode。
     let bounds = map
         .get("bounds")
         .and_then(|v| v.as_map())
@@ -266,7 +267,7 @@ fn node_key(map: &BTreeMap<String, Value>) -> String {
     format!("{ct}:{aid}:{name}:{bounds}")
 }
 
-/// Build nested tree JSON from flat element maps that include `ancestors`.
+/// 由带 `ancestors` 的扁平元素 map 构建嵌套树 JSON。
 pub fn elements_flat_to_tree(elements: &[BTreeMap<String, Value>]) -> Value {
     use std::collections::BTreeMap as Map;
 
@@ -281,7 +282,7 @@ pub fn elements_flat_to_tree(elements: &[BTreeMap<String, Value>]) -> Value {
             let mut m = self.fields.clone();
             if !self.children.is_empty() {
                 let kids: Vec<Value> = self.children.values().map(|c| c.to_value()).collect();
-                m.insert("children".into(), Value::List(kids));
+                m.insert("children".into(), Value::Array(kids));
             }
             Value::Map(m)
         }
@@ -291,8 +292,13 @@ pub fn elements_flat_to_tree(elements: &[BTreeMap<String, Value>]) -> Value {
     for el in elements {
         let mut path: Vec<BTreeMap<String, Value>> = el
             .get("ancestors")
-            .and_then(|v| v.as_list())
-            .map(|list| list.iter().filter_map(|v| v.as_map().cloned()).collect())
+            .and_then(|v| v.as_array())
+            .map(|ancestors| {
+                ancestors
+                    .iter()
+                    .filter_map(|v| v.as_map().cloned())
+                    .collect()
+            })
             .unwrap_or_default();
         let mut leaf = el.clone();
         leaf.remove("ancestors");
@@ -313,11 +319,11 @@ pub fn elements_flat_to_tree(elements: &[BTreeMap<String, Value>]) -> Value {
     } else if root.children.len() == 1 {
         root.children.values().next().unwrap().to_value()
     } else {
-        Value::List(root.children.values().map(|c| c.to_value()).collect())
+        Value::Array(root.children.values().map(|c| c.to_value()).collect())
     }
 }
 
-/// YAML snippet for directive `selectors:` block.
+/// 指令 `selectors:` 块的 YAML 片段。
 pub fn selector_chain_to_yaml(chain: &[ElementSelector]) -> String {
     if chain.is_empty() {
         return "selectors: []".into();
@@ -344,7 +350,7 @@ pub fn selector_chain_to_yaml(chain: &[ElementSelector]) -> String {
     lines.join("\n")
 }
 
-/// Whether an action id is blocked by `[plugins].disabled` (plugin name or full id).
+/// 该动作 id 是否被 `[plugins].disabled` 屏蔽（插件名或完整 id）。
 pub fn probe_plugin_disabled(plugins: &corex_core::PluginConfig, action_id: &str) -> bool {
     let plugin = action_id.split('.').next().unwrap_or(action_id);
     plugins
@@ -353,7 +359,7 @@ pub fn probe_plugin_disabled(plugins: &corex_core::PluginConfig, action_id: &str
         .any(|d| d == plugin || d == action_id)
 }
 
-/// Whether an action id is blocked by `[plugins].disabled_actions`.
+/// 该动作 id 是否被 `[plugins].disabled_actions` 屏蔽。
 pub fn probe_action_denied(plugins: &corex_core::PluginConfig, action_id: &str) -> bool {
     plugins.disabled_actions.iter().any(|d| d == action_id)
 }
@@ -394,7 +400,7 @@ mod tests {
     #[test]
     fn selector_chain_rejects_empty() {
         let mut m = BTreeMap::new();
-        m.insert("selectors".into(), Value::List(vec![]));
+        m.insert("selectors".into(), Value::Array(vec![]));
         assert!(selector_chain_from_params(&m, MAX_SELECTOR_CHAIN).is_err());
     }
 
@@ -403,7 +409,7 @@ mod tests {
         let mut m = BTreeMap::new();
         m.insert(
             "selectors".into(),
-            Value::List(vec![
+            Value::Array(vec![
                 Value::Map(BTreeMap::from([("name".into(), Value::Str("a".into()))])),
                 Value::Map(BTreeMap::from([("name".into(), Value::Str("b".into()))])),
                 Value::Map(BTreeMap::from([("name".into(), Value::Str("c".into()))])),
@@ -443,7 +449,7 @@ mod tests {
         let mut child = BTreeMap::new();
         child.insert("name".into(), Value::Str("OK".into()));
         child.insert("control_type".into(), Value::Str("button".into()));
-        child.insert("ancestors".into(), Value::List(vec![Value::Map(parent)]));
+        child.insert("ancestors".into(), Value::Array(vec![Value::Map(parent)]));
         let tree = elements_flat_to_tree(&[child]);
         let json = tree.to_json();
         assert!(json.get("children").is_some() || json.get("name").is_some());
@@ -469,7 +475,7 @@ mod tests {
         );
         a.insert(
             "ancestors".into(),
-            Value::List(vec![Value::Map(parent.clone())]),
+            Value::Array(vec![Value::Map(parent.clone())]),
         );
 
         let mut b = BTreeMap::new();
@@ -484,7 +490,7 @@ mod tests {
                 ("height".into(), Value::Int(10)),
             ])),
         );
-        b.insert("ancestors".into(), Value::List(vec![Value::Map(parent)]));
+        b.insert("ancestors".into(), Value::Array(vec![Value::Map(parent)]));
 
         let tree = elements_flat_to_tree(&[a, b]);
         let json = tree.to_json();

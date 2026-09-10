@@ -1,13 +1,15 @@
-//! UI automation domain: window / element / input facades + Windows adapter.
+//! UI 自动化域：window / element / input 门面 + Windows 适配层。
 //!
-//! Layers: Action facade → domain (`win` services) → Win32/UIA.
-//! CLI probes call the same `win::*` entry points (or Action::execute).
+//! 分层：动作门面 → 领域（`win` 服务）→ Win32/UIA。
+//! CLI 探测调用同一批 `win::*` 入口（或 Action::execute）。
 
 #[macro_use]
 mod macros;
 
 pub mod element;
 pub mod input;
+/// 与平台无关的 selector / 等待原语，门面与 Windows 适配层共用。
+pub mod kernel;
 pub mod window;
 
 #[cfg(windows)]
@@ -15,7 +17,7 @@ pub(crate) mod win;
 
 use crate::ActionRegistry;
 
-/// Register all `ui.*` actions.
+/// 注册全部 `ui.*` 动作。
 pub fn register(registry: &mut ActionRegistry) {
     window::register(registry);
     element::register(registry);
