@@ -25,7 +25,11 @@ fn checked_in_schema_matches_the_generated_one() {
         return;
     }
 
-    let checked_in = std::fs::read_to_string(&path).expect("读取 schema 失败");
+    // 比较的是内容，不是换行风格：`core.autocrlf=true`（Windows 默认）会把签出文件
+    // 写成 CRLF，而生成器输出永远是 LF——否则这条闸门在 Windows 上永远是红的。
+    let checked_in = std::fs::read_to_string(&path)
+        .expect("读取 schema 失败")
+        .replace("\r\n", "\n");
     assert_eq!(
         checked_in,
         generated,
