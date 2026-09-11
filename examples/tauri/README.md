@@ -1,4 +1,4 @@
-# Tauri × corex 集成示例（v6）
+# Tauri × corex 集成示例（v7）
 
 将重依赖隔离在 **`corex-daemon`** 中，Tauri 仅通过 NDJSON IPC 调用。
 

@@ -1,4 +1,4 @@
-# 新增 Action 检查清单（v6）
+# 新增 Action 检查清单（v7）
 
 复制此清单，逐项勾选。Action 名记为 `<name>`，ID 记为 `<id>`（如 `foo.bar`）。
 

@@ -57,9 +57,9 @@ git push origin vX.Y.Z
 预发布渠道（与 CI 约定一致）：
 
 ```powershell
-# Cargo.toml version = "6.1.0-beta.1"
-git tag v6.1.0-beta.1
-git push origin v6.1.0-beta.1
+# Cargo.toml version = "7.0.0-beta.1"
+git tag v7.0.0-beta.1
+git push origin v7.0.0-beta.1
 ```
 
 也可用 Actions → **Publish Release** → `workflow_dispatch` 指定已存在的 tag。

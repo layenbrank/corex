@@ -1,4 +1,4 @@
-# Corex IPC 协议（v6）
+# Corex IPC 协议（v7）
 
 > **接入指南（推荐）：** [integration/IPC接入指南.md](../integration/IPC接入指南.md)
 

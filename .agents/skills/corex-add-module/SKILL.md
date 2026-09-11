@@ -1,11 +1,11 @@
 ---
 name: corex-add-module
-description: "在 corex v6 中新增内置 Action 的标准流程。当用户提到「新增模块」「添加命令」「迁移到 corex」「实现 Action」「注册 builtin」「补全功能模块」或要在 corex 里加类似 copy/codec/scan 的能力时，务必使用本 skill。适用于从外部项目迁入可移植逻辑，或从零实现新的 Action（CLI run / Daemon IPC / Directive YAML 共用）。"
+description: "在 corex v7 中新增内置 Action 的标准流程。当用户提到「新增模块」「添加命令」「迁移到 corex」「实现 Action」「注册 builtin」「补全功能模块」或要在 corex 里加类似 copy/codec/scan 的能力时，务必使用本 skill。适用于从外部项目迁入可移植逻辑，或从零实现新的 Action（CLI run / Daemon IPC / Directive YAML 共用）。"
 argument-hint: "<action-name> [--feature-only]"
 allowed-tools: ["Read", "Glob", "Grep", "Edit", "Write", "Shell"]
 ---
 
-# Corex 新增 Action（v6）
+# Corex 新增 Action（v7）
 
 在 **`crates/registry`** 中按统一契约添加内置 Action，使其可被：
 

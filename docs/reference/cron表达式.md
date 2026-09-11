@@ -1,6 +1,6 @@
 # Cron 表达式参考
 
-本文说明 **corex v6** 中 cron 触发器与 `cron.schedule` 所使用的表达式规则。
+本文说明 **corex v7** 中 cron 触发器与 `cron.schedule` 所使用的表达式规则。
 
 权威解析器文档：
 
