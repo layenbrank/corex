@@ -8,7 +8,7 @@ use crate::definition::{
 use crate::history::{ExecutionHistory, HistoryEntry};
 use crate::inputs::fill_input_defaults;
 use crate::resolver::Resolver;
-use corex_core::{ActionError, ActionStore, EngineError, ExecutionContext, Value};
+use corex_core::{ActionError, ActionStore, EngineError, ExecutionContext, Observer, Spot, Value};
 use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime};
 use tracing::{debug, error, info, warn};
@@ -18,6 +18,8 @@ pub struct Pipeline {
     store: Arc<dyn ActionStore>,
     history: Option<ExecutionHistory>,
     audit: Option<ExecutionAudit>,
+    /// 步骤进度的上报口；`None` 时引擎只走日志。
+    observer: Option<Arc<dyn Observer>>,
     /// 在 [`Self::execute`] 期间设置，用于步骤审计 / 日志。
     run_name: Option<String>,
 }
@@ -28,6 +30,7 @@ impl Pipeline {
             store,
             history: None,
             audit: None,
+            observer: None,
             run_name: None,
         }
     }
@@ -44,6 +47,15 @@ impl Pipeline {
         self
     }
 
+    /// 接收步骤进度。
+    ///
+    /// 上报口会同时放进 [`ExecutionContext`]，因此长耗时的动作可以自己补充分块进度
+    /// （见 [`ExecutionContext::chunk`]）。不给就是不上报，引擎零开销。
+    pub fn with_observer(mut self, observer: Arc<dyn Observer>) -> Self {
+        self.observer = Some(observer);
+        self
+    }
+
     /// 执行整条指令。
     pub async fn execute(
         &self,
@@ -55,8 +67,11 @@ impl Pipeline {
             store: Arc::clone(&self.store),
             history: self.history.clone(),
             audit: self.audit.clone(),
+            observer: self.observer.clone(),
             run_name: Some(directive.name.clone()),
         };
+        // 上报口从流水线转交给上下文，于是动作不必自己去拿它。
+        ctx.observer = pipeline.observer.clone();
 
         if let Err(e) = Resolver::seed_variables(&directive.variables, &mut ctx) {
             pipeline.record_history(directive, started, Err(&e));
@@ -187,9 +202,37 @@ impl Pipeline {
             return Ok(Value::Null);
         }
 
+        // 上报按**整步**计（含重试），与审计里的 duration 口径一致。
+        let at = Spot {
+            id: &step.id,
+            action: &step.action,
+        };
+        if let Some(observer) = &self.observer {
+            observer.begin(at);
+        }
+        ctx.enter_step(&step.id, &step.action);
+        let t0 = Instant::now();
+        let outcome = self
+            .attempts(step, ctx, default_on_error, permissions)
+            .await;
+        ctx.leave_step();
+        if let Some(observer) = &self.observer {
+            observer.end(at, t0.elapsed(), outcome.is_ok());
+        }
+        outcome
+    }
+
+    /// 调动作直到成功、重试耗尽或 `on_error` 给出结论。
+    async fn attempts(
+        &self,
+        step: &ActionStep,
+        ctx: &mut ExecutionContext,
+        default_on_error: OnError,
+        permissions: &Permissions,
+    ) -> Result<Value, EngineError> {
         let on_error = step.on_error.unwrap_or(default_on_error);
         let retries = step.retry.unwrap_or(0);
-        let mut attempt = 0u32;
+        let mut n = 0u32;
 
         loop {
             let outcome = self.invoke_action(step, ctx, permissions).await;
@@ -202,9 +245,9 @@ impl Pipeline {
                     return Ok(value);
                 }
                 Err(e) => {
-                    if attempt < retries {
-                        attempt += 1;
-                        warn!(id = %step.id, attempt, error = %e, "步骤失败，重试中");
+                    if n < retries {
+                        n += 1;
+                        warn!(id = %step.id, attempt = n, error = %e, "步骤失败，重试中");
                         continue;
                     }
                     if e.is_permission_denied() {

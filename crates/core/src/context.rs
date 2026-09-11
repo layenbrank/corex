@@ -1,9 +1,11 @@
 //! 传给每次动作调用的执行上下文。
 
+use crate::progress::{Mark, Observer, Owned, Spot, Unit};
 use crate::value::Value;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::PathBuf;
+use std::sync::Arc;
 
 /// 基线 UI 预设名（`[runtime].ui_profile`）。
 pub const UI_PROFILE: &str = "baseline";
@@ -440,6 +442,10 @@ pub struct ExecutionContext {
     pub config: RuntimeConfig,
     /// UI 自动化会话（窗口范围、稳定等待预算）。
     pub ui_session: UiSession,
+    /// 执行进度的上报口；`None` 时所有上报都是空操作。
+    pub observer: Option<Arc<dyn Observer>>,
+    /// 当前正在执行的动作步骤，由引擎在调用动作前设置。
+    current: Option<Owned>,
 }
 
 impl Default for ExecutionContext {
@@ -459,6 +465,8 @@ impl ExecutionContext {
             env,
             config,
             ui_session: UiSession::default(),
+            observer: None,
+            current: None,
         }
     }
 
@@ -475,6 +483,38 @@ impl ExecutionContext {
     pub fn with_directive_input(mut self, value: Value) -> Self {
         self.directive_input = Some(value);
         self
+    }
+
+    /// 记录当前动作步骤，供动作上报进度时标注自己。
+    ///
+    /// 只由引擎在调用动作前后设置；动作不应当调用它。
+    pub fn enter_step(&mut self, id: impl Into<String>, action: impl Into<String>) {
+        self.current = Some(Owned {
+            id: id.into(),
+            action: action.into(),
+        });
+    }
+
+    /// 清除当前动作步骤；只由引擎调用。
+    pub fn leave_step(&mut self) {
+        self.current = None;
+    }
+
+    /// 上报当前步骤的分块进度。
+    ///
+    /// 没有上报口、或不在动作步骤内时是空操作，因此动作可以无条件调用它。
+    /// `unit` 只影响展示，上报口不负责换算。
+    pub fn chunk(&self, done: u64, total: Option<u64>, unit: Unit) {
+        let (Some(observer), Some(current)) = (&self.observer, &self.current) else {
+            return;
+        };
+        observer.chunk(
+            Spot {
+                id: &current.id,
+                action: &current.action,
+            },
+            Mark { done, total, unit },
+        );
     }
 
     pub fn set_variable(&mut self, name: impl Into<String>, value: Value) {

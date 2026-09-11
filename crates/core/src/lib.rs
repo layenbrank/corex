@@ -6,6 +6,7 @@ pub mod context;
 pub mod error;
 pub mod path;
 pub mod permission;
+pub mod progress;
 pub mod schema;
 pub mod value;
 
@@ -17,5 +18,6 @@ pub use context::{
 };
 pub use error::{ActionError, EngineError};
 pub use permission::{PermissionKind, PermissionSet, check_runtime_allowed};
+pub use progress::{Mark, Observer, Spot, Unit};
 pub use schema::SchemaType;
 pub use value::Value;
