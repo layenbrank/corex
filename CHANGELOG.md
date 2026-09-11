@@ -8,6 +8,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 See also [Conventional Commits](https://www.conventionalcommits.org/).
 
 ---
+## [8.0.0](https://github.com/layenbrank/corex/compare/v7.1.0..v8.0.0) - 2026-09-11
+
+### 💥 Breaking Changes
+
+- **(core,registry)** 动作分组改用 bucket，配置键收敛并拒绝未知键 · ([`4bb87ae`](https://github.com/layenbrank/corex/commit/4bb87aeeaf796d24213f20e26b8874cad203b9ed)) · layen
+
+
+### 🚀 Features
+- **(cli)** 交互体验一轮（history / 符号与颜色 / UTF-8 / 输入校验 / 预览增强） · ([`6453571`](https://github.com/layenbrank/corex/commit/645357170de9ce0aa2a409791e4764c3f0fdab9a)) · layen
+- **(cli)** 补全改成回调式，候选由 corex 现算 · ([`f355cec`](https://github.com/layenbrank/corex/commit/f355cecb3119e27dbdef44cfecd95a064a5cc022)) · layen
+- **(cli)** doctor 报出控制台编码 · ([`4534a72`](https://github.com/layenbrank/corex/commit/4534a72ab5589b2edcb5ff0140c0a02349a7bd3d)) · layen
+- **(core)** 加进度句柄 Reporter，阻塞任务也能上报 · ([`02d183e`](https://github.com/layenbrank/corex/commit/02d183e2a65cf8720fc61be978f39c0ae4aab16c)) · layen
+- **(registry)** http.send / morph.* / capture.find 上报分块进度 · ([`6f25668`](https://github.com/layenbrank/corex/commit/6f256689088a5b00825acb3b5eda2d497c55dd5a)) · layen
+
+
+### 🐛 Bug Fixes
+- **(engine)** 并行分支挂上进度上报口 · ([`1279283`](https://github.com/layenbrank/corex/commit/12792835a5115ce12d6529f0d40faa5a16241961)) · layen
+- **(registry)** copy.run 按字节上报进度，与 file.copy 共用分块拷贝 · ([`83bcbc1`](https://github.com/layenbrank/corex/commit/83bcbc1fd5ee51a4569a9d6f192b030456bd26cd)) · layen
+
+
+### 📚 Documentation
+- 补全改回调式、进度上报范围与 doctor 编码行 · ([`7c554f9`](https://github.com/layenbrank/corex/commit/7c554f9b19ec86accb039b6d9924a44280850ba3)) · layen
+
+
+### ♻️ Refactoring
+- 💥 **(core,registry)** 动作分组改用 bucket，配置键收敛并拒绝未知键 — **breaking** · ([`4bb87ae`](https://github.com/layenbrank/corex/commit/4bb87aeeaf796d24213f20e26b8874cad203b9ed)) · layen
+- **(registry)** 拷贝进度收敛到 util::copy_bytes · ([`82754c7`](https://github.com/layenbrank/corex/commit/82754c7365d4a622fdd47cb283a0276b4f091e01)) · layen
+
+
+### 🎨 Style
+- **(registry)** rustfmt 收一下进度提交里的换行 · ([`c349dfa`](https://github.com/layenbrank/corex/commit/c349dfa1be4ea6537643a94fb606a756b31a95fb)) · layen
+
+---
 ## [7.1.0](https://github.com/layenbrank/corex/compare/v7.0.1..v7.1.0) - 2026-09-11
 
 ### 🚀 Features
@@ -19,6 +52,10 @@ See also [Conventional Commits](https://www.conventionalcommits.org/).
 
 ### 📚 Documentation
 - 补 v7 的进度通道、CLI 交互与 IPC 端点说明 · ([`e8044cd`](https://github.com/layenbrank/corex/commit/e8044cd1d5a6e1a2c1e75d75fbde49b0c3b5df9d)) · lh
+
+
+### 📦 Release
+- **(release)** bump version to 7.1.0 · ([`f4a1c8d`](https://github.com/layenbrank/corex/commit/f4a1c8d26fabfc8709296518f0fb559bee6278b0)) · lh
 
 ---
 ## [7.0.1](https://github.com/layenbrank/corex/compare/v7.0.0..v7.0.1) - 2026-09-11
@@ -398,6 +435,10 @@ See also [Conventional Commits](https://www.conventionalcommits.org/).
 - **(corex)** 重构核心库并优化命令行架构 · ([`752380f`](https://github.com/layenbrank/corex/commit/752380f612a72bc6aa6d0448f7d8c8abd5d204c9)) · lh
 - **(schedule)** 重构任务调度器支持流水线及步骤执行 · ([`95171c3`](https://github.com/layenbrank/corex/commit/95171c360f2c86b57f9033d9e37b467eec5a06f6)) · lh
 
+
+### 🔧 Miscellaneous
+- 删除 Visual Studio 相关配置文件和索引，清理项目目录 · ([`874929d`](https://github.com/layenbrank/corex/commit/874929dcd79563d3e8bdc12beded4a5fa80b6227)) · lh
+
 ---
 ## [0.2.9](https://github.com/layenbrank/corex/compare/v0.2.8..v0.2.9) - 2026-05-14
 
@@ -414,10 +455,6 @@ See also [Conventional Commits](https://www.conventionalcommits.org/).
 - 添加支持命令行界面 (CLI) 的压缩模块 · ([`e199374`](https://github.com/layenbrank/corex/commit/e19937442e08aff120fcfa49b0b8aa5f648f9416)) · lh
 - 添加时间戳功能并生成版本文件，更新依赖项 · ([`641c63d`](https://github.com/layenbrank/corex/commit/641c63d782770a6806d77977bdaa08bc0e2529c6)) · lh
 - 更新 README.md，添加压缩打包功能说明及示例 · ([`e0a737a`](https://github.com/layenbrank/corex/commit/e0a737a04b00fc94aba0af6a24017032154bb68f)) · lh
-
-
-### 🔧 Miscellaneous
-- 删除 Visual Studio 相关配置文件和索引，清理项目目录 · ([`874929d`](https://github.com/layenbrank/corex/commit/874929dcd79563d3e8bdc12beded4a5fa80b6227)) · lh
 
 ---
 ## [0.2.7](https://github.com/layenbrank/corex/compare/v0.2.6..v0.2.7) - 2026-01-08
@@ -444,10 +481,15 @@ See also [Conventional Commits](https://www.conventionalcommits.org/).
 - feat：重构项目结构并添加清理功能 · ([`8c8e6da`](https://github.com/layenbrank/corex/commit/8c8e6da5952dc9ef2d87ac0ff9a892a25ffc6cbe)) · lh
 
 ---
-## [0.2.4](https://github.com/layenbrank/corex/compare/v0.2.3..v0.2.4) - 2025-08-20
+## [0.2.5](https://github.com/layenbrank/corex/compare/v0.2.4..v0.2.5) - 2025-10-19
 
 ### 🚀 Features
 - feat：初始化 corex 项目结构和配置 · ([`7aa7d25`](https://github.com/layenbrank/corex/commit/7aa7d2511a3f5d0c6c565746f541c79e1d27e0c8)) · lh
+
+---
+## [0.2.4](https://github.com/layenbrank/corex/compare/v0.2.3..v0.2.4) - 2025-08-20
+
+### 🚀 Features
 - 更新发布工作流，添加提交信息获取和通知功能；重构文件处理和进度显示模块 · ([`b52c35e`](https://github.com/layenbrank/corex/commit/b52c35ec713e9f8431da734672a46e138e63b7fe)) · 李贺
 
 
@@ -464,6 +506,7 @@ See also [Conventional Commits](https://www.conventionalcommits.org/).
 - fluxor.yml · ([`322cb9c`](https://github.com/layenbrank/corex/commit/322cb9cb8c1e91f0b0a0b47e0014ae4c872fa846)) · layenbrank
 - Remove legacy notification examples and related files to streamline the project structure and focus on the updated notification system. This includes deleting old test files, configuration files, and XML templates that are no longer in use. · ([`fc89b31`](https://github.com/layenbrank/corex/commit/fc89b313725223dd1b0ce38ed5ad6b877f9a16e8)) · 李贺
 
+[8.0.0]: https://github.com/layenbrank/corex/compare/v7.1.0..v8.0.0
 [7.1.0]: https://github.com/layenbrank/corex/compare/v7.0.1..v7.1.0
 [7.0.1]: https://github.com/layenbrank/corex/compare/v7.0.0..v7.0.1
 [7.0.0]: https://github.com/layenbrank/corex/compare/v6.1.0..v7.0.0
@@ -493,6 +536,7 @@ See also [Conventional Commits](https://www.conventionalcommits.org/).
 [0.2.8]: https://github.com/layenbrank/corex/compare/v0.2.7..v0.2.8
 [0.2.7]: https://github.com/layenbrank/corex/compare/v0.2.6..v0.2.7
 [0.2.6]: https://github.com/layenbrank/corex/compare/v0.2.5..v0.2.6
+[0.2.5]: https://github.com/layenbrank/corex/compare/v0.2.4..v0.2.5
 [0.2.4]: https://github.com/layenbrank/corex/compare/v0.2.3..v0.2.4
 [0.1.1]: https://github.com/layenbrank/corex/releases/tag/v0.1.1
 

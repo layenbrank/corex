@@ -10,6 +10,7 @@
 | v4 → v5 | [破坏性变更 v5](../changelog/破坏性变更-v5.md) |
 | v5 → v6 | [破坏性变更 v6](../changelog/破坏性变更-v6.md) |
 | v6 → v7 | [破坏性变更 v7](../changelog/破坏性变更-v7.md) |
+| v7 → v8 | [破坏性变更 v8](../changelog/破坏性变更-v8.md) |
 
 ## 本目录文件
 
