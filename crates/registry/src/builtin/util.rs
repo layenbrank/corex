@@ -65,3 +65,27 @@ pub fn ensure_parent(path: &std::path::Path) -> Result<(), ActionError> {
     }
     Ok(())
 }
+
+/// 递归统计 `path` 下的条目数（目录自身也算一个），用作删除类动作的进度总量。
+///
+/// 读不动的子目录按已知部分计入：这只是给人看的量级，不该让删除本身失败。
+/// 不跟随符号链接 / junction，与 `remove_dir_all` 的语义一致。
+pub fn count_entries(path: &Path) -> u64 {
+    if !path.is_dir() {
+        return 1;
+    }
+    let mut total = 1;
+    let mut pending = vec![path.to_path_buf()];
+    while let Some(dir) = pending.pop() {
+        let Ok(entries) = std::fs::read_dir(&dir) else {
+            continue;
+        };
+        for entry in entries.flatten() {
+            total += 1;
+            if entry.file_type().is_ok_and(|t| t.is_dir()) {
+                pending.push(entry.path());
+            }
+        }
+    }
+    total
+}

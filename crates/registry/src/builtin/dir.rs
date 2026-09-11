@@ -1,11 +1,11 @@
 //! 目录动作：写入 / 读取 / 更新 / 删除。
 
 use crate::ActionRegistry;
-use crate::builtin::util::{confine_path, opt_bool, opt_i64, opt_str, require_map};
+use crate::builtin::util::{confine_path, count_entries, opt_bool, opt_i64, opt_str, require_map};
 use async_trait::async_trait;
 use corex_core::{
     Action, ActionCategory, ActionError, ActionMeta, ExecutionContext, ParamSchema, PermissionSet,
-    SchemaType, Value,
+    SchemaType, Unit, Value,
 };
 use std::collections::{BTreeMap, VecDeque};
 use std::path::{Path, PathBuf};
@@ -369,9 +369,13 @@ impl Action for DirRemove {
         let path = confine_path(ctx, &path)?;
         let recursive = opt_bool(map, "recursive", false);
         if recursive {
+            // 删除本身不可中断，但先点一下条目数，用户至少知道要处理多大规模。
+            let total = count_entries(&path);
+            ctx.chunk(0, Some(total), Unit::Items);
             tokio::fs::remove_dir_all(&path).await.map_err(|e| {
                 ActionError::execution(format!("删除目录失败 {}: {e}", path.display()))
             })?;
+            ctx.chunk(total, Some(total), Unit::Items);
         } else {
             tokio::fs::remove_dir(&path).await.map_err(|e| {
                 ActionError::execution(format!("删除目录失败 {}: {e}", path.display()))

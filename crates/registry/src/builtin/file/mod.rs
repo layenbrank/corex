@@ -1,11 +1,13 @@
 //! 文件动作：写入 / 读取 / 更新 / 删除（外加复制）。
 
 use crate::ActionRegistry;
-pub(crate) use crate::builtin::util::{confine_path, opt_bool, opt_str, require_map, require_str};
+pub(crate) use crate::builtin::util::{
+    confine_path, count_entries, opt_bool, opt_str, require_map, require_str,
+};
 use async_trait::async_trait;
 use corex_core::{
     Action, ActionCategory, ActionError, ActionMeta, ExecutionContext, ParamSchema, PermissionSet,
-    SchemaType, Value,
+    SchemaType, Unit, Value,
 };
 use regex::Regex;
 use ropey::Rope;
