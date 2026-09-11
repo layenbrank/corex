@@ -7,13 +7,13 @@
 //! 2. **首屏就得说清楚这里有什么**。从前只打一行“输入 help”，用户还得先敲 `schedule`
 //!    才知道有哪些指令——那正是 REPL 本该省掉的一步。
 
+use crate::build_registry;
 use crate::cli::Cli;
+use crate::history;
 use crate::output::{errln, outln};
 use crate::scheduler::Paths;
-use crate::{build_registry, settings};
 use anyhow::Result;
 use clap::Parser;
-use corex_engine::HistoryEntry;
 use corex_ipc::data_dir;
 use rustyline::completion::{Completer, Pair};
 use rustyline::error::ReadlineError;
@@ -27,9 +27,6 @@ use std::path::{Path, PathBuf};
 
 /// 首屏列几条最近跑过的指令。
 const RECENT: usize = 5;
-
-/// 读历史文件时只取末尾这么多字节；首屏要的是最后几条，不是整份账本。
-const TAIL_BYTES: u64 = 64 * 1024;
 
 /// 运行 `corex repl` 交互循环。
 pub(crate) async fn run(dir: Option<PathBuf>) -> Result<()> {
@@ -257,51 +254,7 @@ fn split(line: &str) -> Vec<String> {
 
 /// 最近跑过的指令名，新的排前面、同名只留一次。
 fn recent() -> Vec<String> {
-    let Some(text) = history_tail() else {
-        return Vec::new();
-    };
-    let mut names: Vec<String> = Vec::new();
-    for line in text.lines().rev() {
-        // 末尾那几行里的第一行很可能是被截断的半个 JSON，解析失败跳过即可。
-        let Ok(entry) = serde_json::from_str::<HistoryEntry>(line) else {
-            continue;
-        };
-        if names.contains(&entry.directive) {
-            continue;
-        }
-        names.push(entry.directive);
-        if names.len() == RECENT {
-            break;
-        }
-    }
-    names
-}
-
-fn history_tail() -> Option<String> {
-    let config = settings::effective();
-    if !config.history.enabled {
-        return None;
-    }
-    let path = if config.history.file.is_absolute() {
-        config.history.file.clone()
-    } else {
-        data_dir().ok()?.join(&config.history.file)
-    };
-    tail(&path, TAIL_BYTES)
-}
-
-/// 文件末尾 `bytes` 个字节能读到的文本；读不动就是 `None`。
-fn tail(path: &Path, bytes: u64) -> Option<String> {
-    use std::io::{Read, Seek, SeekFrom};
-    let mut file = std::fs::File::open(path).ok()?;
-    let len = file.metadata().ok()?.len();
-    if len > bytes {
-        // 起点可能落在多字节字符中间，所以按字节读、再宽松解码，而不是 `read_to_string`。
-        file.seek(SeekFrom::Start(len - bytes)).ok()?;
-    }
-    let mut buf = Vec::new();
-    file.read_to_end(&mut buf).ok()?;
-    Some(String::from_utf8_lossy(&buf).into_owned())
+    history::recent_names(RECENT)
 }
 
 /// 补全候选：REPL 自己能敲的命令 + 指令名。

@@ -54,6 +54,12 @@ pub(crate) enum Commands {
         /// 交给 corex-daemon 执行（插件 Action 只在它那里可用），进度按帧流回
         #[arg(long, conflicts_with = "dry_run")]
         remote: bool,
+        /// 覆盖本次运行的单步超时秒数（0 = 不限）
+        #[arg(long, value_name = "SECS", conflicts_with = "remote")]
+        timeout: Option<u64>,
+        /// 覆盖本次运行的 parallel 最大并发
+        #[arg(long, value_name = "N", conflicts_with = "remote")]
+        jobs: Option<usize>,
     },
     /// 列出可用指令名
     Schedule {
@@ -108,6 +114,17 @@ pub(crate) enum Commands {
     Completions {
         /// 目标 shell
         shell: clap_complete::Shell,
+    },
+    /// 列出最近的执行记录
+    History {
+        /// 只看这条指令
+        name: Option<String>,
+        /// 最多列出几条
+        #[arg(short = 'n', long, default_value_t = 20)]
+        limit: usize,
+        /// 只看失败的
+        #[arg(long = "failed")]
+        is_failed_only: bool,
     },
     /// 自检：数据目录、配置、守护进程、动作与指令
     Doctor,

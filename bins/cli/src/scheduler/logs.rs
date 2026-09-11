@@ -9,7 +9,7 @@ use tokio::io::{AsyncReadExt, AsyncSeekExt};
 
 use super::Jobs;
 
-pub(crate) async fn cmd_attach(kind: JobKind, name: &str) -> Result<()> {
+pub(crate) async fn attach(kind: JobKind, name: &str) -> Result<()> {
     let data = data_dir()?;
     let meta = Jobs::find(kind, name)?;
     let log_path = JobMeta::supervisor_log_path(&data, kind, &meta.id);
@@ -42,7 +42,7 @@ pub(crate) async fn cmd_attach(kind: JobKind, name: &str) -> Result<()> {
     Ok(())
 }
 
-pub(crate) async fn cmd_logs(
+pub(crate) async fn logs(
     kind: JobKind,
     name: Option<&str>,
     lines: usize,

@@ -11,7 +11,7 @@
 //! `--remote` 时这三个实现并不知情：daemon 推回来的帧经 `corex_ipc::Replay`
 //! 重放进同一个上报口，于是本地与远程两条路径共用这一套渲染。
 
-use crate::output::{error_line, line};
+use crate::output::{self, error_line, line};
 use corex_core::{Mark, Observer, Spot, Unit};
 use corex_ipc::ProgressEvent;
 use corex_updater::human_size;
@@ -86,7 +86,10 @@ impl Observer for Live {
             bar.finish_and_clear();
             self.canvas.remove(&bar);
         }
-        error_line(&conclusion(at, took, ok));
+        // 结论行得在画布让开的时候写：并行分支里兄弟步骤的 spinner 还在刷新，
+        // 直接往 stderr 写，会被下一次重绘连同它前面那几行一起清掉。
+        let line = conclusion(at, took, ok);
+        self.canvas.suspend(|| error_line(&line));
     }
 }
 
@@ -146,10 +149,19 @@ fn percent(mark: Mark) -> u64 {
     }
 }
 
-/// 结束行：`✓ file.copy  copy  12ms`。
+/// 结束行：`✓ file.copy  copy  12ms`。符号与颜色都取自 `output` 的两张表。
 fn conclusion(at: Spot<'_>, took: Duration, ok: bool) -> String {
-    let verdict = if ok { "✓" } else { "✗" };
-    format!("{verdict} {}  {}", title(at), elapsed(took))
+    let (role, glyph) = if ok {
+        (output::Role::Ok, output::symbols().ok)
+    } else {
+        (output::Role::Bad, output::symbols().bad)
+    };
+    format!(
+        "{} {}  {}",
+        output::paint_err(role, glyph),
+        title(at),
+        elapsed(took)
+    )
 }
 
 /// 墙钟耗时的紧凑写法：不足一秒用毫秒，否则保留两位小数。
@@ -162,10 +174,10 @@ fn elapsed(took: Duration) -> String {
 }
 
 fn spinner() -> ProgressStyle {
-    // 模板是编译期常量，写错了是编码错误而不是运行期状况。
+    // 模板是编译期常量，写错了是编码错误而不是运行期状况；帧来自符号表。
     ProgressStyle::with_template("{spinner} {msg}")
         .expect("进度模板是编译期常量")
-        .tick_chars("⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏ ")
+        .tick_chars(output::symbols().tick)
 }
 
 /// 给机器看的步骤事件：stdout 上的 NDJSON。

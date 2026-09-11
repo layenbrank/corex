@@ -67,33 +67,31 @@ pub async fn run(cmd: CronCommands, global_dir: Option<&std::path::Path>) -> Res
             job_id,
         } => {
             let dir = dir.as_deref().or(global_dir);
-            scheduler::cmd_run(scheduler::Spec {
+            scheduler::run(scheduler::Spec {
                 kind: JobKind::Cron,
                 name,
                 all,
                 dir,
-                foreground,
+                is_foreground: foreground,
                 // `cron run` 没有 `--immediate`；cron 触发器本身就是时间驱动的。
                 immediate: false,
-                supervised,
+                is_supervised: supervised,
                 job_id,
             })
             .await
         }
-        CronCommands::Ps => scheduler::cmd_ps(JobKind::Cron),
-        CronCommands::Attach { name } => scheduler::cmd_attach(JobKind::Cron, &name).await,
+        CronCommands::Ps => scheduler::ps(JobKind::Cron),
+        CronCommands::Attach { name } => scheduler::attach(JobKind::Cron, &name).await,
         CronCommands::Logs {
             name,
             lines,
             follow,
-        } => scheduler::cmd_logs(JobKind::Cron, name.as_deref(), lines, follow).await,
-        CronCommands::Send { name, msg } => scheduler::cmd_send(JobKind::Cron, &name, &msg),
-        CronCommands::Stop { name, force } => {
-            scheduler::cmd_stop(JobKind::Cron, &name, force).await
-        }
+        } => scheduler::logs(JobKind::Cron, name.as_deref(), lines, follow).await,
+        CronCommands::Send { name, msg } => scheduler::send(JobKind::Cron, &name, &msg),
+        CronCommands::Stop { name, force } => scheduler::stop(JobKind::Cron, &name, force).await,
         CronCommands::Restart { name, dir } => {
             let dir = dir.as_deref().or(global_dir);
-            scheduler::cmd_restart(JobKind::Cron, &name, dir).await
+            scheduler::restart(JobKind::Cron, &name, dir).await
         }
     }
 }

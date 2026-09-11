@@ -3,7 +3,7 @@
 //! [`init`] 在 `main` 里、任何命令分派之前运行，这买到两样旧的懒加载做不到的东西：
 //!
 //! - 文件存在却解析失败会让整次运行失败，而不是把默认值悄悄糊到命令的一部分上；
-//! - 文件只读一次，而不是每个消费者读一次（`cmd_run` 和 `build_registry` 曾经各读一份）。
+//! - 文件只读一次，而不是每个消费者读一次（`run::directive` 和 `build_registry` 曾经各读一份）。
 
 use corex_core::RuntimeConfig;
 use corex_core::config::ConfigIssue;

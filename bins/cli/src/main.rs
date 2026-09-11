@@ -9,6 +9,7 @@ mod doctor;
 mod editor;
 mod exit;
 mod fuzzy;
+mod history;
 mod output;
 mod progress;
 mod repl;
@@ -23,7 +24,7 @@ mod validate;
 mod watch;
 
 use crate::cli::{Cli, Commands, DaemonCmd};
-use crate::output::{errln, outln};
+use crate::output::{Role, errln, outln, paint_err};
 use crate::scheduler::Paths;
 use anyhow::{Context, Result, bail};
 use clap::Parser;
@@ -37,6 +38,9 @@ use std::process::{Command, ExitCode, Stdio};
 
 #[tokio::main]
 async fn main() -> ExitCode {
+    // 先设控制台代码页：中文与符号经 console 输出时按当前代码页解码，cp936 下会乱码。
+    output::use_utf8_console();
+
     let cli = Cli::parse();
 
     // 配置在任何分派之前只读一次：文件存在却解析失败必须让整次运行失败，
@@ -61,7 +65,7 @@ async fn main() -> ExitCode {
         }
         Err(err) => {
             let err = anyhow::Error::new(err);
-            errln!("错误: {err:?}");
+            errln!("{}", paint_err(Role::Bad, &format!("错误: {err:?}")));
             return ExitCode::from(exit::ExitStatus::read(&err).code());
         }
     }
@@ -82,7 +86,7 @@ async fn main() -> ExitCode {
     let status = match result {
         Ok(()) => exit::ExitStatus::Success,
         Err(err) => {
-            errln!("错误: {err:?}");
+            errln!("{}", paint_err(Role::Bad, &format!("错误: {err:?}")));
             exit::ExitStatus::read(&err)
         }
     };
@@ -103,6 +107,8 @@ pub(crate) async fn dispatch(cli: Cli) -> Result<()> {
             quiet,
             yes,
             remote,
+            timeout,
+            jobs,
         } => {
             let options = run::Options {
                 inputs,
@@ -111,35 +117,46 @@ pub(crate) async fn dispatch(cli: Cli) -> Result<()> {
                 quiet,
                 yes,
                 remote,
+                timeout,
+                jobs,
             };
-            run::cmd_run(target.as_deref(), &options, cli.dir.as_deref()).await
+            run::directive(target.as_deref(), &options, cli.dir.as_deref()).await
         }
-        Commands::Schedule { dir } => cmd_schedule(dir.or(cli.dir).as_deref()),
-        Commands::Actions { id, bucket } => actions::cmd_actions(id.as_deref(), bucket.as_deref()),
+        Commands::Schedule { dir } => schedule(dir.or(cli.dir).as_deref()),
+        Commands::Actions { id, bucket } => actions::run(id.as_deref(), bucket.as_deref()),
         Commands::Create {
             name,
             template,
             force,
             dir,
-        } => create::cmd_create(
+        } => create::run(
             name.as_deref(),
             template.as_deref(),
             force,
             dir.or(cli.dir).as_deref(),
         ),
-        Commands::Edit { name, dir } => cmd_edit(&name, dir.or(cli.dir).as_deref()),
+        Commands::Edit { name, dir } => edit(&name, dir.or(cli.dir).as_deref()),
         Commands::Validate {
             path,
             strict,
             watch,
-        } => validate::cmd_validate(path.as_deref(), strict, watch).await,
-        Commands::Schema { write } => schema::cmd_schema(write.as_deref()),
-        Commands::Completions { shell } => cmd_completions(shell),
-        Commands::Doctor => doctor::cmd_doctor().await,
+        } => validate::run(path.as_deref(), strict, watch).await,
+        Commands::Schema { write } => schema::run(write.as_deref()),
+        Commands::Completions { shell } => completions(shell),
+        Commands::History {
+            name,
+            limit,
+            is_failed_only,
+        } => history::run(history::Query {
+            name,
+            is_failed_only,
+            limit,
+        }),
+        Commands::Doctor => doctor::run().await,
         Commands::Repl => repl::run(cli.dir).await,
         Commands::Watch { command } => watch::run(command, cli.dir.as_deref()).await,
         Commands::Cron { command } => cron::run(command, cli.dir.as_deref()).await,
-        Commands::Daemon { command } => cmd_daemon(command).await,
+        Commands::Daemon { command } => daemon(command).await,
         Commands::Ui { command } => {
             let data = data_dir()?;
             ui::run(command, &data).await
@@ -223,9 +240,13 @@ pub(crate) fn usage(message: impl Into<String>) -> anyhow::Error {
 pub(crate) fn parse_inputs(pairs: &[String]) -> Result<HashMap<String, Value>> {
     let mut map = HashMap::new();
     for p in pairs {
-        let (k, v) = p
-            .split_once('=')
-            .with_context(|| format!("输入格式应为 KEY=VALUE: {p}"))?;
+        let Some((k, v)) = p.split_once('=') else {
+            // 用法失误：退出码 2，而不是通用失败。
+            return Err(usage(format!("输入格式应为 KEY=VALUE: {p}")));
+        };
+        if k.is_empty() {
+            return Err(usage(format!("输入名不能为空: {p}")));
+        }
         map.insert(k.to_string(), Value::from_cli_literal(v));
     }
     Ok(map)
@@ -235,7 +256,7 @@ pub(crate) fn parse_inputs(pairs: &[String]) -> Result<HashMap<String, Value>> {
 ///
 /// 自有指令与 `examples/directives` 里的演示一起列，后者带 `(examples)` 后缀；
 /// 枚举与选单共用 [`Paths::names`]，两处不会走偏。
-pub(crate) fn cmd_schedule(dir: Option<&Path>) -> Result<()> {
+pub(crate) fn schedule(dir: Option<&Path>) -> Result<()> {
     let named = Paths::names(dir)?;
     if named.is_empty() {
         outln!("(无指令)");
@@ -247,7 +268,7 @@ pub(crate) fn cmd_schedule(dir: Option<&Path>) -> Result<()> {
     Ok(())
 }
 
-pub(crate) fn cmd_edit(name: &str, dir: Option<&Path>) -> Result<()> {
+pub(crate) fn edit(name: &str, dir: Option<&Path>) -> Result<()> {
     let path = Paths::resolve(name, dir)?;
     editor::open_in_editor(&path)?;
     outln!("已打开 {}", path.display());
@@ -258,7 +279,7 @@ pub(crate) fn cmd_edit(name: &str, dir: Option<&Path>) -> Result<()> {
 ///
 /// 走 `output::bytes` 而不是 `outln!`：生成的是脚本，不是一行文本，而 shell 补全
 /// 最常见的用法就是 `corex completions powershell | Out-File ...`——这条管道的读方随时会离开。
-fn cmd_completions(shell: clap_complete::Shell) -> Result<()> {
+fn completions(shell: clap_complete::Shell) -> Result<()> {
     let mut script = Vec::new();
     let mut command = <Cli as clap::CommandFactory>::command();
     clap_complete::generate(shell, &mut command, "corex", &mut script);
@@ -291,7 +312,7 @@ fn start_daemon() -> Result<()> {
     Ok(())
 }
 
-async fn cmd_daemon(cmd: DaemonCmd) -> Result<()> {
+async fn daemon(cmd: DaemonCmd) -> Result<()> {
     match cmd {
         DaemonCmd::Run => {
             // 前台：PATH 里有 corex-daemon 就直接跑，否则提醒用户。

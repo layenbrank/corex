@@ -25,7 +25,7 @@ pub(crate) const COPY: &str = "directive.schema.json";
 pub(crate) const HINT: &str = "# yaml-language-server: $schema=./directive.schema.json";
 
 /// 把 schema 打到 stdout，或写到指定路径。
-pub(crate) fn cmd_schema(write: Option<&Path>) -> Result<()> {
+pub(crate) fn run(write: Option<&Path>) -> Result<()> {
     let Some(path) = write else {
         // 走字节通道：这是一份 JSON 文档，不是一行文本，多补一个换行就是另一份文档了。
         bytes(DIRECTIVE.as_bytes())?;

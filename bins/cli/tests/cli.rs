@@ -365,6 +365,95 @@ fn unknown_action_suggests_a_neighbour() {
     assert!(stderr.contains("file.copy"), "stderr: {stderr}");
 }
 
+/// `-i` 的写法不对属于用法失误：退出码 2，而不是通用失败 1。
+#[test]
+fn malformed_input_is_a_usage_error() {
+    let (_dir, path) = directive("probe", TWO_STEPS);
+    let out = run(&["run", path.to_str().expect("utf-8 path"), "-i", "message"]);
+    assert_eq!(
+        out.status.code(),
+        Some(2),
+        "stderr: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+}
+
+/// 未声明的输入键要指出来（多半是笔误），但不阻断执行。
+#[test]
+fn unknown_input_is_reported_but_not_fatal() {
+    let (_dir, path) = directive(
+        "greet",
+        concat!(
+            "name: greet\n",
+            "inputs:\n",
+            "  - name: who\n",
+            "    required: false\n",
+            "    default: world\n",
+            "steps:\n",
+            "  - id: render\n",
+            "    action: template.render\n",
+            "    params:\n",
+            "      template: \"hi\"\n",
+        ),
+    );
+    // `--dry-run` 同样走输入解析，但不会执行步骤，测试因此没有副作用。
+    let out = run(&[
+        "run",
+        path.to_str().expect("utf-8 path"),
+        "-i",
+        "woh=Typo",
+        "--dry-run",
+    ]);
+    assert!(
+        out.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(stderr.contains("未声明的输入 woh"), "stderr: {stderr}");
+}
+
+/// 动作按 bucket 分组列出；`--bucket` 只看一组，不认识的 bucket 是用法失误。
+#[test]
+fn actions_are_grouped_by_bucket() {
+    let out = run(&["actions"]);
+    assert!(out.status.success());
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(stdout.contains("data（"), "stdout: {stdout}");
+
+    let ui = run(&["actions", "--bucket", "ui"]);
+    assert!(ui.status.success());
+    let stdout = String::from_utf8_lossy(&ui.stdout);
+    assert!(stdout.contains("ui（"), "stdout: {stdout}");
+    assert!(!stdout.contains("file.copy"), "只该出现 ui 组: {stdout}");
+
+    let unknown = run(&["actions", "--bucket", "nope"]);
+    assert_eq!(
+        unknown.status.code(),
+        Some(2),
+        "stderr: {}",
+        String::from_utf8_lossy(&unknown.stderr)
+    );
+}
+
+/// 终端/字体跟不上 Unicode 时，`COREX_ASCII=1` 换一套纯 ASCII 符号。
+#[test]
+fn ascii_symbols_are_opt_in() {
+    let out = Command::new(COREX)
+        .arg("doctor")
+        .env("COREX_ASCII", "1")
+        .output()
+        .expect("corex doctor runs");
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(stdout.contains("ok "), "stdout: {stdout}");
+    assert!(!stdout.contains('✓'), "stdout: {stdout}");
+
+    // 默认走 Unicode；非终端不上色，所以符号就是裸的 `✓`。
+    let plain = run(&["doctor"]);
+    let stdout = String::from_utf8_lossy(&plain.stdout);
+    assert!(stdout.contains('✓'), "stdout: {stdout}");
+}
+
 /// `--dry-run` 不执行，但要把步骤摊开；权限不覆盖时照旧退 3。
 #[test]
 fn dry_run_plans_without_executing() {

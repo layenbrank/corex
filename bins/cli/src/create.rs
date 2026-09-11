@@ -242,7 +242,7 @@ steps:
 ];
 
 /// 生成一条指令；`name` / `template` 省略时在终端里问。
-pub(crate) fn cmd_create(
+pub(crate) fn run(
     name: Option<&str>,
     template: Option<&str>,
     force: bool,

@@ -22,6 +22,7 @@ corex-registry     = { workspace = true }
 corex-ipc          = { workspace = true }
 corex-updater      = { workspace = true }
 anyhow             = { workspace = true }
+chrono             = { workspace = true }
 clap               = { workspace = true }
 clap_complete      = { workspace = true }
 dialoguer          = { workspace = true }
@@ -36,3 +37,8 @@ tracing-subscriber = { workspace = true }
 [dev-dependencies]
 # `tests/cli.rs` 通过 `CARGO_BIN_EXE_corex` 驱动真实二进制。
 tempfile = { workspace = true }
+
+[target.'cfg(windows)'.dependencies]
+# 控制台输出代码页：中文在 cp936 的传统控制台里会乱码（见 `output::use_utf8_console`）。
+# 复用仓库既有的 `windows` 绑定，不再引第二套。
+windows = { workspace = true, features = ["Win32_System_Console"] }

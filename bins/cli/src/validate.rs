@@ -18,7 +18,7 @@ use std::time::{Duration, SystemTime};
 const POLL: Duration = Duration::from_millis(400);
 
 /// 校验指令；不给路径时校验配置。
-pub(crate) async fn cmd_validate(path: Option<&Path>, strict: bool, watch: bool) -> Result<()> {
+pub(crate) async fn run(path: Option<&Path>, strict: bool, watch: bool) -> Result<()> {
     if watch {
         let Some(path) = path else {
             // 默默忽略它就会变成一个空转开关，正是本仓库想清掉的东西。

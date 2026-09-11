@@ -4,7 +4,7 @@
 //! 于是 `if ! corex doctor` 这种写法能直接当健康检查用。
 //! 提示项（比如守护进程没起来）不算问题——不启动它不是错误。
 
-use crate::output::outln;
+use crate::output::{self, Role, outln};
 use crate::scheduler::Paths;
 use crate::schema;
 use crate::{build_registry, daemon_state, settings};
@@ -13,7 +13,7 @@ use corex_core::VERSION;
 use corex_ipc::data_dir;
 use std::path::Path;
 
-pub(crate) async fn cmd_doctor() -> Result<()> {
+pub(crate) async fn run() -> Result<()> {
     let mut report = Report::default();
     outln!("corex {VERSION}");
     outln!("");
@@ -113,15 +113,15 @@ struct Report {
 
 impl Report {
     fn ok(&mut self, title: &str, detail: String) {
-        outln!("✓ {title:<10} {detail}");
+        outln!("{} {title:<10} {detail}", output::mark(Role::Ok));
     }
 
     fn note(&mut self, title: &str, detail: String) {
-        outln!("· {title:<10} {detail}");
+        outln!("{} {title:<10} {detail}", output::mark(Role::Note));
     }
 
     fn bad(&mut self, title: &str, detail: String) {
-        outln!("✗ {title:<10} {detail}");
+        outln!("{} {title:<10} {detail}", output::mark(Role::Bad));
         self.problems.push(title.to_string());
     }
 

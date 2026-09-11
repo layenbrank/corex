@@ -78,32 +78,30 @@ pub async fn run(cmd: WatchCommands, global_dir: Option<&std::path::Path>) -> Re
             job_id,
         } => {
             let dir = dir.as_deref().or(global_dir);
-            scheduler::cmd_run(scheduler::Spec {
+            scheduler::run(scheduler::Spec {
                 kind: JobKind::Watch,
                 name,
                 all,
                 dir,
-                foreground,
+                is_foreground: foreground,
                 immediate,
-                supervised,
+                is_supervised: supervised,
                 job_id,
             })
             .await
         }
-        WatchCommands::Ps => scheduler::cmd_ps(JobKind::Watch),
-        WatchCommands::Attach { name } => scheduler::cmd_attach(JobKind::Watch, &name).await,
+        WatchCommands::Ps => scheduler::ps(JobKind::Watch),
+        WatchCommands::Attach { name } => scheduler::attach(JobKind::Watch, &name).await,
         WatchCommands::Logs {
             name,
             lines,
             follow,
-        } => scheduler::cmd_logs(JobKind::Watch, name.as_deref(), lines, follow).await,
-        WatchCommands::Send { name, msg } => scheduler::cmd_send(JobKind::Watch, &name, &msg),
-        WatchCommands::Stop { name, force } => {
-            scheduler::cmd_stop(JobKind::Watch, &name, force).await
-        }
+        } => scheduler::logs(JobKind::Watch, name.as_deref(), lines, follow).await,
+        WatchCommands::Send { name, msg } => scheduler::send(JobKind::Watch, &name, &msg),
+        WatchCommands::Stop { name, force } => scheduler::stop(JobKind::Watch, &name, force).await,
         WatchCommands::Restart { name, dir } => {
             let dir = dir.as_deref().or(global_dir);
-            scheduler::cmd_restart(JobKind::Watch, &name, dir).await
+            scheduler::restart(JobKind::Watch, &name, dir).await
         }
     }
 }

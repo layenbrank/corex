@@ -12,7 +12,7 @@ use corex_core::{ActionMeta, Bucket, EngineError, ParamSchema, SchemaType};
 use corex_registry::ActionRegistry;
 
 /// 列出已注册动作（按 bucket 分组）；给了 id 就展开它的参数表、权限与一段可粘贴的步骤片段。
-pub(crate) fn cmd_actions(id: Option<&str>, bucket: Option<&str>) -> Result<()> {
+pub(crate) fn run(id: Option<&str>, bucket: Option<&str>) -> Result<()> {
     let registry = build_registry();
     let Some(id) = id else {
         return list(&registry, bucket);

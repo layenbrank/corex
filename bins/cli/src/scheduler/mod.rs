@@ -16,9 +16,9 @@ use corex_registry::ActionRegistry;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-pub(crate) use control::{cmd_ps, cmd_restart, cmd_send, cmd_stop};
-pub(crate) use logs::{cmd_attach, cmd_logs};
-pub(crate) use start::{Spec, cmd_run};
+pub(crate) use control::{ps, restart, send, stop};
+pub(crate) use logs::{attach, logs};
+pub(crate) use start::{Spec, run};
 
 /// 仓库自带的演示指令目录，也是解析失败前的最后一站。
 const EXAMPLES: &str = "examples/directives";
@@ -80,10 +80,12 @@ impl Paths {
             return Ok(path);
         }
         let near = Self::nearby(target, dir).unwrap_or_default();
+        // 报错文本只写「哪条指令 + 最接近的候选」：`EngineError` 的 Display 已经说了
+        // 「指令未找到」，这里再写一遍前缀就成了双层前缀。
         let hint = if near.is_empty() {
-            format!("指令不存在: {target}（`corex schedule` 看全部）")
+            format!("{target}（`corex schedule` 看全部）")
         } else {
-            format!("指令不存在: {target}（最接近的: {}）", near.join("、"))
+            format!("{target}（最接近的: {}）", near.join("、"))
         };
         Err(anyhow::Error::new(EngineError::DirectiveNotFound(hint)))
     }

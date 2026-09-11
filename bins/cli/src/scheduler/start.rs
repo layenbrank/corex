@@ -91,39 +91,39 @@ pub(crate) struct Spec<'a> {
     /// 指令搜索目录覆盖。
     pub dir: Option<&'a Path>,
     /// 在当前终端运行，不另起 supervisor。
-    pub foreground: bool,
+    pub is_foreground: bool,
     /// 先立即触发一次，再跟随触发器。
     pub immediate: bool,
     /// 作为 `job_id` 的 supervisor 子进程运行，不另起进程。
-    pub supervised: bool,
+    pub is_supervised: bool,
     /// `supervised` 模式使用的 job id。
     pub job_id: Option<String>,
 }
 
-pub(crate) async fn cmd_run(req: Spec<'_>) -> Result<()> {
+pub(crate) async fn run(req: Spec<'_>) -> Result<()> {
     let Spec {
         kind,
         name,
         all,
         dir,
-        foreground,
+        is_foreground,
         immediate,
-        supervised,
+        is_supervised,
         job_id,
     } = req;
-    if supervised {
+    if is_supervised {
         let id = job_id
             .as_deref()
             .or(name.as_deref())
             .context("supervised 模式需要 job id")?;
-        return cmd_supervised(kind, id, dir, immediate).await;
+        return supervised(kind, id, dir, immediate).await;
     }
-    if foreground {
+    if is_foreground {
         if all {
             return Err(EngineError::Usage("--foreground 不能与 --all 同时使用".into()).into());
         }
         let n = name.context("--foreground 需要指定指令名")?;
-        return cmd_foreground(kind, &n, dir, immediate).await;
+        return foreground(kind, &n, dir, immediate).await;
     }
     if all {
         return start_all(kind, dir, immediate).await;
@@ -134,7 +134,7 @@ pub(crate) async fn cmd_run(req: Spec<'_>) -> Result<()> {
     Err(EngineError::Usage("需要指令名或 --all".into()).into())
 }
 
-async fn cmd_supervised(
+async fn supervised(
     kind: JobKind,
     job_id: &str,
     dir: Option<&Path>,
@@ -156,7 +156,7 @@ async fn cmd_supervised(
     Ok(())
 }
 
-async fn cmd_foreground(
+async fn foreground(
     kind: JobKind,
     target: &str,
     dir: Option<&Path>,

@@ -15,7 +15,7 @@ use crate::scheduler::{Named, Paths};
 use crate::steps;
 use crate::{ask, build_registry, parse_inputs, usage};
 use anyhow::{Context, Result};
-use corex_core::{EngineError, ExecutionContext, Observer, Value};
+use corex_core::{EngineError, ExecutionContext, Observer, RuntimeConfig, Value};
 use corex_engine::{
     Directive, ExecutionAudit, ExecutionHistory, InputDecl, Pipeline, is_input_unset,
 };
@@ -34,6 +34,10 @@ pub(crate) struct Options {
     pub(crate) quiet: bool,
     pub(crate) yes: bool,
     pub(crate) remote: bool,
+    /// 覆盖本次运行的 `step_timeout`。
+    pub(crate) timeout: Option<u64>,
+    /// 覆盖本次运行的 `max_parallel`。
+    pub(crate) jobs: Option<usize>,
 }
 
 /// `corex run` 的输出通道：进度挂哪、结论往哪写。
@@ -106,13 +110,15 @@ impl Channel {
         }
     }
 
-    /// `--dry-run` 的提纲。
-    fn plan(&self, directive: &Directive, rows: &[String]) {
+    /// `--dry-run` 的提纲：将要执行什么、用什么输入、每步要什么权限。
+    fn plan(&self, directive: &Directive, rows: &[String], input: &HashMap<String, Value>) {
+        let resolved = resolved_input(input);
         match &self.events {
             Some(events) => events.emit(&serde_json::json!({
                 "kind": "plan",
                 "directive": directive.name,
                 "description": directive.description,
+                "input": resolved,
                 "steps": rows,
             })),
             None => {
@@ -120,6 +126,13 @@ impl Channel {
                 if !directive.description.is_empty() {
                     outln!("{}", directive.description);
                 }
+                if !resolved.is_empty() {
+                    outln!("输入");
+                    for (key, value) in &resolved {
+                        outln!("  {key} = {value}");
+                    }
+                }
+                outln!("步骤");
                 for row in rows {
                     outln!("  {row}");
                 }
@@ -129,7 +142,17 @@ impl Channel {
     }
 }
 
-pub(crate) async fn cmd_run(
+/// 输入摘要：按键排序（`HashMap` 自身的顺序不稳定），值用 JSON 表示。
+fn resolved_input(input: &HashMap<String, Value>) -> serde_json::Map<String, serde_json::Value> {
+    let mut pairs: Vec<(&String, &Value)> = input.iter().collect();
+    pairs.sort_by_key(|(key, _)| key.as_str());
+    pairs
+        .into_iter()
+        .map(|(key, value)| (key.clone(), value.to_json()))
+        .collect()
+}
+
+pub(crate) async fn directive(
     target: Option<&str>,
     opts: &Options,
     dir: Option<&Path>,
@@ -148,15 +171,27 @@ pub(crate) async fn cmd_run(
     };
     let directive = Directive::from_yaml_file(&path)?;
     let mut input = parse_inputs(&opts.inputs)?;
+    report_unknown_inputs(&directive, &input);
     fill_missing(&directive, &mut input, opts.yes)?;
 
     let registry = Arc::new(build_registry());
     let channel = Channel::pick(opts);
     if opts.dry_run {
-        return dry_run(&directive, &registry, &channel);
+        // 预览的输入要和真正开跑时看到的一致：默认值是引擎在开跑前填的，
+        // 这里自己补上，不去动真实那条路径。
+        return dry_run(
+            &directive,
+            &registry,
+            &channel,
+            &with_defaults(&directive, &input),
+        );
     }
 
-    let config = crate::settings::effective().clone();
+    let config = {
+        let mut config = crate::settings::effective().clone();
+        apply_overrides(&mut config, opts);
+        config
+    };
     let ctx = ExecutionContext::new(config.clone()).with_input(input);
     let mut pipeline = Pipeline::new(registry);
 
@@ -257,6 +292,38 @@ fn choose_directive(dir: Option<&Path>, yes: bool) -> Result<PathBuf> {
     Ok(named[chosen].path.clone())
 }
 
+/// 声明里没见过的输入键：多半是笔误，只提醒不拦。
+///
+/// 不报错是因为 `{{input.x}}` 允许按键取值，指令可以刻意收未声明的输入；
+/// 但「键名打错、默认值顶上、脚本照跑」这种事必须让用户看见。
+///
+/// 只在本进程执行这条路径上做：`--remote` 的指令住在 daemon 那边，
+/// 本地不知道它声明了什么。
+fn report_unknown_inputs(directive: &Directive, input: &HashMap<String, Value>) {
+    let unknown: Vec<&str> = input
+        .keys()
+        .map(String::as_str)
+        .filter(|key| !directive.inputs.iter().any(|decl| decl.name == *key))
+        .collect();
+    if unknown.is_empty() {
+        return;
+    }
+    let declared = if directive.inputs.is_empty() {
+        "该指令没有声明输入".to_string()
+    } else {
+        let names: Vec<&str> = directive
+            .inputs
+            .iter()
+            .map(|decl| decl.name.as_str())
+            .collect();
+        format!("已声明: {}", names.join("、"))
+    };
+    crate::output::error_line(&format!(
+        "警告: 未声明的输入 {}（{declared}）",
+        unknown.join("、")
+    ));
+}
+
 /// 声明为必填、又没有默认值的输入，缺了就问一句。
 fn fill_missing(
     directive: &Directive,
@@ -299,15 +366,51 @@ fn fill_missing(
     Ok(())
 }
 
+/// 把声明里的默认值补进输入，用于预览（默认值本身可能是 `{{env.TEMP}}` 之类的模板，
+/// 原样展示：预览要的是「这次用的哪个值」，不是把它渲染一遍）。
+fn with_defaults(directive: &Directive, input: &HashMap<String, Value>) -> HashMap<String, Value> {
+    let mut merged = input.clone();
+    for decl in &directive.inputs {
+        let unset = match merged.get(&decl.name) {
+            Some(value) => is_input_unset(value),
+            None => true,
+        };
+        if unset && let Some(default) = &decl.default {
+            merged.insert(decl.name.clone(), default.clone());
+        }
+    }
+    merged
+}
+
+/// `--timeout` / `--jobs` 只作用于本次运行，不落盘：CI 里给一次运行上紧发条，
+/// 不必去改全机配置（那会遯往后台跑的所有东西）。
+fn apply_overrides(config: &mut RuntimeConfig, opts: &Options) {
+    if let Some(timeout) = opts.timeout {
+        config.step_timeout = timeout;
+    }
+    if let Some(jobs) = opts.jobs {
+        config.max_parallel = jobs.max(1);
+    }
+}
+
 /// `--dry-run`：把将要执行的步骤摊开，并把两道门各查一遍。
 ///
 /// 不执行任何步骤，但**两道门的判定照做**：动作没注册、权限会拒的，现在就说出来。
 /// 否则 `--dry-run` 通过、真跑却退 2 / 3，这个开关就骗人了。
-fn dry_run(directive: &Directive, registry: &ActionRegistry, channel: &Channel) -> Result<()> {
+fn dry_run(
+    directive: &Directive,
+    registry: &ActionRegistry,
+    channel: &Channel,
+    input: &HashMap<String, Value>,
+) -> Result<()> {
     steps::require_registered(&directive.steps, registry)?;
     // 走运行时那道门，而不是 `validate --strict` 的企业门禁：后者会要求
     // 「必须声明 permissions」，而真实运行并不要求，拿它判预览会让能跑的指令失败。
     steps::require_allowed(&directive.steps, &directive.permissions, registry)?;
-    channel.plan(directive, &steps::outline(&directive.steps));
+    channel.plan(
+        directive,
+        &steps::outline(&directive.steps, registry),
+        input,
+    );
     Ok(())
 }
