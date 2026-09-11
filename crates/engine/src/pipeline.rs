@@ -425,6 +425,7 @@ impl Pipeline {
         let store = Arc::clone(&self.store);
         let audit = self.audit.clone();
         let history = self.history.clone();
+        let observer = self.observer.clone();
         let run_name = self.run_name.clone();
         let base_ctx = ctx.clone();
         let perms = permissions.clone();
@@ -438,6 +439,7 @@ impl Pipeline {
                     let store = Arc::clone(&store);
                     let audit = audit.clone();
                     let history = history.clone();
+                    let observer = observer.clone();
                     let run_name = run_name.clone();
                     let mut branch_ctx = base_ctx.clone();
                     let perms = perms.clone();
@@ -448,6 +450,10 @@ impl Pipeline {
                         }
                         if let Some(a) = audit {
                             pipeline = pipeline.with_audit(a);
+                        }
+                        // 分支同样要上报——不然 parallel 里的步骤既没有 spinner 也没有结论行。
+                        if let Some(o) = observer {
+                            pipeline = pipeline.with_observer(o);
                         }
                         pipeline.run_name = run_name;
                         let value = Box::pin(pipeline.execute_step(
