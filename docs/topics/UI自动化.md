@@ -4,8 +4,8 @@
 
 ## 原则
 
-1. **元素同步优先于固定休眠** — 优先 `ui.element.wait`（`present` / `absent` / `enabled`），少用 `ui.wait`。企业可通过 `[runtime].ui_max_settle_ms` 限制累计 settle 时间。
-2. **多属性选择器** — 组合 `name`、`automation_id`、`control_type`；应用换版时用 `selectors: [...]` 回退链。链长受 `[runtime].ui_max_selector_chain` 限制（`ui_profile = "baseline"` 为 **8**；`fast` = 5，`patient` = 12）。
+1. **元素同步优先于固定休眠** — 优先 `ui.element.wait`（`present` / `absent` / `enabled`），少用 `ui.wait`。企业可通过 `[runtime].ui_settle_limit` 限制累计 settle 时间。
+2. **多属性选择器** — 组合 `name`、`automation_id`、`control_type`；应用换版时用 `selectors: [...]` 回退链。链长受 `[runtime].ui_selector_depth` 限制（`ui_profile = "baseline"` 为 **8**；`fast` = 5，`patient` = 12）。
 3. **会话作用域** — `ui.window.find|wait|focus` 后，`ExecutionContext.ui_session` 缓存 `scope_hwnd`；后续步骤可省略 `title_contains`。
 4. **人在回路** — 需手机确认的流程（如微信 4.x「进入微信」）必须用 `ui.element.wait`（`state: absent`）并给足 `timeout_ms`；失败返回 `[ui_login_pending]`。
 
@@ -106,12 +106,12 @@ corex run ui-smoke-notepad -i close_after=false   # 保持窗口以便检查
 ```toml
 [runtime]
 ui_profile = "patient"          # baseline | fast | patient
-# ui_max_selector_chain = 12    # 可选覆盖
-# ui_max_settle_ms = 0          # 限制累计 ui.wait ms（fast 预设 = 2000）
+# ui_selector_depth = 12    # 可选覆盖
+# ui_settle_limit = 0          # 限制累计 ui.wait ms（fast 预设 = 2000）
 ```
 
-| Profile | `ui_max_selector_chain` | `ui_max_settle_ms` |
-|---------|-------------------------|--------------------|
+| Profile | `ui_selector_depth` | `ui_settle_limit` |
+|---------|---------------------|-------------------|
 | `baseline` | 8 | 0（不限制） |
 | `fast` | 5 | 2000 |
 | `patient` | 12 | 0 |

@@ -5,7 +5,7 @@ use crate::builtin::process_launch::{TargetKind, launch, launch_spec_from_comman
 use crate::builtin::util::{confine_path, require_map, require_str};
 use async_trait::async_trait;
 use corex_core::{
-    Action, ActionCategory, ActionError, ActionMeta, ExecutionContext, ParamSchema, PermissionSet,
+    Action, ActionError, ActionMeta, Bucket, ExecutionContext, ParamSchema, PermissionSet,
     SchemaType, Value,
 };
 use std::path::Path;
@@ -25,7 +25,7 @@ impl Action for ExecRun {
             "exec.run",
             "执行脚本",
             "运行脚本文件并返回 stdout/stderr/exit_code",
-            ActionCategory::System,
+            Bucket::System,
         )
         .with_params(vec![
             ParamSchema::new("script", SchemaType::File, true)

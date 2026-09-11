@@ -2,9 +2,7 @@
 
 use crate::ActionRegistry;
 use async_trait::async_trait;
-use corex_core::{
-    Action, ActionCategory, ActionError, ActionMeta, ExecutionContext, PermissionSet, Value,
-};
+use corex_core::{Action, ActionError, ActionMeta, Bucket, ExecutionContext, PermissionSet, Value};
 use std::collections::BTreeMap;
 use std::env;
 use std::path::{Path, PathBuf};
@@ -90,7 +88,7 @@ impl Action for BootstrapEnv {
             "bootstrap.env",
             "引导环境",
             "将工具目录写入用户 PATH（Windows PowerShell）",
-            ActionCategory::System,
+            Bucket::System,
         )
     }
 
@@ -123,7 +121,7 @@ impl Action for BootstrapInspect {
             "bootstrap.inspect",
             "引导检查",
             "检查工具目录是否已在 PATH 中",
-            ActionCategory::System,
+            Bucket::System,
         )
     }
 
@@ -148,7 +146,7 @@ impl Action for BootstrapForce {
             "bootstrap.force",
             "强制引导",
             "强制刷新 PATH 中的工具目录（Windows）",
-            ActionCategory::System,
+            Bucket::System,
         )
     }
 

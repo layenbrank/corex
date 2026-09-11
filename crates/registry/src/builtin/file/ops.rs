@@ -58,7 +58,7 @@ impl Action for FileCopy {
             "file.copy",
             "文件复制",
             "复制文件（单文件，可上报分块进度）",
-            ActionCategory::Data,
+            Bucket::Data,
         )
         .with_params(vec![
             ParamSchema::new("from", SchemaType::File, true),
@@ -92,17 +92,13 @@ impl Action for FileUpdate {
     }
 
     fn meta(&self) -> ActionMeta {
-        ActionMeta::new(
-            "file.update",
-            "文件更新",
-            "重命名或移动文件",
-            ActionCategory::Data,
+        ActionMeta::new("file.update", "文件更新", "重命名或移动文件", Bucket::Data).with_params(
+            vec![
+                ParamSchema::new("from", SchemaType::File, true),
+                ParamSchema::new("to", SchemaType::File, true),
+                ParamSchema::new("create_dirs", SchemaType::Bool, false).with_default(true),
+            ],
         )
-        .with_params(vec![
-            ParamSchema::new("from", SchemaType::File, true),
-            ParamSchema::new("to", SchemaType::File, true),
-            ParamSchema::new("create_dirs", SchemaType::Bool, false).with_default(true),
-        ])
     }
 
     async fn execute(
@@ -140,7 +136,7 @@ impl Action for FileRemove {
             "file.remove",
             "文件删除",
             "删除文件（目录则递归删除）",
-            ActionCategory::Data,
+            Bucket::Data,
         )
         .with_params(vec![ParamSchema::new("path", SchemaType::File, true)])
     }

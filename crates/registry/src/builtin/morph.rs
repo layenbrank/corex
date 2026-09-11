@@ -6,7 +6,7 @@ use crate::builtin::util::{
 };
 use async_trait::async_trait;
 use corex_core::{
-    Action, ActionCategory, ActionError, ActionMeta, ExecutionContext, ParamSchema, PermissionSet,
+    Action, ActionError, ActionMeta, Bucket, ExecutionContext, ParamSchema, PermissionSet,
     SchemaType, Value,
 };
 use lopdf::{Document as LopdfDoc, Object as LopdfObj, ObjectId as LopdfId, dictionary};
@@ -31,7 +31,7 @@ impl Action for MorphMeta {
             "morph.meta",
             "PDF 元数据",
             "读取 PDF 元数据（需要 pdfium）",
-            ActionCategory::Data,
+            Bucket::Data,
         )
         .with_params(vec![ParamSchema::new("path", SchemaType::File, true)])
     }
@@ -58,7 +58,7 @@ impl Action for MorphRender {
             "morph.render",
             "PDF 渲染",
             "渲染 PDF 单页为 PNG（需要 pdfium）",
-            ActionCategory::Data,
+            Bucket::Data,
         )
         .with_params(vec![
             ParamSchema::new("path", SchemaType::File, true),
@@ -89,7 +89,7 @@ impl Action for MorphExport {
             "morph.export",
             "PDF 导出",
             "复制 PDF 到目标路径",
-            ActionCategory::Data,
+            Bucket::Data,
         )
         .with_params(vec![
             ParamSchema::new("src", SchemaType::File, true),
@@ -118,13 +118,7 @@ impl Action for MorphMerge {
     }
 
     fn meta(&self) -> ActionMeta {
-        ActionMeta::new(
-            "morph.merge",
-            "PDF 合并",
-            "合并多个 PDF",
-            ActionCategory::Data,
-        )
-        .with_params(vec![
+        ActionMeta::new("morph.merge", "PDF 合并", "合并多个 PDF", Bucket::Data).with_params(vec![
             ParamSchema::new("paths", SchemaType::Array, true),
             ParamSchema::new("dest", SchemaType::File, true),
         ])
@@ -212,7 +206,7 @@ impl Action for MorphSplit {
             "morph.split",
             "PDF 拆分",
             "按页数上限拆分 PDF",
-            ActionCategory::Data,
+            Bucket::Data,
         )
         .with_params(vec![
             ParamSchema::new("path", SchemaType::File, true),

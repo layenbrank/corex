@@ -3,7 +3,7 @@
 use crate::ActionRegistry;
 use async_trait::async_trait;
 use corex_core::{
-    Action, ActionCategory, ActionError, ActionMeta, ExecutionContext, ParamSchema, PermissionSet,
+    Action, ActionError, ActionMeta, Bucket, ExecutionContext, ParamSchema, PermissionSet,
     SchemaType, Value,
 };
 use std::sync::Arc;
@@ -38,7 +38,7 @@ impl Action for KeyringGet {
             "keyring.get",
             "读取凭据",
             "从系统钥匙串读取密钥",
-            ActionCategory::System,
+            Bucket::System,
         )
         .with_params(vec![
             ParamSchema::new("service", SchemaType::Str, true),
@@ -66,17 +66,13 @@ impl Action for KeyringSet {
     }
 
     fn meta(&self) -> ActionMeta {
-        ActionMeta::new(
-            "keyring.set",
-            "写入凭据",
-            "写入系统钥匙串",
-            ActionCategory::System,
+        ActionMeta::new("keyring.set", "写入凭据", "写入系统钥匙串", Bucket::System).with_params(
+            vec![
+                ParamSchema::new("service", SchemaType::Str, true),
+                ParamSchema::new("user", SchemaType::Str, true),
+                ParamSchema::new("password", SchemaType::Secret, true),
+            ],
         )
-        .with_params(vec![
-            ParamSchema::new("service", SchemaType::Str, true),
-            ParamSchema::new("user", SchemaType::Str, true),
-            ParamSchema::new("password", SchemaType::Str, true),
-        ])
     }
 
     async fn execute(

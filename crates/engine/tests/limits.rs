@@ -247,7 +247,7 @@ steps:
     let directive = Directive::from_yaml_str(yaml).unwrap();
     let pipeline = Pipeline::new(registry());
     let mut cfg = RuntimeConfig::default();
-    cfg.step_timeout_secs = 1;
+    cfg.step_timeout = 1;
     let err = pipeline
         .execute(&directive, ExecutionContext::new(cfg))
         .await

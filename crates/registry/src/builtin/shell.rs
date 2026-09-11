@@ -5,7 +5,7 @@ use crate::builtin::process_launch::{TargetKind, launch, launch_spec_from_comman
 use crate::builtin::util::{confine_path, require_map, require_str};
 use async_trait::async_trait;
 use corex_core::{
-    Action, ActionCategory, ActionError, ActionMeta, ExecutionContext, ParamSchema, PermissionSet,
+    Action, ActionError, ActionMeta, Bucket, ExecutionContext, ParamSchema, PermissionSet,
     SchemaType, Value,
 };
 use std::path::PathBuf;
@@ -24,7 +24,7 @@ impl Action for ShellRun {
             "shell.run",
             "Shell 执行",
             "执行进程/命令并返回 stdout/stderr/exit_code",
-            ActionCategory::System,
+            Bucket::System,
         )
         .with_params(vec![
             ParamSchema::new("command", SchemaType::Str, true)

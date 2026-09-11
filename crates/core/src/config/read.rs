@@ -76,7 +76,7 @@ struct RuntimeSection {
     #[serde(default)]
     max_parallel: Option<usize>,
     #[serde(default)]
-    step_timeout_secs: Option<u64>,
+    step_timeout: Option<u64>,
     #[serde(default)]
     strict_permissions: Option<bool>,
     #[serde(default)]
@@ -84,9 +84,9 @@ struct RuntimeSection {
     #[serde(default)]
     ui_profile: Option<String>,
     #[serde(default)]
-    ui_max_selector_chain: Option<usize>,
+    ui_selector_depth: Option<usize>,
     #[serde(default)]
-    ui_max_settle_ms: Option<u64>,
+    ui_settle_limit: Option<u64>,
     #[serde(default)]
     cron_timezone: Option<String>,
 }
@@ -113,8 +113,8 @@ impl ConfigFile {
             if let Some(v) = r.max_parallel {
                 cfg.max_parallel = v;
             }
-            if let Some(v) = r.step_timeout_secs {
-                cfg.step_timeout_secs = v;
+            if let Some(v) = r.step_timeout {
+                cfg.step_timeout = v;
             }
             if let Some(v) = r.strict_permissions {
                 cfg.strict_permissions = v;
@@ -125,17 +125,17 @@ impl ConfigFile {
             // 具名预设会同时提供两项 UI 上限；没有指名预设时以显式上限为准，
             // `ui_profile` 一直都是这个语义。
             let overrides = UiProfileOverrides {
-                max_selector_chain: r.ui_max_selector_chain,
-                max_settle_ms: r.ui_max_settle_ms,
+                selector_depth: r.ui_selector_depth,
+                settle_limit: r.ui_settle_limit,
             };
             if let Some(profile) = r.ui_profile {
                 cfg.ui_profile(&profile, overrides);
             } else {
-                if let Some(n) = r.ui_max_selector_chain {
-                    cfg.ui_max_selector_chain = n;
+                if let Some(depth) = r.ui_selector_depth {
+                    cfg.ui_selector_depth = depth;
                 }
-                if let Some(ms) = r.ui_max_settle_ms {
-                    cfg.ui_max_settle_ms = ms;
+                if let Some(limit) = r.ui_settle_limit {
+                    cfg.ui_settle_limit = limit;
                 }
             }
             if let Some(tz) = r.cron_timezone {

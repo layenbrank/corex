@@ -5,7 +5,7 @@
 //! stdout 始终只留给结果。
 
 use anyhow::{Result, bail};
-use dialoguer::{Confirm, Input, Select};
+use dialoguer::{Confirm, Input, Password, Select};
 use std::io::IsTerminal;
 
 /// 现在能不能问问题：stdin 与 stderr 都得是终端。
@@ -35,6 +35,11 @@ pub(crate) fn text(prompt: &str, default: Option<&str>) -> Result<String> {
         ask = ask.default(default.to_string());
     }
     Ok(ask.interact_text()?)
+}
+
+/// 问一个密钥：输入不回显，也不留默认值。
+pub(crate) fn password(prompt: &str) -> Result<String> {
+    Ok(Password::new().with_prompt(prompt).interact()?)
 }
 
 /// 问一个是 / 否。

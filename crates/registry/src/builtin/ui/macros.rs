@@ -19,7 +19,7 @@ macro_rules! impl_ui_action_ctx {
             }
 
             fn meta(&self) -> corex_core::ActionMeta {
-                corex_core::ActionMeta::new($id, $title, $desc, corex_core::ActionCategory::Ui)
+                corex_core::ActionMeta::new($id, $title, $desc, corex_core::Bucket::Ui)
                     .with_params($params)
             }
             async fn execute(
@@ -42,7 +42,7 @@ macro_rules! impl_ui_action {
             }
 
             fn meta(&self) -> corex_core::ActionMeta {
-                corex_core::ActionMeta::new($id, $title, $desc, corex_core::ActionCategory::Ui)
+                corex_core::ActionMeta::new($id, $title, $desc, corex_core::Bucket::Ui)
                     .with_params($params)
             }
             async fn execute(

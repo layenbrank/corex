@@ -10,10 +10,10 @@ pub mod progress;
 pub mod schema;
 pub mod value;
 
-pub use action::{Action, ActionCategory, ActionMeta, ActionStore, HashMapStore, ParamSchema};
+pub use action::{Action, ActionMeta, ActionStore, Bucket, HashMapStore, ParamSchema};
 pub use context::{
-    DaemonConfig, ExecutionContext, HistoryConfig, LoggingConfig, MAX_PARALLEL, MAX_SELECTOR_CHAIN,
-    PluginConfig, RUNTIME_CONFIG, RuntimeConfig, UI_PROFILE, UiProfileOverrides, UiProfilePreset,
+    DaemonConfig, ExecutionContext, HistoryConfig, LoggingConfig, MAX_PARALLEL, PluginConfig,
+    RUNTIME_CONFIG, RuntimeConfig, SELECTOR_DEPTH, UI_PROFILE, UiProfileOverrides, UiProfilePreset,
     UiSession, UpdateChannel, UpdateConfig, VERSION,
 };
 pub use error::{ActionError, EngineError};

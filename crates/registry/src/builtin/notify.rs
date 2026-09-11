@@ -3,7 +3,7 @@
 use crate::ActionRegistry;
 use async_trait::async_trait;
 use corex_core::{
-    Action, ActionCategory, ActionError, ActionMeta, ExecutionContext, ParamSchema, PermissionSet,
+    Action, ActionError, ActionMeta, Bucket, ExecutionContext, ParamSchema, PermissionSet,
     SchemaType, Value,
 };
 use std::sync::Arc;
@@ -17,13 +17,11 @@ impl Action for NotifySend {
     }
 
     fn meta(&self) -> ActionMeta {
-        ActionMeta::new("notify.send", "Notify", "发送桌面通知", ActionCategory::Ui).with_params(
-            vec![
-                ParamSchema::new("summary", SchemaType::Str, true),
-                ParamSchema::new("body", SchemaType::Str, false).with_default(""),
-                ParamSchema::new("appname", SchemaType::Str, false).with_default("corex"),
-            ],
-        )
+        ActionMeta::new("notify.send", "Notify", "发送桌面通知", Bucket::Ui).with_params(vec![
+            ParamSchema::new("summary", SchemaType::Str, true),
+            ParamSchema::new("body", SchemaType::Str, false).with_default(""),
+            ParamSchema::new("appname", SchemaType::Str, false).with_default("corex"),
+        ])
     }
 
     async fn execute(

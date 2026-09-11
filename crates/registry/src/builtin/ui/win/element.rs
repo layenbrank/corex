@@ -494,7 +494,7 @@ pub async fn ui_element_find_impl(
     let map = require_map(&params)?.clone();
     let exec_ctx = ctx.clone();
     let timeout_ms = opt_i64(&map, "timeout_ms", 3000).max(0) as u64;
-    let chain = selector_chain_from_params(&map, exec_ctx.ui_max_selector_chain())?;
+    let chain = selector_chain_from_params(&map, exec_ctx.ui_depth())?;
     tokio::task::spawn_blocking(move || {
         let el = find_with_chain(&map, &exec_ctx, &chain, timeout_ms)?;
         Ok(Value::Map(element_map_with_selectors(&el)))
@@ -510,7 +510,7 @@ pub async fn ui_element_exists_impl(
     let map = require_map(&params)?.clone();
     let exec_ctx = ctx.clone();
     let timeout_ms = opt_i64(&map, "timeout_ms", 2000).max(0) as u64;
-    let chain = selector_chain_from_params(&map, exec_ctx.ui_max_selector_chain())?;
+    let chain = selector_chain_from_params(&map, exec_ctx.ui_depth())?;
     tokio::task::spawn_blocking(move || {
         let found = find_with_chain(&map, &exec_ctx, &chain, timeout_ms);
         let mut out = BTreeMap::new();
@@ -540,7 +540,7 @@ pub async fn ui_element_click_impl(
     let exec_ctx = ctx.clone();
     let timeout_ms = opt_i64(&map, "timeout_ms", 3000).max(0) as u64;
     let safe = opt_bool(&map, "safe", true);
-    let chain = selector_chain_from_params(&map, exec_ctx.ui_max_selector_chain())?;
+    let chain = selector_chain_from_params(&map, exec_ctx.ui_depth())?;
     tokio::task::spawn_blocking(move || {
         let el = if safe {
             wait_element_state(
@@ -586,7 +586,7 @@ pub async fn ui_element_wait_impl(
         .max(1) as u64;
     let state = wait_state_from_params(&map)?;
     let poll = poll_interval_ms(&map, 200);
-    let chain = selector_chain_from_params(&map, exec_ctx.ui_max_selector_chain())?;
+    let chain = selector_chain_from_params(&map, exec_ctx.ui_depth())?;
     tokio::task::spawn_blocking(move || {
         if state == WaitState::Absent {
             let deadline = Instant::now() + Duration::from_millis(timeout_ms);
@@ -625,7 +625,7 @@ pub async fn ui_element_get_impl(
     let map = require_map(&params)?.clone();
     let exec_ctx = ctx.clone();
     let timeout_ms = opt_i64(&map, "timeout_ms", 3000).max(0) as u64;
-    let chain = selector_chain_from_params(&map, exec_ctx.ui_max_selector_chain())?;
+    let chain = selector_chain_from_params(&map, exec_ctx.ui_depth())?;
     tokio::task::spawn_blocking(move || {
         let el = find_with_chain(&map, &exec_ctx, &chain, timeout_ms)?;
         let value = element_value_text(&el);
@@ -653,7 +653,7 @@ pub async fn ui_element_set_impl(
         .to_string();
     let exec_ctx = ctx.clone();
     let timeout_ms = opt_i64(&map, "timeout_ms", 3000).max(0) as u64;
-    let chain = selector_chain_from_params(&map, exec_ctx.ui_max_selector_chain())?;
+    let chain = selector_chain_from_params(&map, exec_ctx.ui_depth())?;
     tokio::task::spawn_blocking(move || {
         let el = find_with_chain(&map, &exec_ctx, &chain, timeout_ms)?;
         set_element_value(&el, &value)?;

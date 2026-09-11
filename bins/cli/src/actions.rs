@@ -8,17 +8,14 @@ use crate::build_registry;
 use crate::fuzzy;
 use crate::output::outln;
 use anyhow::Result;
-use corex_core::{ActionMeta, EngineError, ParamSchema, SchemaType};
+use corex_core::{ActionMeta, Bucket, EngineError, ParamSchema, SchemaType};
 use corex_registry::ActionRegistry;
 
-/// 列出已注册动作；给了 id 就展开它的参数表、权限与一段可粘贴的步骤片段。
-pub(crate) fn cmd_actions(id: Option<&str>) -> Result<()> {
+/// 列出已注册动作（按 bucket 分组）；给了 id 就展开它的参数表、权限与一段可粘贴的步骤片段。
+pub(crate) fn cmd_actions(id: Option<&str>, bucket: Option<&str>) -> Result<()> {
     let registry = build_registry();
     let Some(id) = id else {
-        for meta in registry.actions() {
-            outln!("{:<24} [{}] {}", meta.id, category(&meta), meta.description);
-        }
-        return Ok(());
+        return list(&registry, bucket);
     };
 
     let Some(meta) = registry.actions().into_iter().find(|m| m.id == id) else {
@@ -26,7 +23,7 @@ pub(crate) fn cmd_actions(id: Option<&str>) -> Result<()> {
     };
     outln!("{} — {}", meta.id, meta.name);
     outln!("{}", meta.description);
-    outln!("分类 {}   权限 {}", category(&meta), granted(&registry, id));
+    outln!("bucket {}   权限 {}", meta.bucket, granted(&registry, id));
     outln!("");
     outln!("参数");
     if meta.params.is_empty() {
@@ -43,9 +40,38 @@ pub(crate) fn cmd_actions(id: Option<&str>) -> Result<()> {
     Ok(())
 }
 
-/// 动作的分类名，与 `corex actions` 列表里的那一列一致。
-pub(crate) fn category(meta: &ActionMeta) -> String {
-    format!("{:?}", meta.category).to_lowercase()
+/// 按 bucket 分组列出；`wanted` 给了就只列那一组。
+fn list(registry: &ActionRegistry, wanted: Option<&str>) -> Result<()> {
+    let only = match wanted {
+        Some(name) => Some(find_bucket(name)?),
+        None => None,
+    };
+    for bucket in Bucket::ALL {
+        if only.is_some_and(|only| only != bucket) {
+            continue;
+        }
+        let metas: Vec<ActionMeta> = registry
+            .actions()
+            .into_iter()
+            .filter(|meta| meta.bucket == bucket)
+            .collect();
+        if metas.is_empty() {
+            continue;
+        }
+        outln!("{}（{}）", bucket, metas.len());
+        for meta in metas {
+            outln!("  {:<22} {}", meta.id, meta.description);
+        }
+    }
+    Ok(())
+}
+
+/// 解析 `--bucket`；不认识的写法属于调用失误，顺手把可选值列出来。
+fn find_bucket(name: &str) -> Result<Bucket> {
+    Bucket::parse(name).ok_or_else(|| {
+        let names: Vec<&str> = Bucket::ALL.iter().map(|b| b.as_str()).collect();
+        crate::usage(format!("未知 bucket: {name}（可选: {}）", names.join("、")))
+    })
 }
 
 /// 动作运行前必须声明的权限类别。
@@ -92,7 +118,10 @@ fn snippet(meta: &ActionMeta) -> Vec<String> {
         "    params:".to_string(),
     ];
     for param in &meta.params {
-        let row = format!("{}: {}", param.name, placeholder(param.ty));
+        let mut row = format!("{}: {}", param.name, placeholder(param.ty));
+        if param.ty == SchemaType::Secret {
+            row.push_str("   # 密钥：用 keyring.get 取值，别写死在 YAML 里");
+        }
         if param.required {
             lines.push(format!("      {row}"));
         } else {

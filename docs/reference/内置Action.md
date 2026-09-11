@@ -75,7 +75,7 @@
 | `ui.element.wait` | `act-ui` | 同 find + `state?`、`timeout_ms`、`poll_interval_ms?` | 等待 `present` / `absent` / `enabled` |
 | `ui.element.point` | `act-ui` | `x`、`y` | 屏幕坐标命中元素 |
 | `ui.element.pick` | `act-ui` | `scope_hwnd?` | 交互点选（需桌面会话） |
-| `ui.wait` | `act-ui` | `ms` | 固定休眠（回退；受 `ui_max_settle_ms` 上限约束） |
+| `ui.wait` | `act-ui` | `ms` | 固定休眠（回退；受 `ui_settle_limit` 上限约束） |
 | `ui.click` | `act-ui` | `x`、`y`；`button?`、`clicks?` | 屏幕坐标点击（可双击/右键） |
 | `ui.scroll` | `act-ui` | `dy?`、`dx?`；`x?`、`y?` | 滚轮 |
 | `ui.drag` | `act-ui` | `from_x/y`、`to_x/y`；`steps?` | 拖拽 |
@@ -129,7 +129,7 @@ IPC: `{"type":"invoke","action":"shell.run","params":{"command":"echo","args":["
 ```
 
 > `input` 只在 `wait: sync` 下生效（`detach` 不能写 stdin）。从 daemon 运行时既无终端也无 `input`，
-> 子进程的提问会一直等下去，只受 `step_timeout_secs` 兜底——交互式命令务必显式给 `input`。
+> 子进程的提问会一直等下去，只受 `step_timeout` 兜底——交互式命令务必显式给 `input`。
 > 另一个更省事的办法是直接消灭提问：如 `COREPACK_ENABLE_DOWNLOAD_PROMPT=0`。
 
 #### `exec.run`

@@ -16,7 +16,7 @@ impl Action for FileWrite {
             "file.write",
             "文件写入",
             "写入或局部更新文本/JSON 文件（迷你 IDE）",
-            ActionCategory::Data,
+            Bucket::Data,
         )
         .with_params(vec![
             ParamSchema::new("path", SchemaType::File, true),

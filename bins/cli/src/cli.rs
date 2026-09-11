@@ -60,10 +60,13 @@ pub(crate) enum Commands {
         #[arg(long)]
         dir: Option<PathBuf>,
     },
-    /// 列出已注册动作；给 id 时打印它的参数表与步骤片段
+    /// 列出已注册动作（按 bucket 分组）；给 id 时打印它的参数表与步骤片段
     Actions {
         /// 动作 id，如 file.copy
         id: Option<String>,
+        /// 只看某个 bucket：system / network / data / ui / logic / plugin
+        #[arg(long)]
+        bucket: Option<String>,
     },
     /// 生成新的指令骨架（交互向导，或 -t 选模板）
     Create {

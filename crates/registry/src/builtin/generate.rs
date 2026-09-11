@@ -8,7 +8,7 @@ use crate::builtin::util::{
 };
 use async_trait::async_trait;
 use corex_core::{
-    Action, ActionCategory, ActionError, ActionMeta, ExecutionContext, ParamSchema, PermissionSet,
+    Action, ActionError, ActionMeta, Bucket, ExecutionContext, ParamSchema, PermissionSet,
     SchemaType, Value,
 };
 use rand::RngExt;
@@ -39,16 +39,12 @@ impl Action for GenerateUuid {
     }
 
     fn meta(&self) -> ActionMeta {
-        ActionMeta::new(
-            "generate.uuid",
-            "生成 UUID",
-            "生成 UUID v4",
-            ActionCategory::Data,
+        ActionMeta::new("generate.uuid", "生成 UUID", "生成 UUID v4", Bucket::Data).with_params(
+            vec![
+                ParamSchema::new("count", SchemaType::Int, false).with_default(1),
+                ParamSchema::new("uppercase", SchemaType::Bool, false).with_default(false),
+            ],
         )
-        .with_params(vec![
-            ParamSchema::new("count", SchemaType::Int, false).with_default(1),
-            ParamSchema::new("uppercase", SchemaType::Bool, false).with_default(false),
-        ])
     }
 
     async fn execute(
@@ -86,7 +82,7 @@ impl Action for GenerateCvid {
             "generate.cvid",
             "生成 CVID",
             "生成 GUID v4 大写 hex（CVID）",
-            ActionCategory::Data,
+            Bucket::Data,
         )
     }
 
@@ -111,7 +107,7 @@ impl Action for GeneratePath {
             "generate.path",
             "生成路径列表",
             "遍历目录并按模板写出路径列表",
-            ActionCategory::Data,
+            Bucket::Data,
         )
         .with_params(vec![
             ParamSchema::new("from", SchemaType::File, true),
@@ -288,7 +284,7 @@ impl Action for GenerateTimestamp {
             "generate.timestamp",
             "生成时间戳",
             "生成当前时间戳字符串",
-            ActionCategory::Data,
+            Bucket::Data,
         )
         .with_params(vec![
             ParamSchema::new("format", SchemaType::Str, false).with_default("%Y-%m-%d %H:%M:%S"),

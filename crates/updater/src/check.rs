@@ -140,7 +140,7 @@ pub fn notifier_allowed(config: &UpdateConfig, env: &NotifierEnv) -> bool {
 pub async fn run_background(updater: &crate::Updater, data_dir: &Path) -> Option<Notice> {
     let mut state = State::read(data_dir);
 
-    if state.is_stale(updater.config().check_interval_hours, Utc::now()) {
+    if state.is_stale(updater.config().check_interval, Utc::now()) {
         match updater.latest(state.etag.as_deref()).await {
             Ok(found) => {
                 // `304` 证明缓存的 tag 仍是通道头部，所以这种情况下只值得记录时间戳。

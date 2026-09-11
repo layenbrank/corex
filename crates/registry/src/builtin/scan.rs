@@ -2,9 +2,7 @@
 
 use crate::ActionRegistry;
 use async_trait::async_trait;
-use corex_core::{
-    Action, ActionCategory, ActionError, ActionMeta, ExecutionContext, PermissionSet, Value,
-};
+use corex_core::{Action, ActionError, ActionMeta, Bucket, ExecutionContext, PermissionSet, Value};
 use std::collections::BTreeMap;
 use std::sync::Arc;
 use sysinfo::System;
@@ -22,7 +20,7 @@ impl Action for ScanOs {
             "scan.os",
             "系统信息扫描",
             "采集操作系统与硬件摘要信息",
-            ActionCategory::System,
+            Bucket::System,
         )
     }
 

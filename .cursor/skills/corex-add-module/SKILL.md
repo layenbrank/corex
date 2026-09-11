@@ -87,7 +87,7 @@ crates/registry/
 use crate::ActionRegistry;
 use async_trait::async_trait;
 use corex_core::{
-    Action, ActionCategory, ActionError, ActionMeta, ExecutionContext, ParamSchema, SchemaType,
+    Action, ActionError, ActionMeta, Bucket, ExecutionContext, ParamSchema, SchemaType,
     Value,
 };
 use std::sync::Arc;
@@ -101,7 +101,7 @@ impl Action for FooBar {
             "foo.bar",           // Action ID
             "Foo Bar",
             "一句话说明",
-            ActionCategory::Data,
+            Bucket::Data,
         )
         .with_params(vec![
             ParamSchema::new("input", SchemaType::Str, true),

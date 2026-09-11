@@ -3,7 +3,7 @@
 use crate::ActionRegistry;
 use async_trait::async_trait;
 use corex_core::{
-    Action, ActionCategory, ActionError, ActionMeta, ExecutionContext, ParamSchema, PermissionSet,
+    Action, ActionError, ActionMeta, Bucket, ExecutionContext, ParamSchema, PermissionSet,
     SchemaType, Value,
 };
 use std::collections::BTreeMap;
@@ -24,7 +24,7 @@ impl Action for DialogAlert {
             "dialog.alert",
             "提示对话框",
             "模态提示框（确定）",
-            ActionCategory::Ui,
+            Bucket::Ui,
         )
         .with_params(vec![
             ParamSchema::new("message", SchemaType::Str, true),
@@ -47,16 +47,12 @@ impl Action for DialogConfirm {
     }
 
     fn meta(&self) -> ActionMeta {
-        ActionMeta::new(
-            "dialog.confirm",
-            "确认对话框",
-            "是/否确认框",
-            ActionCategory::Ui,
+        ActionMeta::new("dialog.confirm", "确认对话框", "是/否确认框", Bucket::Ui).with_params(
+            vec![
+                ParamSchema::new("message", SchemaType::Str, true),
+                ParamSchema::new("title", SchemaType::Str, false).with_default("corex"),
+            ],
         )
-        .with_params(vec![
-            ParamSchema::new("message", SchemaType::Str, true),
-            ParamSchema::new("title", SchemaType::Str, false).with_default("corex"),
-        ])
     }
     async fn execute(
         &self,
@@ -74,17 +70,13 @@ impl Action for DialogPrompt {
     }
 
     fn meta(&self) -> ActionMeta {
-        ActionMeta::new(
-            "dialog.prompt",
-            "输入对话框",
-            "简单文本输入框",
-            ActionCategory::Ui,
+        ActionMeta::new("dialog.prompt", "输入对话框", "简单文本输入框", Bucket::Ui).with_params(
+            vec![
+                ParamSchema::new("message", SchemaType::Str, true),
+                ParamSchema::new("title", SchemaType::Str, false).with_default("corex"),
+                ParamSchema::new("default", SchemaType::Str, false),
+            ],
         )
-        .with_params(vec![
-            ParamSchema::new("message", SchemaType::Str, true),
-            ParamSchema::new("title", SchemaType::Str, false).with_default("corex"),
-            ParamSchema::new("default", SchemaType::Str, false),
-        ])
     }
     async fn execute(
         &self,

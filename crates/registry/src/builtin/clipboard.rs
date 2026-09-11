@@ -5,7 +5,7 @@ use crate::builtin::util::{confine_path, opt_str, require_map, require_path, req
 use arboard::{Clipboard, ImageData};
 use async_trait::async_trait;
 use corex_core::{
-    Action, ActionCategory, ActionError, ActionMeta, ExecutionContext, ParamSchema, PermissionSet,
+    Action, ActionError, ActionMeta, Bucket, ExecutionContext, ParamSchema, PermissionSet,
     SchemaType, Value,
 };
 use image::GenericImageView;
@@ -43,7 +43,7 @@ impl Action for ClipboardGet {
             "clipboard.get",
             "读取剪贴板",
             "读取系统剪贴板（text 或 image）",
-            ActionCategory::Ui,
+            Bucket::Ui,
         )
         .with_params(vec![
             ParamSchema::new("format", SchemaType::Str, false)
@@ -96,7 +96,7 @@ impl Action for ClipboardSet {
             "clipboard.set",
             "写入剪贴板",
             "写入系统剪贴板（text 或 image）",
-            ActionCategory::Ui,
+            Bucket::Ui,
         )
         .with_params(vec![
             ParamSchema::new("format", SchemaType::Str, false)

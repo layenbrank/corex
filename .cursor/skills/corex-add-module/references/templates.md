@@ -10,7 +10,7 @@
 use crate::ActionRegistry;
 use async_trait::async_trait;
 use corex_core::{
-    Action, ActionCategory, ActionError, ActionMeta, ExecutionContext, ParamSchema, SchemaType,
+    Action, ActionError, ActionMeta, Bucket, ExecutionContext, ParamSchema, SchemaType,
     Value,
 };
 use std::sync::Arc;
@@ -24,7 +24,7 @@ impl Action for FooBar {
             "<id>",
             "Foo Bar",
             "<描述>",
-            ActionCategory::Data,
+            Bucket::Data,
         )
         .with_params(vec![
             ParamSchema::new("input", SchemaType::Str, true),
@@ -77,7 +77,7 @@ pub struct FooDecode;
 #[async_trait]
 impl Action for FooEncode {
     fn meta(&self) -> ActionMeta {
-        ActionMeta::new("foo.encode", "Foo Encode", "...", ActionCategory::Data)
+        ActionMeta::new("foo.encode", "Foo Encode", "...", Bucket::Data)
     }
     async fn execute(&self, params: Value, ctx: &mut ExecutionContext) -> Result<Value, ActionError> {
         // ...
@@ -88,7 +88,7 @@ impl Action for FooEncode {
 #[async_trait]
 impl Action for FooDecode {
     fn meta(&self) -> ActionMeta {
-        ActionMeta::new("foo.decode", "Foo Decode", "...", ActionCategory::Data)
+        ActionMeta::new("foo.decode", "Foo Decode", "...", Bucket::Data)
     }
     async fn execute(&self, params: Value, ctx: &mut ExecutionContext) -> Result<Value, ActionError> {
         // ...

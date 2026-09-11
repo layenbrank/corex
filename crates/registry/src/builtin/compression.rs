@@ -7,8 +7,8 @@ use crate::builtin::util::{
 };
 use async_trait::async_trait;
 use corex_core::{
-    Action, ActionCategory, ActionError, ActionMeta, ExecutionContext, ParamSchema, PermissionSet,
-    SchemaType, Value,
+    Action, ActionError, ActionMeta, Bucket, ExecutionContext, ParamSchema, PermissionSet,
+    SchemaType, Unit, Value,
 };
 use flate2::Compression;
 use flate2::read::GzDecoder;
@@ -36,7 +36,7 @@ impl Action for CompressionCompress {
             "compression.compress",
             "压缩",
             "压缩目录/文件为 zip、tar.gz 或 7z",
-            ActionCategory::Data,
+            Bucket::Data,
         )
         .with_params(vec![
             ParamSchema::new("from", SchemaType::File, true),
@@ -65,9 +65,9 @@ impl Action for CompressionCompress {
         ensure_parent(&to)?;
 
         match format.to_lowercase().as_str() {
-            "zip" => compress_zip(&from, &to, level as i64, &includes, &excludes)?,
+            "zip" => compress_zip(&from, &to, level as i64, &includes, &excludes, ctx)?,
             "tar.gz" | "tgz" | "targz" => {
-                compress_tar_gz(&from, &to, level.min(9), &includes, &excludes)?
+                compress_tar_gz(&from, &to, level.min(9), &includes, &excludes, ctx)?
             }
             "7z" | "sevenz" => {
                 return Err(ActionError::execution(
@@ -95,7 +95,7 @@ impl Action for CompressionDecompress {
             "compression.decompress",
             "解压",
             "解压 zip、tar.gz 或 7z",
-            ActionCategory::Data,
+            Bucket::Data,
         )
         .with_params(vec![
             ParamSchema::new("from", SchemaType::File, true),
@@ -117,8 +117,8 @@ impl Action for CompressionDecompress {
         std::fs::create_dir_all(&to)?;
 
         match format.to_lowercase().as_str() {
-            "zip" => decompress_zip(&from, &to)?,
-            "tar.gz" | "tgz" | "targz" => decompress_tar_gz(&from, &to)?,
+            "zip" => decompress_zip(&from, &to, ctx)?,
+            "tar.gz" | "tgz" | "targz" => decompress_tar_gz(&from, &to, ctx)?,
             "7z" | "sevenz" => {
                 return Err(ActionError::execution(
                     "7z 解压未在此构建中启用；请使用 zip 或 tar.gz",
@@ -179,17 +179,20 @@ fn compress_zip(
     level: i64,
     includes: &[String],
     excludes: &[String],
+    ctx: &ExecutionContext,
 ) -> Result<(), ActionError> {
     let entries = collect_files(from, includes, excludes)?;
     if entries.is_empty() {
         return Err(ActionError::execution("没有文件需要压缩"));
     }
+    let total = entries.len() as u64;
+    ctx.chunk(0, Some(total), Unit::Items);
     let file = File::create(to)?;
     let mut zip = ZipWriter::new(file);
     let options = SimpleFileOptions::default()
         .compression_method(CompressionMethod::Deflated)
         .compression_level(Some(level.clamp(0, 9)));
-    for (rel, abs) in &entries {
+    for (done, (rel, abs)) in entries.iter().enumerate() {
         let name = rel
             .components()
             .map(|c| c.as_os_str().to_string_lossy().into_owned())
@@ -199,16 +202,19 @@ fn compress_zip(
             .map_err(|e| ActionError::execution(format!("zip start_file: {e}")))?;
         let mut f = File::open(abs)?;
         io_copy(&mut f, &mut zip)?;
+        ctx.chunk(done as u64 + 1, Some(total), Unit::Items);
     }
     zip.finish()
         .map_err(|e| ActionError::execution(format!("zip finish: {e}")))?;
     Ok(())
 }
 
-fn decompress_zip(from: &Path, to: &Path) -> Result<(), ActionError> {
+fn decompress_zip(from: &Path, to: &Path, ctx: &ExecutionContext) -> Result<(), ActionError> {
     let file = File::open(from)?;
     let mut archive =
         ZipArchive::new(file).map_err(|e| ActionError::execution(format!("打开 zip: {e}")))?;
+    let total = archive.len() as u64;
+    ctx.chunk(0, Some(total), Unit::Items);
     for i in 0..archive.len() {
         let mut file = archive
             .by_index(i)
@@ -224,6 +230,7 @@ fn decompress_zip(from: &Path, to: &Path) -> Result<(), ActionError> {
             let mut outfile = File::create(&outpath)?;
             io_copy(&mut file, &mut outfile)?;
         }
+        ctx.chunk(i as u64 + 1, Some(total), Unit::Items);
     }
     Ok(())
 }
@@ -234,15 +241,18 @@ fn compress_tar_gz(
     level: u32,
     includes: &[String],
     excludes: &[String],
+    ctx: &ExecutionContext,
 ) -> Result<(), ActionError> {
     let files = collect_files(from, includes, excludes)?;
     if files.is_empty() {
         return Err(ActionError::execution("没有文件需要压缩"));
     }
+    let total = files.len() as u64;
+    ctx.chunk(0, Some(total), Unit::Items);
     let file = File::create(to)?;
     let enc = GzEncoder::new(file, Compression::new(level));
     let mut builder = Builder::new(enc);
-    for (rel, abs) in &files {
+    for (done, (rel, abs)) in files.iter().enumerate() {
         let mut header = Header::new_gnu();
         let data = std::fs::read(abs)?;
         header.set_size(data.len() as u64);
@@ -251,6 +261,7 @@ fn compress_tar_gz(
         builder
             .append_data(&mut header, rel.to_string_lossy().as_ref(), &data[..])
             .map_err(|e| ActionError::execution(format!("写入 tar: {e}")))?;
+        ctx.chunk(done as u64 + 1, Some(total), Unit::Items);
     }
     builder
         .into_inner()
@@ -260,13 +271,23 @@ fn compress_tar_gz(
     Ok(())
 }
 
-fn decompress_tar_gz(from: &Path, to: &Path) -> Result<(), ActionError> {
+fn decompress_tar_gz(from: &Path, to: &Path, ctx: &ExecutionContext) -> Result<(), ActionError> {
     let file = File::open(from)?;
     let dec = GzDecoder::new(file);
     let mut archive = Archive::new(dec);
-    archive
-        .unpack(to)
-        .map_err(|e| ActionError::execution(format!("解压 tar.gz: {e}")))?;
+    // tar 是流式的：没有条目总数可数，只报已完成的数量（`total` 为 `None`）。
+    let mut done = 0u64;
+    for entry in archive
+        .entries()
+        .map_err(|e| ActionError::execution(format!("读取 tar.gz: {e}")))?
+    {
+        let mut entry = entry.map_err(|e| ActionError::execution(format!("读取 tar.gz: {e}")))?;
+        entry
+            .unpack_in(to)
+            .map_err(|e| ActionError::execution(format!("解压 tar.gz: {e}")))?;
+        done += 1;
+        ctx.chunk(done, None, Unit::Items);
+    }
     Ok(())
 }
 

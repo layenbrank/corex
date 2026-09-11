@@ -3,7 +3,7 @@
 use crate::ActionRegistry;
 use async_trait::async_trait;
 use corex_core::{
-    Action, ActionCategory, ActionError, ActionMeta, ExecutionContext, ParamSchema, PermissionSet,
+    Action, ActionError, ActionMeta, Bucket, ExecutionContext, ParamSchema, PermissionSet,
     SchemaType, Value,
 };
 use std::collections::BTreeMap;
@@ -23,7 +23,7 @@ impl Action for Processes {
             "process.list",
             "枚举进程",
             "枚举进程（可选 name_contains）",
-            ActionCategory::System,
+            Bucket::System,
         )
         .with_params(vec![ParamSchema::new(
             "name_contains",
@@ -67,7 +67,7 @@ impl Action for ProcessKill {
             "process.kill",
             "结束进程",
             "按 pid 结束进程",
-            ActionCategory::System,
+            Bucket::System,
         )
         .with_params(vec![ParamSchema::new("pid", SchemaType::Int, true)])
     }

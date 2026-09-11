@@ -77,7 +77,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 ```rust
 use async_trait::async_trait;
 use corex_core::{
-    Action, ActionCategory, ActionError, ActionMeta, ExecutionContext, Value,
+    Action, ActionError, ActionMeta, Bucket, ExecutionContext, Value,
 };
 use std::sync::Arc;
 
@@ -86,7 +86,7 @@ struct EchoAction;
 #[async_trait]
 impl Action for EchoAction {
     fn meta(&self) -> ActionMeta {
-        ActionMeta::new("acme.echo", "Echo", "回显参数", ActionCategory::Data)
+        ActionMeta::new("acme.echo", "Echo", "回显参数", Bucket::Data)
     }
 
     async fn execute(

@@ -14,7 +14,7 @@ pub const UI_PROFILE: &str = "baseline";
 pub const MAX_PARALLEL: usize = 8;
 
 /// `ui.element.*` 的基线 `selectors[]` 链长度上限。
-pub const MAX_SELECTOR_CHAIN: usize = 8;
+pub const SELECTOR_DEPTH: usize = 8;
 
 /// 从 `config/corex.toml` 读入（外加覆盖）的运行时开关。
 pub const RUNTIME_CONFIG: &str = "config/corex.toml";
@@ -27,6 +27,7 @@ pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 /// 配置里的运行时插件 / 动作启用开关。
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct PluginConfig {
     /// 插件目录（绝对路径，或相对数据目录）。
     #[serde(default = "init_plugin_dir")]
@@ -45,6 +46,7 @@ fn init_plugin_dir() -> PathBuf {
 
 /// 只追加的执行历史设置。
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct HistoryConfig {
     /// 为真时把流水线执行记录到 JSONL。
     #[serde(default = "init_history_enabled")]
@@ -73,6 +75,7 @@ impl Default for HistoryConfig {
 
 /// 配置里 `[daemon]` 的 IPC / 锁设置。
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct DaemonConfig {
     /// Unix socket 路径（相对数据目录）或 Windows 命名管道路径。
     #[serde(default)]
@@ -87,6 +90,7 @@ pub struct DaemonConfig {
 
 /// 配置里 `[logging]` 的日志设置。
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct LoggingConfig {
     #[serde(default = "init_log_level")]
     pub level: String,
@@ -110,20 +114,20 @@ impl Default for LoggingConfig {
 /// 来自 `[runtime].ui_profile` 的 UI 自动化预设。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct UiProfilePreset {
-    pub max_selector_chain: usize,
-    pub max_settle_ms: u64,
+    pub selector_depth: usize,
+    pub settle_limit: u64,
 }
 
 impl UiProfilePreset {
     pub fn parse(name: &str) -> Self {
         match name.trim().to_ascii_lowercase().as_str() {
             "fast" => Self {
-                max_selector_chain: 5,
-                max_settle_ms: 2_000,
+                selector_depth: 5,
+                settle_limit: 2_000,
             },
             "patient" => Self {
-                max_selector_chain: 12,
-                max_settle_ms: 0,
+                selector_depth: 12,
+                settle_limit: 0,
             },
             // 向后兼容别名
             "default" | "baseline" | "" => Self::baseline(),
@@ -133,8 +137,8 @@ impl UiProfilePreset {
 
     pub fn baseline() -> Self {
         Self {
-            max_selector_chain: MAX_SELECTOR_CHAIN,
-            max_settle_ms: 0,
+            selector_depth: SELECTOR_DEPTH,
+            settle_limit: 0,
         }
     }
 }
@@ -223,6 +227,7 @@ impl std::str::FromStr for UpdateChannel {
 /// 企业 / 离线部署应设 `enabled = false`，这会同时关掉
 /// `corex update` 与后台版本检查。
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct UpdateConfig {
     /// 总开关。
     #[serde(default = "init_update_enabled")]
@@ -231,8 +236,8 @@ pub struct UpdateConfig {
     #[serde(default = "init_update_check_on_start")]
     pub check_on_start: bool,
     /// 两次后台检查之间的最少小时数（0 = 每次都查）。
-    #[serde(default = "init_update_interval_hours")]
-    pub check_interval_hours: u64,
+    #[serde(default = "init_check_interval")]
+    pub check_interval: u64,
     /// 要跟随的发布通道。
     #[serde(default)]
     pub channel: UpdateChannel,
@@ -257,8 +262,8 @@ pub struct UpdateConfig {
     #[serde(default = "init_update_confirm")]
     pub require_confirmation: bool,
     /// 单个 HTTP 请求的超时秒数。
-    #[serde(default = "init_update_timeout_secs")]
-    pub timeout_secs: u64,
+    #[serde(default = "init_timeout")]
+    pub timeout: u64,
 }
 
 fn init_update_enabled() -> bool {
@@ -269,7 +274,7 @@ fn init_update_check_on_start() -> bool {
     true
 }
 
-fn init_update_interval_hours() -> u64 {
+fn init_check_interval() -> u64 {
     24
 }
 
@@ -289,7 +294,7 @@ fn init_update_confirm() -> bool {
     true
 }
 
-fn init_update_timeout_secs() -> u64 {
+fn init_timeout() -> u64 {
     30
 }
 
@@ -298,14 +303,14 @@ impl Default for UpdateConfig {
         Self {
             enabled: init_update_enabled(),
             check_on_start: init_update_check_on_start(),
-            check_interval_hours: init_update_interval_hours(),
+            check_interval: init_check_interval(),
             channel: UpdateChannel::default(),
             repository: init_update_repository(),
             api_base_url: None,
             token_env: init_update_token_env(),
             use_system_proxy: init_update_use_system_proxy(),
             require_confirmation: init_update_confirm(),
-            timeout_secs: init_update_timeout_secs(),
+            timeout: init_timeout(),
         }
     }
 }
@@ -323,8 +328,9 @@ pub struct RuntimeConfig {
     pub logging: LoggingConfig,
     #[serde(default = "init_max_parallel")]
     pub max_parallel: usize,
+    /// 单步超时秒数（0 = 不限）。
     #[serde(default)]
-    pub step_timeout_secs: u64,
+    pub step_timeout: u64,
     /// 为真时，未声明权限的指令会被拒绍（企业模式）。
     #[serde(default)]
     pub strict_permissions: bool,
@@ -334,12 +340,12 @@ pub struct RuntimeConfig {
     /// UI 预设：`baseline` | `fast` | `patient`（见 [`UiProfilePreset`]）。
     #[serde(default = "init_ui_profile")]
     pub ui_profile: String,
-    /// `ui.element.*` 的 `selectors[]` 回退链长度上限（0 = 用预设值）。
+    /// `ui.element.*` 的 `selectors[]` 回退链长度上限（0 = 用 `ui_profile` 预设值）。
     #[serde(default)]
-    pub ui_max_selector_chain: usize,
+    pub ui_selector_depth: usize,
     /// 每次指令运行中 `ui.wait` 固定等待毫秒数的总上限（0 = 不限）。
     #[serde(default)]
-    pub ui_max_settle_ms: u64,
+    pub ui_settle_limit: u64,
     /// cron 触发器 / `cron.schedule` 的默认时区。
     ///
     /// 接受 `local`（系统本地）、`utc`，或固定偏移（如 `+08:00`）。
@@ -372,12 +378,12 @@ impl Default for RuntimeConfig {
             daemon: DaemonConfig::default(),
             logging: LoggingConfig::default(),
             max_parallel: init_max_parallel(),
-            step_timeout_secs: 0,
+            step_timeout: 0,
             strict_permissions: false,
             filesystem_roots: Vec::new(),
             ui_profile: init_ui_profile(),
-            ui_max_selector_chain: preset.max_selector_chain,
-            ui_max_settle_ms: preset.max_settle_ms,
+            ui_selector_depth: preset.selector_depth,
+            ui_settle_limit: preset.settle_limit,
             cron_timezone: init_cron_timezone(),
             update: UpdateConfig::default(),
         }
@@ -385,35 +391,28 @@ impl Default for RuntimeConfig {
 }
 
 impl RuntimeConfig {
-    /// 解析 selector 链长度上限（显式的 `ui_max_selector_chain` 优先于预设）。
-    pub fn effective_ui_max_selector_chain(&self) -> usize {
-        if self.ui_max_selector_chain > 0 {
-            return self.ui_max_selector_chain;
+    /// `selectors[]` 回退链上限：显式配置优先，否则取 `ui_profile` 预设。
+    pub fn ui_depth(&self) -> usize {
+        if self.ui_selector_depth > 0 {
+            return self.ui_selector_depth;
         }
-        UiProfilePreset::parse(&self.ui_profile).max_selector_chain
-    }
-
-    /// 解析出的稳定等待上限（配置里显式设了 `ui_max_settle_ms` 就用它，否则用预设）。
-    pub fn effective_ui_max_settle_ms(&self) -> u64 {
-        self.ui_max_settle_ms
+        UiProfilePreset::parse(&self.ui_profile).selector_depth
     }
 
     /// 应用 `ui_profile` 预设；`overrides` 里的显式覆盖优先。
     pub fn ui_profile(&mut self, profile: &str, overrides: UiProfileOverrides) {
         self.ui_profile = profile.to_string();
         let preset = UiProfilePreset::parse(profile);
-        self.ui_max_selector_chain = overrides
-            .max_selector_chain
-            .unwrap_or(preset.max_selector_chain);
-        self.ui_max_settle_ms = overrides.max_settle_ms.unwrap_or(preset.max_settle_ms);
+        self.ui_selector_depth = overrides.selector_depth.unwrap_or(preset.selector_depth);
+        self.ui_settle_limit = overrides.settle_limit.unwrap_or(preset.settle_limit);
     }
 }
 
 /// 配置文件里可选的显式 UI 运行时覆盖值。
 #[derive(Debug, Clone, Copy, Default)]
 pub struct UiProfileOverrides {
-    pub max_selector_chain: Option<usize>,
-    pub max_settle_ms: Option<u64>,
+    pub selector_depth: Option<usize>,
+    pub settle_limit: Option<u64>,
 }
 
 /// 一次指令运行内缓存的 UI 自动化范围。
@@ -535,18 +534,20 @@ impl ExecutionContext {
     }
 
     pub fn add_ui_settle_ms(&mut self, ms: u64) -> Result<(), String> {
-        let max = self.config.effective_ui_max_settle_ms();
+        let limit = self.config.ui_settle_limit;
         let next = self.ui_session.settle_ms_used.saturating_add(ms);
-        if max > 0 && next > max {
-            return Err(format!("ui.wait 累计 {next}ms 超过 ui_max_settle_ms={max}"));
+        if limit > 0 && next > limit {
+            return Err(format!(
+                "ui.wait 累计 {next}ms 超过 ui_settle_limit={limit}"
+            ));
         }
         self.ui_session.settle_ms_used = next;
         Ok(())
     }
 
     /// `ui.element.*` 的 `selectors[]` 长度上限（来自运行时配置 / 预设）。
-    pub fn ui_max_selector_chain(&self) -> usize {
-        self.config.effective_ui_max_selector_chain()
+    pub fn ui_depth(&self) -> usize {
+        self.config.ui_depth()
     }
 
     /// 归并一个并行分支上下文的输出（以及新写入的变量）。
@@ -576,14 +577,14 @@ mod ui_profile_tests {
     fn baseline_profile_selector_chain_is_8() {
         let cfg = RuntimeConfig::default();
         assert_eq!(cfg.ui_profile, UI_PROFILE);
-        assert_eq!(cfg.effective_ui_max_selector_chain(), MAX_SELECTOR_CHAIN);
+        assert_eq!(cfg.ui_depth(), SELECTOR_DEPTH);
     }
 
     #[test]
     fn legacy_default_profile_alias() {
         assert_eq!(
-            UiProfilePreset::parse("default").max_selector_chain,
-            MAX_SELECTOR_CHAIN
+            UiProfilePreset::parse("default").selector_depth,
+            SELECTOR_DEPTH
         );
     }
 
@@ -591,7 +592,7 @@ mod ui_profile_tests {
     fn patient_profile_takes_effect() {
         let mut cfg = RuntimeConfig::default();
         cfg.ui_profile("patient", UiProfileOverrides::default());
-        assert_eq!(cfg.effective_ui_max_selector_chain(), 12);
+        assert_eq!(cfg.ui_depth(), 12);
     }
 
     #[test]
@@ -600,10 +601,10 @@ mod ui_profile_tests {
         cfg.ui_profile(
             "fast",
             UiProfileOverrides {
-                max_selector_chain: Some(10),
-                max_settle_ms: None,
+                selector_depth: Some(10),
+                settle_limit: None,
             },
         );
-        assert_eq!(cfg.effective_ui_max_selector_chain(), 10);
+        assert_eq!(cfg.ui_depth(), 10);
     }
 }

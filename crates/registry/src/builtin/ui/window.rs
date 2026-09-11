@@ -3,7 +3,7 @@
 use crate::ActionRegistry;
 use async_trait::async_trait;
 use corex_core::{
-    Action, ActionCategory, ActionError, ActionMeta, ExecutionContext, ParamSchema, PermissionSet,
+    Action, ActionError, ActionMeta, Bucket, ExecutionContext, ParamSchema, PermissionSet,
     SchemaType, Value,
 };
 use std::sync::Arc;
@@ -25,7 +25,7 @@ impl Action for UiWindows {
             "ui.window.list",
             "枚举窗口",
             "枚举顶层窗口（hwnd/title/class/pid）",
-            ActionCategory::Ui,
+            Bucket::Ui,
         )
     }
     async fn execute(
@@ -48,7 +48,7 @@ impl Action for UiWindowDesktop {
             "ui.window.desktop",
             "桌面图标",
             "枚举桌面图标（Shell ListItem）",
-            ActionCategory::Ui,
+            Bucket::Ui,
         )
     }
     async fn execute(

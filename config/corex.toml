@@ -44,17 +44,17 @@ json  = false
 # parallel 块内最大并行步数
 max_parallel = 8
 # 单步超时秒数（0 = 不限制）
-step_timeout_secs = 0
+step_timeout = 0
 # 企业模式：为 true 时拒绝没有 permissions 块的指令
 strict_permissions = false
 # file.* 允许的根目录（留空 = 不限制；企业模式设为数据目录）
 # filesystem_roots = []
 # 单次指令运行内 ui.wait 总毫秒上限（0 = 不限制）
-# ui_max_settle_ms = 0
+# ui_settle_limit = 0
 # UI 自动化档位：baseline | fast | patient
 # ui_profile = "baseline"
 # ui.element.* 的 selectors[] 回退链上限（baseline=8，fast=5，patient=12）
-# ui_max_selector_chain = 8
+# ui_selector_depth = 8
 
 [update]
 # 通过 GitHub Releases 自更新（`corex update`）。见 docs/reference/自更新.md
@@ -63,7 +63,7 @@ enabled = true
 # CLI 启动时限频检查新版本（在 stderr 提示）
 check_on_start = true
 # 两次后台检查之间的最小小时间隔（0 = 每次运行都查）
-check_interval_hours = 24
+check_interval = 24
 # 发布渠道：stable | alpha | beta | rc
 channel = "stable"
 # GitHub 仓库 slug
@@ -77,4 +77,4 @@ use_system_proxy = true
 # 替换正在运行的可执行文件前先询问
 require_confirmation = true
 # 单次 HTTP 请求超时秒数
-timeout_secs = 30
+timeout = 30

@@ -319,13 +319,13 @@ impl Pipeline {
         }
 
         debug!(id = %step.id, action = %step.action, "执行动作");
-        let timeout_secs = ctx.config.step_timeout_secs;
+        let timeout = ctx.config.step_timeout;
         let fut = action.execute(params, ctx);
-        let result = if timeout_secs > 0 {
-            match tokio::time::timeout(Duration::from_secs(timeout_secs), fut).await {
+        let result = if timeout > 0 {
+            match tokio::time::timeout(Duration::from_secs(timeout), fut).await {
                 Ok(r) => r,
                 Err(_) => Err(ActionError::Timeout(format!(
-                    "步骤 {} 超过 {timeout_secs}s",
+                    "步骤 {} 超过 {timeout}s",
                     step.id
                 ))),
             }

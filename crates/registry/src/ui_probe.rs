@@ -88,8 +88,7 @@ pub async fn probe_element_get(
     #[cfg(windows)]
     {
         probe_scope_explicit(&params)?;
-        crate::builtin::ui::win::ui_element_find_probe_impl(params, ctx.ui_max_selector_chain())
-            .await
+        crate::builtin::ui::win::ui_element_find_probe_impl(params, ctx.ui_depth()).await
     }
     #[cfg(not(windows))]
     {

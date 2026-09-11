@@ -3,7 +3,7 @@
 use crate::ActionRegistry;
 use async_trait::async_trait;
 use corex_core::{
-    Action, ActionCategory, ActionError, ActionMeta, ExecutionContext, ParamSchema, PermissionSet,
+    Action, ActionError, ActionMeta, Bucket, ExecutionContext, ParamSchema, PermissionSet,
     SchemaType, Value,
 };
 use std::sync::Arc;
@@ -21,7 +21,7 @@ impl Action for UrlOpen {
             "url.open",
             "打开 URL",
             "用系统默认程序打开 URL 或文件",
-            ActionCategory::System,
+            Bucket::System,
         )
         .with_params(vec![ParamSchema::new("url", SchemaType::Str, true)])
     }

@@ -3,7 +3,7 @@
 use crate::ActionRegistry;
 use async_trait::async_trait;
 use corex_core::{
-    Action, ActionCategory, ActionError, ActionMeta, ExecutionContext, ParamSchema, PermissionSet,
+    Action, ActionError, ActionMeta, Bucket, ExecutionContext, ParamSchema, PermissionSet,
     SchemaType, Value,
 };
 use std::sync::Arc;
@@ -26,7 +26,7 @@ impl Action for UiWait {
             "ui.wait",
             "等待",
             "固定毫秒等待（兜底；优先使用 ui.element.wait）",
-            ActionCategory::Ui,
+            Bucket::Ui,
         )
         .with_params(vec![ParamSchema::new("ms", SchemaType::Int, true)])
     }

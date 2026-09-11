@@ -14,7 +14,7 @@ impl Action for FileRead {
             "file.read",
             "文件读取",
             "读取文件内容、行窗，或轻量 exists/stat",
-            ActionCategory::Data,
+            Bucket::Data,
         )
         .with_params(vec![
             ParamSchema::new("path", SchemaType::File, true),

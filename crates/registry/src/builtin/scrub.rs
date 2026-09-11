@@ -4,7 +4,7 @@ use crate::ActionRegistry;
 use crate::builtin::util::{confine_path, opt_bool, require_map, require_path, require_str};
 use async_trait::async_trait;
 use corex_core::{
-    Action, ActionCategory, ActionError, ActionMeta, ExecutionContext, ParamSchema, PermissionSet,
+    Action, ActionError, ActionMeta, Bucket, ExecutionContext, ParamSchema, PermissionSet,
     SchemaType, Value,
 };
 use std::path::Path;
@@ -24,7 +24,7 @@ impl Action for ScrubRun {
             "scrub.run",
             "目录清理",
             "删除源目录下指定名称的目标",
-            ActionCategory::System,
+            Bucket::System,
         )
         .with_params(vec![
             ParamSchema::new("source", SchemaType::File, true),

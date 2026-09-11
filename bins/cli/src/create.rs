@@ -336,14 +336,7 @@ fn wizard(name: &str) -> Result<String> {
     let actions = registry.actions();
     let labels: Vec<String> = actions
         .iter()
-        .map(|meta| {
-            format!(
-                "{:<22} [{}] {}",
-                meta.id,
-                actions::category(meta),
-                meta.description
-            )
-        })
+        .map(|meta| format!("{:<22} [{}] {}", meta.id, meta.bucket, meta.description))
         .collect();
     let chosen = ask::select("用什么动作起头？", &labels)?;
     let meta = &actions[chosen];
@@ -384,7 +377,7 @@ fn step(meta: &ActionMeta) -> Result<String> {
     );
     for param in &meta.params {
         if param.required {
-            let answer = ask::text(&prompt(param), None)?;
+            let answer = ask_param(param)?;
             out.push_str(&format!(
                 "      {}: {}\n",
                 param.name,
@@ -408,6 +401,14 @@ fn prompt(param: &ParamSchema) -> String {
         format!("{}（{}）", param.name, param.ty.as_str())
     } else {
         format!("{}（{}，{}）", param.name, param.ty.as_str(), detail)
+    }
+}
+
+/// 按参数类型挑追问方式：密钥类不回显。
+fn ask_param(param: &ParamSchema) -> Result<String> {
+    match param.ty {
+        SchemaType::Secret => ask::password(&prompt(param)),
+        _ => ask::text(&prompt(param), None),
     }
 }
 

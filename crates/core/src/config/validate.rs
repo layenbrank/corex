@@ -2,7 +2,7 @@
 //!
 //! 范围刻意收窄：只覆盖“写错一个字母就会悄悄换成另一种行为、
 //! 而任何地方都不报错”的值。属于某个子系统的校验就交给它自己——
-//! `corex update` 自己会校验 `[update].repository` 并夹紧 `timeout_secs`，
+//! `corex update` 自己会校验 `[update].repository` 并夹紧 `timeout`，
 //! 这里再查一遍只会多出一个事实来源。
 
 use crate::context::RuntimeConfig;

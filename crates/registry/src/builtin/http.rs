@@ -4,7 +4,7 @@ use crate::ActionRegistry;
 use crate::builtin::util::{opt_bool, opt_i64, require_map, require_str};
 use async_trait::async_trait;
 use corex_core::{
-    Action, ActionCategory, ActionError, ActionMeta, ExecutionContext, ParamSchema, PermissionSet,
+    Action, ActionError, ActionMeta, Bucket, ExecutionContext, ParamSchema, PermissionSet,
     SchemaType, Value,
 };
 use reqwest::header::{CONTENT_TYPE, HeaderName, HeaderValue};
@@ -26,7 +26,7 @@ impl Action for HttpSend {
             "http.send",
             "HTTP 请求",
             "发送 HTTP 请求（类 curl / fetch）：method、query、headers、token、json/form/body",
-            ActionCategory::Network,
+            Bucket::Network,
         )
         .with_params(vec![
             ParamSchema::new("url", SchemaType::Str, true).with_description("请求 URL"),
@@ -37,7 +37,7 @@ impl Action for HttpSend {
                 .with_description("URL 查询参数（同 fetch URLSearchParams / axios params）"),
             ParamSchema::new("query", SchemaType::Map, false).with_description("params 的别名"),
             ParamSchema::new("headers", SchemaType::Map, false).with_description("请求头"),
-            ParamSchema::new("token", SchemaType::Str, false)
+            ParamSchema::new("token", SchemaType::Secret, false)
                 .with_description("Bearer Token 简写，等价 Authorization: Bearer <token>"),
             ParamSchema::new("auth", SchemaType::Map, false).with_description(
                 "认证：type=bearer|basic|header + token 或 username/password 或 header/value",

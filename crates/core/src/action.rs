@@ -10,16 +10,54 @@ use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
-/// 供发现 / UI 使用的高层分组。
+/// 供发现 / UI 使用的高层分组：一个动作只属于一个 bucket。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
-pub enum ActionCategory {
+pub enum Bucket {
     System,
     Network,
     Data,
     Ui,
     Logic,
     Plugin,
+}
+
+impl Bucket {
+    /// 全部 bucket，顺序即 `corex actions` 列表里的分组顺序。
+    pub const ALL: [Self; 6] = [
+        Self::System,
+        Self::Network,
+        Self::Data,
+        Self::Ui,
+        Self::Logic,
+        Self::Plugin,
+    ];
+
+    /// 展示与 `--bucket` 用的小写标识。
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::System => "system",
+            Self::Network => "network",
+            Self::Data => "data",
+            Self::Ui => "ui",
+            Self::Logic => "logic",
+            Self::Plugin => "plugin",
+        }
+    }
+
+    /// 按 [`Self::as_str`] 的写法解析，大小写不敏感。
+    ///
+    /// 不认识的写法返回 `None`，由调用方决定怎么给候选——解析本身不该猜。
+    pub fn parse(name: &str) -> Option<Self> {
+        let key = name.trim().to_ascii_lowercase();
+        Self::ALL.into_iter().find(|bucket| bucket.as_str() == key)
+    }
+}
+
+impl std::fmt::Display for Bucket {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.as_str())
+    }
 }
 
 /// 声明动作的一个参数。
@@ -62,7 +100,7 @@ pub struct ActionMeta {
     pub id: String,
     pub name: String,
     pub description: String,
-    pub category: ActionCategory,
+    pub bucket: Bucket,
     #[serde(default)]
     pub params: Vec<ParamSchema>,
     #[serde(default)]
@@ -74,13 +112,13 @@ impl ActionMeta {
         id: impl Into<String>,
         name: impl Into<String>,
         description: impl Into<String>,
-        category: ActionCategory,
+        bucket: Bucket,
     ) -> Self {
         Self {
             id: id.into(),
             name: name.into(),
             description: description.into(),
-            category,
+            bucket,
             params: Vec::new(),
             tags: Vec::new(),
         }

@@ -9,7 +9,7 @@ use crate::builtin::util::{
 };
 use async_trait::async_trait;
 use corex_core::{
-    Action, ActionCategory, ActionError, ActionMeta, ExecutionContext, ParamSchema, PermissionSet,
+    Action, ActionError, ActionMeta, Bucket, ExecutionContext, ParamSchema, PermissionSet,
     SchemaType, Value,
 };
 use std::collections::BTreeMap;
@@ -29,17 +29,13 @@ impl Action for CaptureScreenshot {
     }
 
     fn meta(&self) -> ActionMeta {
-        ActionMeta::new(
-            "capture.screenshot",
-            "截图",
-            "截取主显示器画面",
-            ActionCategory::Ui,
+        ActionMeta::new("capture.screenshot", "截图", "截取主显示器画面", Bucket::Ui).with_params(
+            vec![
+                ParamSchema::new("to", SchemaType::File, true),
+                ParamSchema::new("format", SchemaType::Str, false).with_default("png"),
+                ParamSchema::new("quality", SchemaType::Int, false).with_default(90),
+            ],
         )
-        .with_params(vec![
-            ParamSchema::new("to", SchemaType::File, true),
-            ParamSchema::new("format", SchemaType::Str, false).with_default("png"),
-            ParamSchema::new("quality", SchemaType::Int, false).with_default(90),
-        ])
     }
 
     async fn execute(
@@ -62,20 +58,16 @@ impl Action for CaptureCrop {
     }
 
     fn meta(&self) -> ActionMeta {
-        ActionMeta::new(
-            "capture.crop",
-            "裁剪图片",
-            "裁剪图片文件并写出",
-            ActionCategory::Ui,
+        ActionMeta::new("capture.crop", "裁剪图片", "裁剪图片文件并写出", Bucket::Ui).with_params(
+            vec![
+                ParamSchema::new("from", SchemaType::File, true),
+                ParamSchema::new("to", SchemaType::File, true),
+                ParamSchema::new("x", SchemaType::Int, true),
+                ParamSchema::new("y", SchemaType::Int, true),
+                ParamSchema::new("width", SchemaType::Int, true),
+                ParamSchema::new("height", SchemaType::Int, true),
+            ],
         )
-        .with_params(vec![
-            ParamSchema::new("from", SchemaType::File, true),
-            ParamSchema::new("to", SchemaType::File, true),
-            ParamSchema::new("x", SchemaType::Int, true),
-            ParamSchema::new("y", SchemaType::Int, true),
-            ParamSchema::new("width", SchemaType::Int, true),
-            ParamSchema::new("height", SchemaType::Int, true),
-        ])
     }
 
     async fn execute(
@@ -119,7 +111,7 @@ impl Action for CaptureMonitors {
             "capture.monitors",
             "枚举显示器",
             "列出显示器信息",
-            ActionCategory::Ui,
+            Bucket::Ui,
         )
     }
 
@@ -144,7 +136,7 @@ impl Action for CaptureOcr {
             "capture.ocr",
             "识别文字（OCR）",
             "识别图片中的文字",
-            ActionCategory::Ui,
+            Bucket::Ui,
         )
         .with_params(vec![
             ParamSchema::new("file", SchemaType::File, true),
@@ -198,7 +190,7 @@ impl Action for CaptureFind {
             "capture.find",
             "模板匹配",
             "在大图中查找模板（灰度 NCC）",
-            ActionCategory::Ui,
+            Bucket::Ui,
         )
         .with_params(vec![
             ParamSchema::new("haystack", SchemaType::File, true),

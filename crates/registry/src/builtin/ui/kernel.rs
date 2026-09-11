@@ -124,7 +124,7 @@ pub fn selector_chain_from_params(
         }
         if selectors.len() > max_chain {
             return Err(ActionError::InvalidParams(format!(
-                "selectors 最多 {max_chain} 条（可在 [runtime] 调整 ui_max_selector_chain / ui_profile）"
+                "selectors 最多 {max_chain} 条（可在 [runtime] 调整 ui_selector_depth / ui_profile）"
             )));
         }
         let mut out = Vec::with_capacity(selectors.len());
@@ -385,14 +385,14 @@ mod suggest_tests {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use corex_core::MAX_SELECTOR_CHAIN;
+    use corex_core::SELECTOR_DEPTH;
 
     #[test]
     fn selector_chain_from_flat_params() {
         let mut m = BTreeMap::new();
         m.insert("name".into(), Value::Str("进入微信".into()));
         m.insert("control_type".into(), Value::Str("Button".into()));
-        let chain = selector_chain_from_params(&m, MAX_SELECTOR_CHAIN).unwrap();
+        let chain = selector_chain_from_params(&m, SELECTOR_DEPTH).unwrap();
         assert_eq!(chain.len(), 1);
         assert_eq!(chain[0].name.as_deref(), Some("进入微信"));
     }
@@ -401,7 +401,7 @@ mod tests {
     fn selector_chain_rejects_empty() {
         let mut m = BTreeMap::new();
         m.insert("selectors".into(), Value::Array(vec![]));
-        assert!(selector_chain_from_params(&m, MAX_SELECTOR_CHAIN).is_err());
+        assert!(selector_chain_from_params(&m, SELECTOR_DEPTH).is_err());
     }
 
     #[test]

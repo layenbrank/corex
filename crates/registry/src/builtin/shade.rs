@@ -6,7 +6,7 @@ use crate::builtin::util::{
 };
 use async_trait::async_trait;
 use corex_core::{
-    Action, ActionCategory, ActionError, ActionMeta, ExecutionContext, ParamSchema, PermissionSet,
+    Action, ActionError, ActionMeta, Bucket, ExecutionContext, ParamSchema, PermissionSet,
     SchemaType, Value,
 };
 use image::codecs::jpeg::JpegEncoder;
@@ -35,7 +35,7 @@ impl Action for ShadeConvert {
             "shade.convert",
             "色彩转换",
             "图片格式转换与压缩",
-            ActionCategory::Data,
+            Bucket::Data,
         )
         .with_params(vec![
             ParamSchema::new("from", SchemaType::File, true),

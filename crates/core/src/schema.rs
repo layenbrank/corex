@@ -11,6 +11,8 @@ pub enum SchemaType {
     Int,
     Float,
     Str,
+    /// 密钥类字符串：CLI 的交互追问不回显，也不该写死在 YAML 里。
+    Secret,
     Array,
     Map,
     File,
@@ -26,6 +28,7 @@ impl SchemaType {
             SchemaType::Int => "int",
             SchemaType::Float => "float",
             SchemaType::Str => "str",
+            SchemaType::Secret => "secret",
             SchemaType::Array => "array",
             SchemaType::Map => "map",
             SchemaType::File => "file",

@@ -115,7 +115,7 @@ pub(crate) async fn dispatch(cli: Cli) -> Result<()> {
             run::cmd_run(target.as_deref(), &options, cli.dir.as_deref()).await
         }
         Commands::Schedule { dir } => cmd_schedule(dir.or(cli.dir).as_deref()),
-        Commands::Actions { id } => actions::cmd_actions(id.as_deref()),
+        Commands::Actions { id, bucket } => actions::cmd_actions(id.as_deref(), bucket.as_deref()),
         Commands::Create {
             name,
             template,

@@ -5,7 +5,7 @@ use crate::builtin::util::{confine_path, ensure_parent, opt_str, require_map, re
 use async_trait::async_trait;
 use base64::{Engine, engine::general_purpose::STANDARD};
 use corex_core::{
-    Action, ActionCategory, ActionError, ActionMeta, ExecutionContext, ParamSchema, PermissionSet,
+    Action, ActionError, ActionMeta, Bucket, ExecutionContext, ParamSchema, PermissionSet,
     SchemaType, Value,
 };
 use md5::{Digest, Md5};
@@ -77,7 +77,7 @@ impl Action for CodecBase64Encode {
             "codec.base64.encode",
             "Base64 Encode",
             "Base64 编码",
-            ActionCategory::Data,
+            Bucket::Data,
         )
         .with_params(vec![
             ParamSchema::new("input", SchemaType::Str, false),
@@ -110,7 +110,7 @@ impl Action for CodecBase64Decode {
             "codec.base64.decode",
             "Base64 Decode",
             "Base64 解码",
-            ActionCategory::Data,
+            Bucket::Data,
         )
         .with_params(vec![
             ParamSchema::new("input", SchemaType::Str, false),
@@ -161,17 +161,13 @@ impl Action for CodecHashMd5 {
     }
 
     fn meta(&self) -> ActionMeta {
-        ActionMeta::new(
-            "codec.hash.md5",
-            "MD5 Hash",
-            "计算 MD5 摘要",
-            ActionCategory::Data,
+        ActionMeta::new("codec.hash.md5", "MD5 Hash", "计算 MD5 摘要", Bucket::Data).with_params(
+            vec![
+                ParamSchema::new("input", SchemaType::Str, false),
+                ParamSchema::new("file", SchemaType::File, false),
+                ParamSchema::new("output", SchemaType::File, false),
+            ],
         )
-        .with_params(vec![
-            ParamSchema::new("input", SchemaType::Str, false),
-            ParamSchema::new("file", SchemaType::File, false),
-            ParamSchema::new("output", SchemaType::File, false),
-        ])
     }
 
     async fn execute(
@@ -199,7 +195,7 @@ impl Action for CodecJsonParse {
             "codec.json.parse",
             "JSON 解析",
             "将 JSON 字符串解析为结构化 Value",
-            ActionCategory::Data,
+            Bucket::Data,
         )
         .with_params(vec![ParamSchema::new("text", SchemaType::Str, true)])
     }

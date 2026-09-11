@@ -7,8 +7,8 @@ use crate::builtin::util::{
 };
 use async_trait::async_trait;
 use corex_core::{
-    Action, ActionCategory, ActionError, ActionMeta, ExecutionContext, ParamSchema, PermissionSet,
-    SchemaType, Value,
+    Action, ActionError, ActionMeta, Bucket, ExecutionContext, ParamSchema, PermissionSet,
+    SchemaType, Unit, Value,
 };
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -27,7 +27,7 @@ impl Action for CopyRun {
             "copy.run",
             "复制",
             "复制文件或目录（支持 includes/excludes）",
-            ActionCategory::Data,
+            Bucket::Data,
         )
         .with_params(vec![
             ParamSchema::new("from", SchemaType::File, true),
@@ -53,7 +53,7 @@ impl Action for CopyRun {
         let path = if from.is_file() {
             copy_single_file(&from, &to)?
         } else if from.is_dir() {
-            copy_directory(&from, &to, empty, &includes, &excludes)?
+            copy_directory(&from, &to, empty, &includes, &excludes, ctx)?
         } else {
             return Err(ActionError::execution(format!(
                 "源路径不存在: {}",
@@ -81,13 +81,20 @@ fn copy_directory(
     empty: bool,
     includes: &[String],
     excludes: &[String],
+    ctx: &ExecutionContext,
 ) -> Result<PathBuf, ActionError> {
     let filter = Filter::new(includes, excludes);
+    // 先数一遍：上报进度需要总量。递归目录复制正是最需要「还剩多少」的那种步骤。
+    let total = count_files(from, &filter)?;
+    if total == 0 {
+        return Err(ActionError::execution("没有文件需要复制"));
+    }
+    ctx.chunk(0, Some(total), Unit::Items);
     std::fs::create_dir_all(to)?;
     if empty {
         empty_dir(to)?;
     }
-    let mut files = 0u64;
+    let mut done = 0u64;
     for entry in WalkDir::new(from).into_iter().filter_map(Result::ok) {
         let source = entry.path();
         let relative = source
@@ -102,13 +109,29 @@ fn copy_directory(
         } else if source.is_file() {
             ensure_parent(&target)?;
             std::fs::copy(source, &target)?;
-            files += 1;
+            done += 1;
+            ctx.chunk(done, Some(total), Unit::Items);
         }
     }
-    if files == 0 {
-        return Err(ActionError::execution("没有文件需要复制"));
-    }
     Ok(to.to_path_buf())
+}
+
+/// 用同一套过滤规则数一遍会被复制的文件。
+fn count_files(from: &Path, filter: &Filter) -> Result<u64, ActionError> {
+    let mut count = 0u64;
+    for entry in WalkDir::new(from).into_iter().filter_map(Result::ok) {
+        let source = entry.path();
+        if !source.is_file() {
+            continue;
+        }
+        let relative = source
+            .strip_prefix(from)
+            .map_err(|e| ActionError::execution(e.to_string()))?;
+        if !filter.is_filtered(relative) {
+            count += 1;
+        }
+    }
+    Ok(count)
 }
 
 fn empty_dir(dir: &Path) -> Result<(), ActionError> {

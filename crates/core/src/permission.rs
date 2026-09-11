@@ -162,7 +162,7 @@ pub fn check_runtime_allowed(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::action::{Action, ActionCategory, ActionMeta, HashMapStore};
+    use crate::action::{Action, ActionMeta, Bucket, HashMapStore};
     use crate::context::{ExecutionContext, PluginConfig};
     use crate::value::Value;
     use std::sync::Arc;
@@ -180,7 +180,7 @@ mod tests {
         }
 
         fn meta(&self) -> ActionMeta {
-            ActionMeta::new(self.id, self.id, "", ActionCategory::System)
+            ActionMeta::new(self.id, self.id, "", Bucket::System)
         }
 
         async fn execute(

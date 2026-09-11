@@ -3,7 +3,7 @@
 use crate::ActionRegistry;
 use async_trait::async_trait;
 use corex_core::{
-    Action, ActionCategory, ActionError, ActionMeta, ExecutionContext, ParamSchema, PermissionSet,
+    Action, ActionError, ActionMeta, Bucket, ExecutionContext, ParamSchema, PermissionSet,
     SchemaType, Value,
 };
 use std::sync::Arc;
@@ -150,7 +150,7 @@ impl Action for UiElementPoint {
             "ui.element.point",
             "坐标处元素",
             "按屏幕坐标取 UIA 元素",
-            ActionCategory::Ui,
+            Bucket::Ui,
         )
         .with_params(vec![
             ParamSchema::new("x", SchemaType::Int, true),
@@ -177,7 +177,7 @@ impl Action for UiElementPick {
             "ui.element.pick",
             "选择元素",
             "交互式点选 UI 元素（需桌面会话）",
-            ActionCategory::Ui,
+            Bucket::Ui,
         )
         .with_params(vec![ParamSchema::new("scope_hwnd", SchemaType::Int, false)])
     }

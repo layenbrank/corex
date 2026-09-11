@@ -3,7 +3,7 @@
 use crate::ActionRegistry;
 use async_trait::async_trait;
 use corex_core::{
-    Action, ActionCategory, ActionError, ActionMeta, ExecutionContext, ParamSchema, PermissionSet,
+    Action, ActionError, ActionMeta, Bucket, ExecutionContext, ParamSchema, PermissionSet,
     SchemaType, Value,
 };
 use std::collections::BTreeMap;
@@ -22,7 +22,7 @@ impl Action for CronSchedule {
             "cron.schedule",
             "Cron 调度",
             "向 cron 守护注册表达式并关联指令",
-            ActionCategory::System,
+            Bucket::System,
         )
         .with_params(vec![
             ParamSchema::new("expr", SchemaType::Str, true).with_description("cron 表达式"),

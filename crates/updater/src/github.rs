@@ -137,7 +137,7 @@ impl Client {
             .unwrap_or_else(|| "https://api.github.com".to_string());
         let token_env = config.token_env.clone().unwrap_or_default();
         let token = resolve_token(&token_env, config.api_base_url.is_some(), &api_base);
-        let per_request = Duration::from_secs(config.timeout_secs.clamp(1, 600));
+        let per_request = Duration::from_secs(config.timeout.clamp(1, 600));
         let mut builder = reqwest::Client::builder()
             // 刻意不用 `timeout()`：它会卡住整个请求，
             // 于是大产物在慢链路上会中途死掉。改为约束连接建立与单次读取停顿，

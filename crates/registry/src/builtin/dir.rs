@@ -4,7 +4,7 @@ use crate::ActionRegistry;
 use crate::builtin::util::{confine_path, count_entries, opt_bool, opt_i64, opt_str, require_map};
 use async_trait::async_trait;
 use corex_core::{
-    Action, ActionCategory, ActionError, ActionMeta, ExecutionContext, ParamSchema, PermissionSet,
+    Action, ActionError, ActionMeta, Bucket, ExecutionContext, ParamSchema, PermissionSet,
     SchemaType, Unit, Value,
 };
 use std::collections::{BTreeMap, VecDeque};
@@ -202,13 +202,11 @@ impl Action for DirWrite {
     }
 
     fn meta(&self) -> ActionMeta {
-        ActionMeta::new("dir.write", "Dir Write", "创建目录", ActionCategory::Data).with_params(
-            vec![
-                ParamSchema::new("path", SchemaType::File, true),
-                ParamSchema::new("parents", SchemaType::Bool, false).with_default(true),
-                ParamSchema::new("exist_ok", SchemaType::Bool, false).with_default(true),
-            ],
-        )
+        ActionMeta::new("dir.write", "Dir Write", "创建目录", Bucket::Data).with_params(vec![
+            ParamSchema::new("path", SchemaType::File, true),
+            ParamSchema::new("parents", SchemaType::Bool, false).with_default(true),
+            ParamSchema::new("exist_ok", SchemaType::Bool, false).with_default(true),
+        ])
     }
 
     async fn execute(
@@ -256,7 +254,7 @@ impl Action for DirRead {
             "dir.read",
             "目录读取",
             "列举目录（flat 或 tree）",
-            ActionCategory::Data,
+            Bucket::Data,
         )
         .with_params(vec![
             ParamSchema::new("path", SchemaType::File, true),
@@ -303,17 +301,13 @@ impl Action for DirUpdate {
     }
 
     fn meta(&self) -> ActionMeta {
-        ActionMeta::new(
-            "dir.update",
-            "目录更新",
-            "重命名或移动目录",
-            ActionCategory::Data,
+        ActionMeta::new("dir.update", "目录更新", "重命名或移动目录", Bucket::Data).with_params(
+            vec![
+                ParamSchema::new("from", SchemaType::File, true),
+                ParamSchema::new("to", SchemaType::File, true),
+                ParamSchema::new("create_dirs", SchemaType::Bool, false).with_default(true),
+            ],
         )
-        .with_params(vec![
-            ParamSchema::new("from", SchemaType::File, true),
-            ParamSchema::new("to", SchemaType::File, true),
-            ParamSchema::new("create_dirs", SchemaType::Bool, false).with_default(true),
-        ])
     }
 
     async fn execute(
@@ -351,7 +345,7 @@ impl Action for DirRemove {
             "dir.remove",
             "目录删除",
             "删除目录（默认仅空目录）",
-            ActionCategory::Data,
+            Bucket::Data,
         )
         .with_params(vec![
             ParamSchema::new("path", SchemaType::File, true),
