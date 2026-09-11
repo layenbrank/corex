@@ -20,10 +20,14 @@ impl Action for FileRead {
             ParamSchema::new("path", SchemaType::File, true),
             ParamSchema::new("mode", SchemaType::Str, false)
                 .with_default("content")
-                .with_description("content | lines | stat | exists"),
+                .with_description("content | lines | stat | exists | bytes"),
             ParamSchema::new("start_line", SchemaType::Int, false),
             ParamSchema::new("end_line", SchemaType::Int, false),
             ParamSchema::new("limit", SchemaType::Int, false),
+            ParamSchema::new("offset", SchemaType::Int, false)
+                .with_description("bytes 模式的起点字节"),
+            ParamSchema::new("length", SchemaType::Int, false)
+                .with_description("bytes 模式只读这么多；不填 = 读到结尾"),
             ParamSchema::new("max_bytes", SchemaType::Int, false),
         ])
     }
@@ -65,6 +69,13 @@ impl Action for FileRead {
                 } else {
                     Ok(Value::Str(text))
                 }
+            }
+            // 二进制：文本模式会把它读坏，而「把这一段原样交给下一个动作」是
+            // 上传、校验、拼接都用得到的动作。上限就是 `max_bytes`。
+            "bytes" => {
+                let (offset, length) = range_params(map)?;
+                let bytes = read_range(&path, offset, length, max_bytes as u64).await?;
+                Ok(Value::Bytes(bytes))
             }
             "exists" => {
                 let exists = tokio::fs::try_exists(&path).await.map_err(|e| {

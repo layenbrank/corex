@@ -71,7 +71,15 @@ act-compression = [
   "dep:tar",
   "dep:glob",
 ]
-act-generate = ["dep:uuid", "dep:rand", "dep:walkdir", "dep:glob", "dep:chrono"]
+act-generate = [
+  "dep:uuid",
+  "dep:rand",
+  "dep:walkdir",
+  "dep:glob",
+  "dep:chrono",
+  "dep:sha2",
+  "dep:md-5",
+]
 act-exec = ["win32-process"]
 act-bootstrap = []
 act-codec = ["dep:base64", "dep:md-5"]
@@ -114,6 +122,7 @@ walkdir       = { workspace = true, optional = true }
 glob          = { workspace = true, optional = true }
 base64        = { workspace = true, optional = true }
 md-5          = { workspace = true, optional = true }
+sha2          = { workspace = true, optional = true }
 sysinfo       = { workspace = true, optional = true }
 image         = { workspace = true, optional = true }
 zip           = { workspace = true, optional = true }

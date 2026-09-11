@@ -5,12 +5,25 @@ use corex_core::{ActionError, ExecutionContext, Value};
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
-// 分块拷贝是三处拷贝动作共用的实现（`copy.run` / `file.copy` / `morph.export`），
-// 因此跟着它们一起 gate：一个 `act-*` 都不开时，这里不该剩下几个没人用的函数。
+// 拷贝与区间读取共用 tokio 的 io 扩展。`AsyncReadExt` 两侧都要，所以单独一行、
+// 匿名导入（`as _` 只把方法带进作用域，不会再引入一个名字）。
+#[cfg(any(
+    feature = "act-copy",
+    feature = "act-file",
+    feature = "act-generate",
+    feature = "act-http",
+    feature = "act-morph"
+))]
+use tokio::io::AsyncReadExt as _;
+#[cfg(any(feature = "act-file", feature = "act-generate", feature = "act-http"))]
+use tokio::io::AsyncSeekExt;
+#[cfg(any(feature = "act-copy", feature = "act-file", feature = "act-morph"))]
+use tokio::io::AsyncWriteExt;
+
+// 分块拷贝与区间读取都是跟着它们的调用方一起 gate 的：
+// 一个 `act-*` 都不开时，这里不该剩下几个没人用的符号。
 #[cfg(any(feature = "act-copy", feature = "act-file", feature = "act-morph"))]
 use corex_core::Unit;
-#[cfg(any(feature = "act-copy", feature = "act-file", feature = "act-morph"))]
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 /// 设了 roots 时，拒绝 `ctx.config.filesystem_roots` 之外的路径。
 pub fn confine_path(ctx: &ExecutionContext, path: &Path) -> Result<PathBuf, ActionError> {
@@ -146,6 +159,130 @@ pub(crate) async fn copy_bytes(
     };
     let sink = ctx.observer.is_some().then_some(&mut report as Sink);
     copy_file(from, to, sink).await
+}
+
+/// `offset` / `length` 这一对参数：不填 `length` 就是读到结尾（负数直接报错）。
+///
+/// 摘要、分片计划、multipart 部件与 `file.read` 的 bytes 模式都用这一套读法，
+/// 因此「一段」的边界只有这里在解释。
+#[cfg(any(feature = "act-file", feature = "act-generate", feature = "act-http"))]
+pub(crate) fn range_params(
+    map: &BTreeMap<String, Value>,
+) -> Result<(u64, Option<u64>), ActionError> {
+    let offset = map.get("offset").and_then(|v| v.as_i64()).unwrap_or(0);
+    if offset < 0 {
+        return Err(ActionError::InvalidParams("offset 不能为负".into()));
+    }
+    let length = match map.get("length").and_then(|v| v.as_i64()) {
+        Some(n) if n < 0 => return Err(ActionError::InvalidParams("length 不能为负".into())),
+        Some(n) => Some(n as u64),
+        None => None,
+    };
+    Ok((offset as u64, length))
+}
+
+/// 单个缓冲区允许的字节上限。
+///
+/// 「一段」是整块读进内存的（分片计划要算摘要、multipart 要原样发出去）：
+/// 这是它们的共同天花板，也是「别把 10 GB 一次读进来」这条规矩的唯一出处。
+#[cfg(any(feature = "act-file", feature = "act-generate", feature = "act-http"))]
+pub(crate) const MAX_RANGE: u64 = 256 * 1024 * 1024;
+
+/// 文件里的一段：起点 + 还剩多少字节。
+///
+/// 摘要与分片计划按块从这里读，因此文件多大都只占一个缓冲区。
+#[cfg(any(feature = "act-file", feature = "act-generate", feature = "act-http"))]
+pub(crate) struct Slice {
+    file: tokio::fs::File,
+    left: u64,
+}
+
+#[cfg(any(feature = "act-file", feature = "act-generate", feature = "act-http"))]
+impl Slice {
+    /// 打开 `path` 的 `[offset, offset + length)`；`length` 为 `None` 时读到结尾。
+    pub(crate) async fn open(
+        path: &Path,
+        offset: u64,
+        length: Option<u64>,
+    ) -> Result<Self, ActionError> {
+        let meta = tokio::fs::metadata(path)
+            .await
+            .map_err(|e| ActionError::execution(format!("读取文件失败 {}: {e}", path.display())))?;
+        if !meta.is_file() {
+            return Err(ActionError::InvalidParams(format!(
+                "不是文件: {}",
+                path.display()
+            )));
+        }
+        let size = meta.len();
+        if offset > size {
+            return Err(ActionError::InvalidParams(format!(
+                "offset {offset} 超过文件大小 {size}"
+            )));
+        }
+        let left = length.map_or(size - offset, |n| n.min(size - offset));
+
+        let mut file = tokio::fs::File::open(path)
+            .await
+            .map_err(|e| ActionError::execution(format!("打开文件失败 {}: {e}", path.display())))?;
+        if offset > 0 {
+            file.seek(std::io::SeekFrom::Start(offset))
+                .await
+                .map_err(|e| ActionError::execution(format!("定位失败 {}: {e}", path.display())))?;
+        }
+        Ok(Self { file, left })
+    }
+
+    /// 这段还剩多少字节。
+    pub(crate) fn len(&self) -> u64 {
+        self.left
+    }
+
+    /// 读一段，最多 `buf.len()` 字节；返回 0 表示这段读完了。
+    pub(crate) async fn read(&mut self, buf: &mut [u8]) -> Result<usize, ActionError> {
+        if self.left == 0 {
+            return Ok(0);
+        }
+        let want = buf.len().min(self.left as usize);
+        let n = self
+            .file
+            .read(&mut buf[..want])
+            .await
+            .map_err(|e| ActionError::execution(format!("读取失败: {e}")))?;
+        self.left -= n as u64;
+        Ok(n)
+    }
+}
+
+/// 把 `path` 的 `[offset, offset + length)` 整个读进内存，最多 `max` 字节。
+///
+/// 适合「一片」这种粒度（multipart 部件、`file.read` 的 bytes 模式）；
+/// 再大就该用 [`Slice`] 边读边处理了。
+#[cfg(any(feature = "act-file", feature = "act-generate", feature = "act-http"))]
+pub(crate) async fn read_range(
+    path: &Path,
+    offset: u64,
+    length: Option<u64>,
+    max: u64,
+) -> Result<Vec<u8>, ActionError> {
+    let mut slice = Slice::open(path, offset, length).await?;
+    let size = slice.len();
+    if size > max {
+        return Err(ActionError::InvalidParams(format!(
+            "一次读取 {size} 字节，超过 {max} 上限"
+        )));
+    }
+    let mut out = vec![0u8; size as usize];
+    let mut filled = 0usize;
+    while filled < out.len() {
+        let n = slice.read(&mut out[filled..]).await?;
+        if n == 0 {
+            break;
+        }
+        filled += n;
+    }
+    out.truncate(filled);
+    Ok(out)
 }
 
 /// 递归统计 `path` 下的条目数（目录自身也算一个），用作删除类动作的进度总量。

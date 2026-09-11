@@ -2,7 +2,8 @@
 
 use crate::ActionRegistry;
 pub(crate) use crate::builtin::util::{
-    confine_path, copy_bytes, count_entries, opt_bool, opt_str, require_map, require_str,
+    confine_path, copy_bytes, count_entries, opt_bool, opt_str, range_params, read_range,
+    require_map, require_str,
 };
 use async_trait::async_trait;
 use corex_core::{
@@ -262,6 +263,10 @@ fn modified_unix(meta: &std::fs::Metadata) -> Option<i64> {
 
 fn stat_value(path: PathBuf, meta: std::fs::Metadata) -> Value {
     let mut m = BTreeMap::new();
+    // 文件名单独给一份：上传、重命名这类动作要的往往只是名字，不是整条路径。
+    if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
+        m.insert("name".into(), Value::Str(name.to_string()));
+    }
     m.insert("path".into(), Value::File(path));
     m.insert("kind".into(), Value::Str(entry_kind(&meta).into()));
     m.insert("size".into(), Value::Int(meta.len() as i64));

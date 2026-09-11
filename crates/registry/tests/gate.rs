@@ -86,6 +86,8 @@ const LEGACY_GATE: &[(&str, PermissionKind)] = &[
     ("file.remove", PermissionKind::Filesystem),
     ("file.update", PermissionKind::Filesystem),
     ("file.write", PermissionKind::Filesystem),
+    ("generate.chunks", PermissionKind::Filesystem),
+    ("generate.hash", PermissionKind::Filesystem),
     ("generate.path", PermissionKind::Filesystem),
     ("morph.export", PermissionKind::Filesystem),
     ("morph.merge", PermissionKind::Filesystem),

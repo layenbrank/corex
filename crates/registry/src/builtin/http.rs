@@ -1,15 +1,20 @@
 //! `http.send` —— HTTP 客户端（curl / fetch 风格）。
 
 use crate::ActionRegistry;
-use crate::builtin::util::{opt_bool, opt_i64, require_map, require_str};
+use crate::builtin::util::{
+    MAX_RANGE, confine_path, opt_bool, opt_i64, opt_str, range_params, read_range, require_map,
+    require_str,
+};
 use async_trait::async_trait;
 use corex_core::{
     Action, ActionError, ActionMeta, Bucket, ExecutionContext, ParamSchema, PermissionSet,
     SchemaType, Unit, Value,
 };
 use reqwest::header::{CONTENT_TYPE, HeaderName, HeaderValue};
+use reqwest::multipart::{Form, Part};
 use reqwest::{Client, Method, RequestBuilder};
 use std::collections::BTreeMap;
+use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -48,6 +53,9 @@ impl Action for HttpSend {
                 .with_description("JSON 请求体，自动设置 Content-Type: application/json"),
             ParamSchema::new("form", SchemaType::Map, false)
                 .with_description("表单请求体 application/x-www-form-urlencoded"),
+            ParamSchema::new("multipart", SchemaType::Map, false).with_description(
+                "multipart/form-data：字段名 → 标量按文本字段发，`{path, offset?, length?, filename?, content_type?}` 按文件部件发",
+            ),
             ParamSchema::new("timeout_ms", SchemaType::Int, false)
                 .with_default(30_000)
                 .with_description("超时毫秒数"),
@@ -70,7 +78,7 @@ impl Action for HttpSend {
         builder = with_query(builder, map)?;
         builder = with_headers(builder, map.get("headers"))?;
         builder = with_auth(builder, map)?;
-        builder = with_body(builder, map)?;
+        builder = with_body(builder, map, ctx).await?;
         let resp = builder
             .send()
             .await
@@ -199,40 +207,113 @@ fn with_auth(
     Ok(builder)
 }
 
-fn with_body(
+/// 请求体：json / form / multipart / body 四选一。
+async fn with_body(
     mut builder: RequestBuilder,
     map: &BTreeMap<String, Value>,
+    ctx: &ExecutionContext,
 ) -> Result<RequestBuilder, ActionError> {
-    let has_json = map.get("json").is_some();
-    let has_form = map.get("form").is_some();
-    let has_body = map.get("body").is_some();
-    if has_json as u8 + has_form as u8 + has_body as u8 > 1 {
-        return Err(ActionError::InvalidParams(
-            "json / form / body 只能指定其一".into(),
-        ));
+    let picked: Vec<&str> = ["json", "form", "multipart", "body"]
+        .into_iter()
+        .filter(|key| map.contains_key(*key))
+        .collect();
+    if picked.len() > 1 {
+        return Err(ActionError::InvalidParams(format!(
+            "{} 只能指定其一",
+            picked.join(" / ")
+        )));
     }
-    if let Some(json) = map.get("json") {
-        builder = builder
-            .json(&json.to_json())
-            .header(CONTENT_TYPE, "application/json");
-        return Ok(builder);
-    }
-    if let Some(Value::Map(form)) = map.get("form") {
-        let pairs: Vec<(String, String)> = form
-            .iter()
-            .map(|(k, v)| (k.clone(), value_to_string(v)))
-            .collect();
-        builder = builder.form(&pairs);
-        return Ok(builder);
-    }
-    if let Some(body) = map.get("body") {
-        builder = match body {
-            Value::Str(s) => builder.body(s.clone()),
-            Value::Bytes(b) => builder.body(b.clone()),
-            other => builder.body(other.to_string()),
-        };
+
+    match picked.first().copied() {
+        Some("json") => {
+            let json = map.get("json").expect("picked 里就有");
+            builder = builder
+                .json(&json.to_json())
+                .header(CONTENT_TYPE, "application/json");
+        }
+        Some("form") => {
+            if let Some(Value::Map(form)) = map.get("form") {
+                let pairs: Vec<(String, String)> = form
+                    .iter()
+                    .map(|(k, v)| (k.clone(), value_to_string(v)))
+                    .collect();
+                builder = builder.form(&pairs);
+            }
+        }
+        Some("multipart") => builder = with_multipart(builder, map, ctx).await?,
+        Some("body") => {
+            if let Some(body) = map.get("body") {
+                builder = match body {
+                    Value::Str(s) => builder.body(s.clone()),
+                    Value::Bytes(b) => builder.body(b.clone()),
+                    other => builder.body(other.to_string()),
+                };
+            }
+        }
+        _ => {}
     }
     Ok(builder)
+}
+
+/// `multipart/form-data` 请求体。
+///
+/// 字段值要么是标量（按文本字段发），要么是一张「文件规格」表：
+/// `{path, offset?, length?, filename?, content_type?}`。带 `offset` / `length` 时只发这一段字节，
+/// 于是分片上传不必先把每一片写到临时文件里（`generate.chunks` 给的正是这两个数）。
+async fn with_multipart(
+    mut builder: RequestBuilder,
+    map: &BTreeMap<String, Value>,
+    ctx: &ExecutionContext,
+) -> Result<RequestBuilder, ActionError> {
+    let Some(Value::Map(fields)) = map.get("multipart") else {
+        return Err(ActionError::InvalidParams(
+            "multipart 需要一个字段表：字段名 → 值".into(),
+        ));
+    };
+    let mut form = Form::new();
+    for (name, value) in fields {
+        match file_spec(value) {
+            Some(spec) => form = form.part(name.clone(), file_part(name, spec, ctx).await?),
+            None => form = form.text(name.clone(), value_to_string(value)),
+        }
+    }
+    builder = builder.multipart(form);
+    Ok(builder)
+}
+
+/// 是「文件规格」还是一行普通文本。
+///
+/// 判据就是有没有 `path`：`{"path": "a.bin"}` 是文件，`{"a": "b"}` 是文本字段。
+fn file_spec(value: &Value) -> Option<&BTreeMap<String, Value>> {
+    let Value::Map(map) = value else {
+        return None;
+    };
+    map.contains_key("path").then_some(map)
+}
+
+/// 把一个文件规格变成 multipart 部件。
+async fn file_part(
+    field: &str,
+    spec: &BTreeMap<String, Value>,
+    ctx: &ExecutionContext,
+) -> Result<Part, ActionError> {
+    let path = confine_path(ctx, Path::new(&require_str(spec, "path")?))?;
+    let (offset, length) = range_params(spec)?;
+    let bytes = read_range(&path, offset, length, MAX_RANGE).await?;
+
+    let mut part = Part::bytes(bytes);
+    // 没给文件名就用源文件名：服务端通常按 filename 判断「这是文件部件」。
+    let filename = opt_str(spec, "filename")
+        .or_else(|| path.file_name().map(|n| n.to_string_lossy().into_owned()));
+    if let Some(name) = filename {
+        part = part.file_name(name);
+    }
+    if let Some(mime) = opt_str(spec, "content_type") {
+        part = part.mime_str(&mime).map_err(|e| {
+            ActionError::InvalidParams(format!("multipart.{field}.content_type 无效: {e}"))
+        })?;
+    }
+    Ok(part)
 }
 
 async fn response_to_value(
@@ -438,13 +519,86 @@ mod tests {
         assert_eq!(map.get("ok"), Some(&Value::Bool(true)));
     }
 
-    #[test]
-    fn rejects_multiple_body_sources() {
+    #[tokio::test]
+    async fn rejects_multiple_body_sources() {
+        let ctx = ExecutionContext::default();
         let mut m = BTreeMap::new();
         m.insert("json".into(), Value::Map(BTreeMap::new()));
         m.insert("body".into(), Value::Str("x".into()));
-        let err = with_body(Client::new().get("http://example.com"), &m).expect_err("conflict");
-        assert!(err.to_string().contains("只能指定其一"));
+        let err = with_body(Client::new().get("http://example.com"), &m, &ctx)
+            .await
+            .expect_err("conflict");
+        assert!(err.to_string().contains("只能指定其一"), "{err}");
+
+        m.remove("body");
+        m.insert("multipart".into(), Value::Map(BTreeMap::new()));
+        let err = with_body(Client::new().get("http://example.com"), &m, &ctx)
+            .await
+            .expect_err("conflict");
+        let text = err.to_string();
+        assert!(
+            text.contains("json") && text.contains("multipart"),
+            "{text}"
+        );
+    }
+
+    /// 分片上传靠的就是这一条：multipart 的文件部件只发 `[offset, offset + length)`。
+    #[tokio::test]
+    async fn multipart_sends_only_the_requested_range() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("blob.bin");
+        // 前 26 个字节是大写字母、后 10 个是数字：切片后两边都认得出来。
+        std::fs::write(&path, b"ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789").unwrap();
+
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move {
+            let (mut sock, _) = listener.accept().await.unwrap();
+            let mut buf = vec![0u8; 8192];
+            let n = sock.read(&mut buf).await.unwrap_or(0);
+            let raw = String::from_utf8_lossy(&buf[..n]).into_owned();
+            let _ = sock
+                .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\nok")
+                .await;
+            raw
+        });
+
+        let mut m = BTreeMap::new();
+        m.insert("url".into(), Value::Str(format!("http://{addr}/chunk")));
+        m.insert("method".into(), Value::Str("POST".into()));
+        m.insert(
+            "multipart".into(),
+            Value::Map(BTreeMap::from([
+                ("id".into(), Value::Str("sess-1".into())),
+                ("index".into(), Value::Int(1)),
+                (
+                    "chunk".into(),
+                    Value::Map(BTreeMap::from([
+                        ("path".into(), Value::Str(path.to_string_lossy().into())),
+                        ("offset".into(), Value::Int(20)),
+                        ("length".into(), Value::Int(8)),
+                        ("filename".into(), Value::Str("part-1.bin".into())),
+                        (
+                            "content_type".into(),
+                            Value::Str("application/octet-stream".into()),
+                        ),
+                    ])),
+                ),
+            ])),
+        );
+        let mut ctx = ExecutionContext::default();
+        let out = HttpSend.execute(Value::Map(m), &mut ctx).await.unwrap();
+        assert_eq!(out.as_map().unwrap().get("ok"), Some(&Value::Bool(true)));
+
+        let raw = server.await.unwrap();
+        assert!(raw.contains("name=\"id\""), "{raw}");
+        assert!(raw.contains("sess-1"), "{raw}");
+        assert!(raw.contains("name=\"index\""), "{raw}");
+        assert!(raw.contains("filename=\"part-1.bin\""), "{raw}");
+        assert!(raw.contains("application/octet-stream"), "{raw}");
+        // 只发了 offset 20 起的那 8 个字节：'U'..'Z' + '0'..'1'。
+        assert!(raw.contains("UVWXYZ01"), "{raw}");
+        assert!(!raw.contains("ABCDEFGH"), "整段都发出去了：{raw}");
     }
 
     /// 大文件下载要能看见字节在走：帧的总量取自 `Content-Length`。
