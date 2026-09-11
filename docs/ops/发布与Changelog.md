@@ -160,4 +160,5 @@ git-cliff -o CHANGELOG.md
 - [架构 — 构建与开发工具链](../reference/架构.md#构建与开发工具链)
 - [快速开始 — 本地门禁](../guide/快速开始.md#贡献者本地门禁可选)
 - [git-cliff 文档](https://git-cliff.org/docs/)
+- [破坏性变更 v7](../changelog/破坏性变更-v7.md)
 - [破坏性变更 v5](../changelog/破坏性变更-v5.md)

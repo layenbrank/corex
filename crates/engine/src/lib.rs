@@ -35,7 +35,8 @@ pub use supervisor::supervise_cron_job;
 pub use supervisor::supervise_watch_job;
 pub use supervisor::{ControlMsg, JobKind, JobMeta, poll_control, send_control};
 pub use trigger::{
-    CronConfig, DEBOUNCE_MS, THROTTLE_MS, WatchConfig, find_cron_trigger, find_watch_trigger,
+    CronConfig, DEBOUNCE_EDGE, DEBOUNCE_MS, Edge, THROTTLE_EDGE, THROTTLE_MS, WatchConfig,
+    find_cron_trigger, find_watch_trigger,
 };
 
 #[cfg(feature = "cron")]

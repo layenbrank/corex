@@ -1,15 +1,17 @@
-//! 文件监听引擎：先 FS 去抖（`notify_debouncer_full`），再过类 lodash 节流。
+//! 文件监听引擎：`notify_debouncer_full` 只合并 FS 事件，计时交给防抖 / 节流两级门。
 //!
 //! ```text
-//! FS 事件 ──debounce(debounce_ms)──► 触发 ──throttle(throttle_ms)──► run_directive
+//! FS 事件 ──合并同一文件的连续事件──► 防抖门(debounce_ms)──► 节流门(throttle_ms)──► run_directive
 //! ```
 //!
-//! 这里的去抖是**文件系统静默期**合并，不是 lodash 的 debounce API。
-//! `throttle_ms` 是类 lodash 的节流间隔（leading+trailing）。
+//! 两级共用一台状态机，差别只有 lodash 的 `maxWait`：
+//! `_.throttle(fn, w, o) === _.debounce(fn, w, { ...o, maxWait: w })`。
+//! `debounce` / `throttle` 两个键设置各自执行哪条边沿（`leading` / `trailing`），
+//! 详见 [`super::gate`]。
 
 use super::event::{EventAction, EventFilter, classify_event};
 use super::filter::{WatchFilter, watch_relative_path};
-use super::throttle::{InvokeThrottle, TriggerDecision, wait_for_trailing_deadline};
+use super::gate::Chain;
 use crate::run::run_directive_file;
 use crate::trigger::WatchConfig;
 use corex_core::{ActionStore, EngineError, RuntimeConfig};
@@ -30,6 +32,8 @@ const REMOUNT_POLL_MS: u64 = 500;
 const REMOUNT_TIMEOUT_MS: u64 = 60_000;
 const POLL_INTERVAL: Duration = Duration::from_secs(2);
 const BUSY_POLL_MS: u64 = 50;
+/// FS 事件合并窗口的上限：只用于去重 / 重命名，不承载计时语义。
+const FS_COALESCE_MS: u64 = 25;
 
 /// 活跃的 watch 作业。
 #[derive(Debug, Clone)]
@@ -62,8 +66,8 @@ enum RemountCmd {
 struct WatchState {
     spec: WatchJobSpec,
     is_running: Arc<AtomicBool>,
-    /// 与 worker 共享，使 RUN_NOW / immediate 能刷新节流的 `last_invoke`。
-    throttle: Arc<Mutex<InvokeThrottle>>,
+    /// 与 worker 共享，使 RUN_NOW / immediate 能刷新两级门的窗口。
+    chain: Arc<Mutex<Chain>>,
     /// 为真时 DebounceHandler 丢弃 FS 触发（启动期 / immediate 之前）。
     ignore_initial: Arc<AtomicBool>,
     worker_abort: tokio::task::AbortHandle,
@@ -149,6 +153,17 @@ impl WatchEngine {
         }
 
         let cfg = spec.config.clone();
+        // `leading` 不是错误配置，但窗口内的触发不会产生补跑（见 `Edge::LEADING`），
+        // 产物可能因此落后——启动时留一条可审计的日志。
+        for (key, edge) in [("debounce", cfg.debounce), ("throttle", cfg.throttle)] {
+            if !edge.is_trailing() {
+                warn!(
+                    directive = %spec.directive_name,
+                    key,
+                    "watch 选了 leading 边沿：窗口内到达的触发不会补跑"
+                );
+            }
+        }
         let mount_specs = resolve_roots(&cfg);
         let mount_paths: Vec<PathBuf> = mount_specs
             .iter()
@@ -157,9 +172,8 @@ impl WatchEngine {
         let watch_roots_str = cfg.paths.clone();
 
         let is_running = Arc::new(AtomicBool::new(false));
-        let throttle = Arc::new(Mutex::new(InvokeThrottle::new(Duration::from_millis(
-            cfg.throttle_ms,
-        ))));
+        // 计时全在两扇逻辑门里；worker 与 RUN_NOW 共享同一条链。
+        let chain = Arc::new(Mutex::new(Chain::new(&cfg)));
 
         let (trigger_tx, trigger_rx) = tokio::sync::mpsc::channel::<()>(TRIGGER_CHANNEL_CAP);
         let (remount_tx, mut remount_rx) = tokio::sync::mpsc::unbounded_channel::<RemountCmd>();
@@ -168,7 +182,7 @@ impl WatchEngine {
             trigger_rx,
             WorkerCtx {
                 worker_flag: Arc::clone(&is_running),
-                worker_throttle: Arc::clone(&throttle),
+                worker_chain: Arc::clone(&chain),
                 worker_store: Arc::clone(&self.store),
                 worker_runtime: self.runtime.clone(),
                 worker_data: self.data_dir.clone(),
@@ -193,9 +207,10 @@ impl WatchEngine {
             remount_tx: remount_tx.clone(),
         };
 
-        // 文件系统静默期去抖（notify_debouncer_full），不是 worker 内的第二次去抖。
-        let debounce_ms = cfg.debounce_ms;
-        let tick_rate = Duration::from_millis(debounce_ms.max(4) / 4);
+        // FS 层只把同一个文件的连续事件合并掉（去重 / 重命名），
+        // 计时语义全在防抖门里，所以这里不要用完整的 debounce_ms。
+        let fs_window = Duration::from_millis(cfg.debounce_ms.clamp(1, FS_COALESCE_MS));
+        let tick_rate = (fs_window / 2).max(Duration::from_millis(1));
         let notify_cfg = if cfg.poll {
             NotifyConfig::default().with_poll_interval(POLL_INTERVAL)
         } else {
@@ -204,7 +219,7 @@ impl WatchEngine {
         let debouncer = if cfg.poll {
             JobDebouncer::Poll(
                 new_debouncer_opt(
-                    Duration::from_millis(debounce_ms),
+                    fs_window,
                     Some(tick_rate),
                     handler,
                     FileIdMap::new(),
@@ -215,7 +230,7 @@ impl WatchEngine {
         } else {
             JobDebouncer::Recommended(
                 new_debouncer_opt(
-                    Duration::from_millis(debounce_ms),
+                    fs_window,
                     Some(tick_rate),
                     handler,
                     FileIdMap::new(),
@@ -307,7 +322,7 @@ impl WatchEngine {
             WatchState {
                 spec,
                 is_running,
-                throttle,
+                chain,
                 ignore_initial,
                 worker_abort,
                 remount_abort: remount_task.abort_handle(),
@@ -348,10 +363,10 @@ impl WatchEngine {
         {
             return Err(EngineError::other("job 正在运行"));
         }
-        // 在调用开始时刷新节流窗口（与 leading 一致），使紧随其后的 FS 触发
+        // 在调用开始时刷新窗口（与 leading 一致），使紧随其后的 FS 触发
         // 不会再 leading 触发一次。
-        if let Ok(mut gate) = state.throttle.lock() {
-            gate.record_external_invoke(Instant::now());
+        if let Ok(mut chain) = state.chain.lock() {
+            chain.note_external(Instant::now());
         }
         let store = Arc::clone(&self.store);
         let runtime = self.runtime.clone();
@@ -384,7 +399,6 @@ impl WatchEngine {
     }
 }
 
-/// 派生节流 worker：合并触发、leading/trailing、CAS 单飞。
 /// watch worker 每次触发都需要的全部东西。
 ///
 /// 用一个值代替七个并列参数：它们合起来就是 worker 的整个世界；收进结构体
@@ -393,8 +407,8 @@ impl WatchEngine {
 struct WorkerCtx {
     /// 流水线运行时为 `true`，同时充当单飞门禁。
     worker_flag: Arc<AtomicBool>,
-    /// leading/trailing 节流器，与 `RUN_NOW` 共享。
-    worker_throttle: Arc<Mutex<InvokeThrottle>>,
+    /// 去抖门 → 节流门，与 `RUN_NOW` 共享。
+    worker_chain: Arc<Mutex<Chain>>,
     /// 流水线解析动作所用的 Action store。
     worker_store: Arc<dyn ActionStore>,
     /// 本作业的运行时配置快照。
@@ -414,126 +428,98 @@ fn spawn_watch_worker(
     tokio::spawn(async move {
         let WorkerCtx {
             worker_flag,
-            worker_throttle,
+            worker_chain,
             worker_store,
             worker_runtime,
             worker_data,
             worker_path,
             worker_name,
         } = ctx;
-        let mut trailing_deadline: Option<Instant> = None;
         loop {
-            tokio::select! {
+            let deadline = worker_chain.lock().ok().and_then(|chain| chain.pending());
+            let fire = tokio::select! {
                 trig = trigger_rx.recv() => {
-                    let Some(()) = trig else { break; };
-                    while trigger_rx.try_recv().is_ok() {}
-
-                    let busy = worker_flag.load(Ordering::SeqCst);
-                    let decision = {
-                        let Ok(mut gate) = worker_throttle.lock() else {
-                            continue;
-                        };
-                        gate.note_trigger(Instant::now(), busy)
-                    };
-
-                    match decision {
-                        TriggerDecision::RunLeading => {
-                            let ran = invoke_directive(
-                                &worker_flag,
-                                &worker_throttle,
-                                Arc::clone(&worker_store),
-                                worker_runtime.clone(),
-                                worker_data.clone(),
-                                &worker_path,
-                                &worker_name,
-                            )
-                            .await;
-                            if !ran {
-                                // CAS 被 RUN_NOW 抢走：布置 trailing，空下来再重试。
-                                if let Ok(mut gate) = worker_throttle.lock() {
-                                    gate.arm_trailing();
-                                }
-                                trailing_deadline = Some(Instant::now());
-                            } else {
-                                trailing_deadline = trailing_after_run(
-                                    &worker_throttle,
-                                    &mut trigger_rx,
-                                );
-                            }
-                        }
-                        TriggerDecision::ArmTrailing { until } => {
-                            trailing_deadline = Some(until);
-                        }
+                    if trig.is_none() {
+                        break;
                     }
+                    drain(&mut trigger_rx);
+                    feed(&worker_chain)
                 }
-                _ = async {
-                    match trailing_deadline {
-                        Some(until) => wait_for_trailing_deadline(&worker_throttle, until).await,
-                        None => std::future::pending::<()>().await,
-                    }
-                } => {
-                    trailing_deadline = None;
-                    let should_run = worker_throttle
-                        .lock()
-                        .ok()
-                        .is_some_and(|mut g| g.take_trailing());
-                    if !should_run {
-                        continue;
-                    }
+                _ = sleep_until(deadline) => tick(&worker_chain),
+            };
+            if !fire {
+                continue;
+            }
 
-                    // 等重叠的 RUN_NOW / 长 leading 过去，且不要重复开启。
-                    while worker_flag.load(Ordering::SeqCst) {
-                        tokio::time::sleep(Duration::from_millis(BUSY_POLL_MS)).await;
-                        while trigger_rx.try_recv().is_ok() {
-                            if let Ok(mut gate) = worker_throttle.lock() {
-                                let _ = gate.note_trigger(Instant::now(), true);
-                            }
-                        }
-                    }
-
-                    // RUN_NOW 延长窗口后，窗口可能仍然是开的。
-                    if let Ok(gate) = worker_throttle.lock()
-                        && !gate.is_outside_window(Instant::now())
-                            && let Some(until) = gate.window_end() {
-                                drop(gate);
-                                if let Ok(mut g) = worker_throttle.lock() {
-                                    g.arm_trailing();
-                                }
-                                trailing_deadline = Some(until);
-                                continue;
-                            }
-
-                    let ran = invoke_directive(
-                        &worker_flag,
-                        &worker_throttle,
-                        Arc::clone(&worker_store),
-                        worker_runtime.clone(),
-                        worker_data.clone(),
-                        &worker_path,
-                        &worker_name,
-                    )
-                    .await;
-                    if !ran {
-                        if let Ok(mut gate) = worker_throttle.lock() {
-                            gate.arm_trailing();
-                        }
-                        trailing_deadline = Some(Instant::now());
-                    } else {
-                        trailing_deadline = trailing_after_run(
-                            &worker_throttle,
-                            &mut trigger_rx,
-                        );
-                    }
+            // 门已经放行，但当前那轮还没收尾：等它跑完再执行（单飞，不并发）。
+            // 等待期间到达的触发照常喂给两级门，会被合并成最多一次补跑。
+            while worker_flag.load(Ordering::SeqCst) {
+                tokio::time::sleep(Duration::from_millis(BUSY_POLL_MS)).await;
+                if drain(&mut trigger_rx) {
+                    feed(&worker_chain);
                 }
+            }
+
+            let ran = invoke_directive(
+                &worker_flag,
+                Arc::clone(&worker_store),
+                worker_runtime.clone(),
+                worker_data.clone(),
+                &worker_path,
+                &worker_name,
+            )
+            .await;
+            let now = Instant::now();
+            if !ran {
+                // CAS 被 RUN_NOW 抢走：这次触发已经通过边沿判定，补上它。
+                if let Ok(mut chain) = worker_chain.lock() {
+                    chain.retry(now);
+                }
+                continue;
+            }
+            // 运行期间到达的触发回填一次；能立刻放行就再来一轮。
+            if drain(&mut trigger_rx)
+                && feed(&worker_chain)
+                && let Ok(mut chain) = worker_chain.lock()
+            {
+                chain.retry(now);
             }
         }
     })
 }
 
-/// CAS + 标记调用开始 + 运行。CAS 抢不到时返回 false（不要重复开启）。
+/// 睡到定时；没有待执行时就一直等触发。
+async fn sleep_until(deadline: Option<Instant>) {
+    match deadline {
+        Some(until) => tokio::time::sleep_until(until.into()).await,
+        None => std::future::pending().await,
+    }
+}
+
+/// 把 channel 里积压的触发归并掉；返回是否有触发。
+fn drain(trigger_rx: &mut tokio::sync::mpsc::Receiver<()>) -> bool {
+    let mut saw = false;
+    while trigger_rx.try_recv().is_ok() {
+        saw = true;
+    }
+    saw
+}
+
+/// 喂一次触发给两级门；`true` = 现在就该执行。
+fn feed(chain: &Mutex<Chain>) -> bool {
+    let now = Instant::now();
+    chain.lock().is_ok_and(|mut chain| chain.note(now))
+}
+
+/// 定时到期，推进两级门；`true` = 现在就该执行。
+fn tick(chain: &Mutex<Chain>) -> bool {
+    let now = Instant::now();
+    chain.lock().is_ok_and(|mut chain| chain.advance(now))
+}
+
+/// CAS + 运行。CAS 抢不到时返回 false（不要重复开启）。
 async fn invoke_directive(
     flag: &AtomicBool,
-    throttle: &Mutex<InvokeThrottle>,
     store: Arc<dyn ActionStore>,
     runtime: RuntimeConfig,
     data_dir: PathBuf,
@@ -546,10 +532,6 @@ async fn invoke_directive(
     {
         return false;
     }
-    let start = Instant::now();
-    if let Ok(mut gate) = throttle.lock() {
-        gate.mark_invoke_start(start);
-    }
     info!(directive = %name, "watch 触发执行");
     let result = run_directive_file(store, runtime, data_dir, path).await;
     if let Err(e) = result {
@@ -557,40 +539,6 @@ async fn invoke_directive(
     }
     flag.store(false, Ordering::SeqCst);
     true
-}
-
-/// 运行成功之后：把 channel 里的触发归并成最多一次 trailing 布置。
-fn trailing_after_run(
-    throttle: &Mutex<InvokeThrottle>,
-    trigger_rx: &mut tokio::sync::mpsc::Receiver<()>,
-) -> Option<Instant> {
-    let mut saw = false;
-    while trigger_rx.try_recv().is_ok() {
-        saw = true;
-    }
-    if !saw {
-        return throttle.lock().ok().and_then(|g| {
-            if g.has_trailing() {
-                g.window_end()
-                    .filter(|&e| e > Instant::now())
-                    .or(Some(Instant::now()))
-            } else {
-                None
-            }
-        });
-    }
-    let now = Instant::now();
-    let Ok(mut gate) = throttle.lock() else {
-        return None;
-    };
-    match gate.note_trigger(now, false) {
-        TriggerDecision::RunLeading => {
-            // 已在窗口之外——走 trailing 路径尽快运行（单飞）。
-            gate.arm_trailing();
-            Some(now)
-        }
-        TriggerDecision::ArmTrailing { until } => Some(until),
-    }
 }
 
 fn mount_all(debouncer: &mut JobDebouncer, roots: &[String]) -> Result<(), EngineError> {
@@ -648,18 +596,33 @@ fn resolve_watch_path(raw: &str) -> PathBuf {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::trigger::{DEBOUNCE_EDGE, Edge, THROTTLE_EDGE};
+
+    /// 默认边沿的一份配置（去抖 trailing、节流 leading）。
+    fn config() -> WatchConfig {
+        WatchConfig {
+            paths: vec!["/proj".into()],
+            includes: Vec::new(),
+            excludes: Vec::new(),
+            debounce_ms: 300,
+            debounce: DEBOUNCE_EDGE,
+            throttle_ms: 1000,
+            throttle: THROTTLE_EDGE,
+            immediate: false,
+            poll: false,
+            events: Vec::new(),
+        }
+    }
+
+    fn ms(n: u64) -> Duration {
+        Duration::from_millis(n)
+    }
 
     #[test]
     fn resolve_roots_narrows_simple_includes() {
         let cfg = WatchConfig {
-            paths: vec!["/proj".into()],
             includes: vec!["src".into(), "templates".into()],
-            excludes: vec![],
-            debounce_ms: 300,
-            throttle_ms: 1000,
-            immediate: false,
-            poll: false,
-            events: vec![],
+            ..config()
         };
         let roots = resolve_roots(&cfg);
         assert_eq!(roots, vec!["/proj/src", "/proj/templates"]);
@@ -668,32 +631,56 @@ mod tests {
     #[test]
     fn resolve_roots_keeps_paths_for_glob_includes() {
         let cfg = WatchConfig {
-            paths: vec!["/proj".into()],
             includes: vec!["src/**".into()],
-            excludes: vec![],
-            debounce_ms: 300,
-            throttle_ms: 1000,
-            immediate: false,
-            poll: false,
-            events: vec![],
+            ..config()
         };
         assert_eq!(resolve_roots(&cfg), vec!["/proj"]);
     }
 
     #[test]
-    fn trailing_after_run_coalesces_many_channel_messages() {
-        let throttle = Mutex::new(InvokeThrottle::new(Duration::from_millis(100)));
-        let t0 = Instant::now();
-        throttle.lock().unwrap().mark_invoke_start(t0);
-
+    fn drain_coalesces_many_channel_messages() {
         let (tx, mut rx) = tokio::sync::mpsc::channel::<()>(16);
         for _ in 0..10 {
             tx.try_send(()).unwrap();
         }
-        let until = trailing_after_run(&throttle, &mut rx);
-        assert!(until.is_some());
-        assert!(throttle.lock().unwrap().has_trailing() || until.is_some());
-        assert!(rx.try_recv().is_err(), "channel must be drained");
+        assert!(drain(&mut rx));
+        assert!(!drain(&mut rx), "channel 必须被排空");
+    }
+
+    /// 默认边沿（防抖 trailing + 节流 both）：一批抖动跑一次，
+    /// 上一次执行之后才发生的改动会被合并成一次补跑，不会丢掉。
+    #[test]
+    fn later_changes_are_coalesced_into_one_trailing_run() {
+        let mut chain = Chain::new(&config());
+        let t0 = Instant::now();
+        assert!(!chain.note(t0));
+        assert!(!chain.note(t0 + ms(50)));
+
+        assert!(chain.advance(t0 + ms(350)));
+
+        assert!(!chain.note(t0 + ms(400)));
+        assert!(!chain.advance(t0 + ms(700)));
+        assert_eq!(chain.pending(), Some(t0 + ms(1350)));
+        assert!(chain.advance(t0 + ms(1350)));
+    }
+
+    /// 显式选 leading：窗口内到达的改动不会补跑——代价是可能落后。
+    #[test]
+    fn leading_throttle_drops_changes_inside_the_window() {
+        let mut chain = Chain::new(&WatchConfig {
+            throttle: Edge::LEADING,
+            ..config()
+        });
+        let t0 = Instant::now();
+        assert!(!chain.note(t0));
+        assert!(chain.advance(t0 + ms(300)));
+        assert_eq!(chain.pending(), Some(t0 + ms(1300)));
+
+        // 窗口内到达的改动：不产生补跑。
+        assert!(!chain.note(t0 + ms(400)));
+        assert!(!chain.advance(t0 + ms(700)));
+        assert!(!chain.advance(t0 + ms(1300)), "leading 不补跑");
+        assert!(chain.pending().is_none());
     }
 
     #[test]

@@ -15,15 +15,15 @@ COREX_BLESS_SCHEMA=1 cargo test -p corex-engine --features schema --test directi
 ## 顶层结构
 
 ```yaml
-name: hello                 # 必填
-description: "..."          # 可选
-version: "1.0"              # 可选
-inputs: []                  # 可选 InputDecl 列表
-variables: {}               # 可选 map → 播种到上下文
-triggers: []                # 可选（cron / watch）；手动执行用 corex run
-permissions: {}             # 可选 — 省略 = 全部允许（见下文）
-steps: []                   # 必填
-on_error: abort             # abort | continue | skip（默认 abort）
+name: hello # 必填
+description: '...' # 可选
+version: '1.0' # 可选
+inputs: [] # 可选 InputDecl 列表
+variables: {} # 可选 map → 播种到上下文
+triggers: [] # 可选（cron / watch）；手动执行用 corex run
+permissions: {} # 可选 — 省略 = 全部允许（见下文）
+steps: [] # 必填
+on_error: abort # abort | continue | skip（默认 abort）
 ```
 
 ### 输入（Inputs）
@@ -33,7 +33,7 @@ inputs:
   - name: who
     description: Who to greet
     required: false
-    default: "world"
+    default: 'world'
 ```
 
 已声明的默认值会先经 `{{ }}` 解析，再在调用方未提供该键、或提供了 `null` / 空白字符串时，合并进 `ctx.input`。
@@ -46,12 +46,12 @@ inputs:
 
 `steps` 是一组无标签（untagged）节点：
 
-| 类型 | 必填键 | 说明 |
-|------|--------|------|
-| Action | `id`, `action` | 可选 `params`、`save_to`、`when`、`on_error`、`retry` |
-| If | `id`, `if`, `then` | 可选 `else` |
-| Repeat | `id`, `repeat`, `steps` | `repeat.count` **或** `repeat.each` |
-| Parallel | `id`, `parallel` | 可选 `max_concurrency` |
+| 类型     | 必填键                  | 说明                                                  |
+| -------- | ----------------------- | ----------------------------------------------------- |
+| Action   | `id`, `action`          | 可选 `params`、`save_to`、`when`、`on_error`、`retry` |
+| If       | `id`, `if`, `then`      | 可选 `else`                                           |
+| Repeat   | `id`, `repeat`, `steps` | `repeat.count` **或** `repeat.each`                   |
+| Parallel | `id`, `parallel`        | 可选 `max_concurrency`                                |
 
 ### Action 步骤
 
@@ -59,11 +59,11 @@ inputs:
 - id: greet
   action: template.render
   params:
-    template: "Hello, {{input.who}}!"
+    template: 'Hello, {{input.who}}!'
   save_to: message
-  when: "{{variables.enabled}}"   # 可选 Condition
-  on_error: continue              # 可选覆盖
-  retry: 2                        # 可选
+  when: '{{variables.enabled}}' # 可选 Condition
+  on_error: continue # 可选覆盖
+  retry: 2 # 可选
 ```
 
 - **`action`**：Action ID（见 [actions.md](内置Action.md)）。
@@ -77,15 +77,15 @@ inputs:
 ```yaml
 - id: branch
   if:
-    eq: ["{{input.mode}}", "prod"]
+    eq: ['{{input.mode}}', 'prod']
   then:
     - id: a
       action: template.render
-      params: { template: "prod" }
+      params: { template: 'prod' }
   else:
     - id: b
       action: template.render
-      params: { template: "dev" }
+      params: { template: 'dev' }
 ```
 
 ### Repeat
@@ -94,20 +94,20 @@ inputs:
 - id: loop
   repeat:
     count: 3
-    as: item          # 默认: item
-    index: index      # 默认: index（与 each 一起使用）
+    as: item # 默认: item
+    index: index # 默认: index（与 each 一起使用）
   steps:
     - id: tick
       action: template.render
       params:
-        template: "n={{item}}"
+        template: 'n={{item}}'
 ```
 
 或遍历列表：
 
 ```yaml
 repeat:
-  each: "{{items}}"   # 必须解析为列表
+  each: '{{items}}' # 必须解析为列表
   as: item
   index: i
 ```
@@ -120,10 +120,10 @@ repeat:
   parallel:
     - id: a
       action: template.render
-      params: { template: "A" }
+      params: { template: 'A' }
     - id: b
       action: template.render
-      params: { template: "B" }
+      params: { template: 'B' }
 ```
 
 并发度 = 若设置了 `max_concurrency` 则用其值，否则用配置中的 `runtime.max_parallel`（默认 8）。当有效最大值 **≤ 1**（或仅有一个子步骤）时，步骤 **顺序** 执行。当 **max > 1** 且有多个子步骤时，引擎 **并发** 执行（`buffer_unordered`）。
@@ -134,11 +134,11 @@ repeat:
 
 无标签形式：
 
-| 形式 | 示例 |
-|------|------|
-| 表达式字符串 | `"{{variables.enabled}}"`（真值） |
-| `eq` / `ne` / `gt` / `lt` | `eq: [a, b]` |
-| `and` / `or` / `not` | 嵌套列表 / box |
+| 形式                      | 示例                              |
+| ------------------------- | --------------------------------- |
+| 表达式字符串              | `"{{variables.enabled}}"`（真值） |
+| `eq` / `ne` / `gt` / `lt` | `eq: [a, b]`                      |
+| `and` / `or` / `not`      | 嵌套列表 / box                    |
 
 操作数经同一套 `{{ }}` 解析器解析。
 
@@ -146,15 +146,15 @@ repeat:
 
 模式（花括号内允许空白）：
 
-| 表达式 | 解析为 |
-|--------|--------|
-| `{{input.x}}` | 指令输入 `x`（其后可跟可选路径） |
-| `{{input}}` | 整个输入 map |
-| `{{env.HOME}}` | 环境变量 |
-| `{{step.id}}` / `{{steps.id.path}}` | 先前步骤的输出 |
-| `{{variables.name}}` / `{{var.name}}` | 变量 |
-| `{{name}}` | 裸名：先变量，再输入 |
-| `{{directive_input}}` | 可选的整份文档 Directive 输入 Value |
+| 表达式                                | 解析为                              |
+| ------------------------------------- | ----------------------------------- |
+| `{{input.x}}`                         | 指令输入 `x`（其后可跟可选路径）    |
+| `{{input}}`                           | 整个输入 map                        |
+| `{{env.HOME}}`                        | 环境变量                            |
+| `{{step.id}}` / `{{steps.id.path}}`   | 先前步骤的输出                      |
+| `{{variables.name}}` / `{{var.name}}` | 变量                                |
+| `{{name}}`                            | 裸名：先变量，再输入                |
+| `{{directive_input}}`                 | 可选的整份文档 Directive 输入 Value |
 
 若字符串 **恰好** 是一个 `{{expr}}`，则保留 Value 类型；混合字符串会插值为字符串。
 
@@ -172,10 +172,10 @@ permissions:
   secret: true
 ```
 
-| 规则 | 行为 |
-|------|------|
-| **全部标志省略 / false** | **全部允许**（无限制）— 像 `hello.yaml` 这类简单指令无需声明 |
-| **任一标志为 `true`** | 仅允许已声明的类别；其余 → permission denied（`on_error: continue` **不能**吞掉） |
+| 规则                     | 行为                                                                              |
+| ------------------------ | --------------------------------------------------------------------------------- |
+| **全部标志省略 / false** | **全部允许**（无限制）— 像 `hello.yaml` 这类简单指令无需声明                      |
+| **任一标志为 `true`**    | 仅允许已声明的类别；其余 → permission denied（`on_error: continue` **不能**吞掉） |
 
 类别映射（摘要）：`shell.run` / `exec.run` / bootstrap → shell；`http.send` → network；`clipboard.get` → clipboard（`clipboard.set` 为 clipboard **+ filesystem**，因为它的 `image` 模式会读磁盘）；`notify.send` → notifications；`ui.*` → ui；`capture.screenshot` / `capture.monitors` → capture（`capture.ocr` / `capture.find` / `capture.crop` 只读图片文件，归 filesystem）；`keyring.*` → secret；file/copy/scrub/shade/compression/morph/generate.path/codec（除 `codec.json.parse` 外）/capture.crop/capture.ocr/capture.find → filesystem。
 
@@ -183,22 +183,22 @@ permissions:
 
 ## 示例配方（Recipes）
 
-| 目标 | 示例指令 |
-|------|----------|
-| 索引 / 目录 | [`examples/directives/README.md`](../../examples/directives/README.md) |
-| Hello / 输入 | [`hello.yaml`](../../examples/directives/hello.yaml) |
-| 占位符解析器 | [`resolver-demo.yaml`](../../examples/directives/resolver-demo.yaml) |
-| 控制流 | [`control-flow.yaml`](../../examples/directives/control-flow.yaml), [`control-flow-advanced.yaml`](../../examples/directives/control-flow-advanced.yaml) |
-| HTTP GET → 文件 | [`http-save-body.yaml`](../../examples/directives/http-save-body.yaml) |
-| HTTP POST JSON | [`http-post-json.yaml`](../../examples/directives/http-post-json.yaml) |
-| HTTP → JSON → patch | [`http-extract-patch.yaml`](../../examples/directives/http-extract-patch.yaml) |
-| Codec 流水线 | [`codec-pipeline.yaml`](../../examples/directives/codec-pipeline.yaml) |
-| file.write 模式 | [`file-write-modes.yaml`](../../examples/directives/file-write-modes.yaml) |
-| 时间戳 → JSON/JS | [`inject-build-time.yaml`](../../examples/directives/inject-build-time.yaml) |
-| Bing 建议 + 解析 | [`bing-suggest.yaml`](../../examples/directives/bing-suggest.yaml) |
-| 剪贴板 + 通知 | [`clipboard-notify.yaml`](../../examples/directives/clipboard-notify.yaml) |
-| shell.run 宿主 | [`shell-host-demo.yaml`](../../examples/directives/shell-host-demo.yaml) |
-| UI 自动化（脆弱） | [`wechat-send-message.yaml`](../../examples/directives/wechat-send-message.yaml) |
+| 目标                | 示例指令                                                                                                                                                 |
+| ------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 索引 / 目录         | [`examples/directives/README.md`](../../examples/directives/README.md)                                                                                   |
+| Hello / 输入        | [`hello.yaml`](../../examples/directives/hello.yaml)                                                                                                     |
+| 占位符解析器        | [`resolver-demo.yaml`](../../examples/directives/resolver-demo.yaml)                                                                                     |
+| 控制流              | [`control-flow.yaml`](../../examples/directives/control-flow.yaml), [`control-flow-advanced.yaml`](../../examples/directives/control-flow-advanced.yaml) |
+| HTTP GET → 文件     | [`http-save-body.yaml`](../../examples/directives/http-save-body.yaml)                                                                                   |
+| HTTP POST JSON      | [`http-post-json.yaml`](../../examples/directives/http-post-json.yaml)                                                                                   |
+| HTTP → JSON → patch | [`http-extract-patch.yaml`](../../examples/directives/http-extract-patch.yaml)                                                                           |
+| Codec 流水线        | [`codec-pipeline.yaml`](../../examples/directives/codec-pipeline.yaml)                                                                                   |
+| file.write 模式     | [`file-write-modes.yaml`](../../examples/directives/file-write-modes.yaml)                                                                               |
+| 时间戳 → JSON/JS    | [`inject-build-time.yaml`](../../examples/directives/inject-build-time.yaml)                                                                             |
+| Bing 建议 + 解析    | [`bing-suggest.yaml`](../../examples/directives/bing-suggest.yaml)                                                                                       |
+| 剪贴板 + 通知       | [`clipboard-notify.yaml`](../../examples/directives/clipboard-notify.yaml)                                                                               |
+| shell.run 宿主      | [`shell-host-demo.yaml`](../../examples/directives/shell-host-demo.yaml)                                                                                 |
+| UI 自动化（脆弱）   | [`wechat-send-message.yaml`](../../examples/directives/wechat-send-message.yaml)                                                                         |
 
 典型链路：`http.send` → `codec.json.parse` → 在 `file.write` 中使用 `{{parsed.field}}`（无需单独的 query action）。
 
@@ -207,35 +207,65 @@ permissions:
 ```yaml
 triggers:
   - type: cron
-    expr: "0 9 * * 1-5"        # 5 或 6 字段；规则见 cron表达式.md
-    timezone: local            # 可选：local | utc | +08:00；默认 runtime.cron_timezone=local
+    expr: '0 9 * * 1-5' # 5 或 6 字段；规则见 cron表达式.md
+    timezone: local # 可选：local | utc | +08:00；默认 runtime.cron_timezone=local
   - type: watch
-    paths: ["./src"]
+    paths: ['./src']
     includes: []
-    excludes: ["**/node_modules/**"]
-    debounce_ms: 300
-    throttle_ms: 1200
-    immediate: false          # 启动后立即跑一次 pipeline
-    poll: false               # NFS/WSL 等不可靠 FS 时用 PollWatcher
-    events: []                # 空 = create+modify+remove；可收紧为 ["create","modify"]
+    excludes: ['**/node_modules/**']
+    debounce_ms: 300 # 防抖窗口：安静 300ms 后放行
+    debounce: trailing # 防抖边沿（默认）
+    throttle_ms: 1200 # 节流窗口：两次执行之间的最小间隔
+    throttle: both # 节流边沿（默认）
+    immediate: false # 启动后立即跑一次 pipeline
+    poll: false # NFS/WSL 等不可靠 FS 时用 PollWatcher
+    events: [] # 空 = create+modify+remove；可收紧为 ["create","modify"]
 ```
 
-| cron 字段 | 默认 | 说明 |
-|-----------|------|------|
-| `expr` | （必填） | 5 或 6 字段 cron 表达式 |
+| cron 字段  | 默认                                    | 说明                       |
+| ---------- | --------------------------------------- | -------------------------- |
+| `expr`     | （必填）                                | 5 或 6 字段 cron 表达式    |
 | `timezone` | `runtime.cron_timezone`（默认 `local`） | `local` / `utc` / `±HH:MM` |
 
-| watch 字段 | 默认 | 说明 |
-|------------|------|------|
-| `paths` | （必填） | 监听根路径（文件或目录） |
-| `includes` / `excludes` | `[]` / 内置 `.git`、`node_modules`、`test-results` | glob 过滤（与 copy.run 语义一致） |
-| `debounce_ms` | `300` | **FS debounce**：`notify_debouncer_full` 安静期后再发触发信号（不是 lodash debounce） |
-| `throttle_ms` | `max(debounce×2, 1000)` | **Throttle 间隔**（必须 `> 0`）。lodash 默认边沿：窗口外首次立即 run（leading），窗口内多次最多再 trailing 一次；窗口从 invoke **开始**计时。旧字段 `cooldown_ms` 会解析失败，请改用本字段 |
-| `immediate` | `false` | supervisor 启动后立刻执行一次，并刷新 throttle `last_invoke`；`immediate` 时 register 后至 `run_now` 完成前忽略 FS 事件，避免启动双跑 |
-| `poll` | `false` | 使用 PollWatcher 代替 OS 原生 watcher |
-| `events` | `[]`（全部内容变更 kind） | 可选白名单：`create`、`modify`、`remove`、`access` |
+| watch 字段              | 默认                                               | 说明                                                                                                                                     |
+| ----------------------- | -------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
+| `paths`                 | （必填）                                           | 监听根路径（文件或目录）                                                                                                                 |
+| `includes` / `excludes` | `[]` / 内置 `.git`、`node_modules`、`test-results` | glob 过滤（与 copy.run 语义一致）                                                                                                        |
+| `debounce_ms`           | `300`                                              | **防抖窗口**：从最后一个 FS 事件起算的安静期，结束才放行。FS 层只做同一文件连续事件的合并（去重 / 重命名，≤ 25ms），不计时               |
+| `debounce`              | `trailing`                                         | **防抖边沿**：`trailing` 安静期结束跑一次 / `leading` 仅首次事件立即跑 / `both` 首次立即跑 + 安静期结束补跑                              |
+| `throttle_ms`           | `max(debounce×2, 1000)`                            | **节流窗口**：两次执行之间的最小间隔（必须 `> 0`）；连续触发时每 `throttle_ms` 至少跑一次。旧字段 `cooldown_ms` 会解析失败，请改用本字段 |
+| `throttle`              | `both`                                             | **节流边沿**：`both` 首次立即跑 + 窗口结束补跑一次 / `leading` 仅首次立即跑 / `trailing` 仅窗口结束跑一次                                |
+| `immediate`             | `false`                                            | supervisor 启动后立刻执行一次，并刷新两级门的窗口；`immediate` 时 register 后至 `run_now` 完成前忽略 FS 事件，避免启动双跑               |
+| `poll`                  | `false`                                            | 使用 PollWatcher 代替 OS 原生 watcher                                                                                                    |
+| `events`                | `[]`（全部内容变更 kind）                          | 可选白名单：`create`、`modify`、`remove`、`access`                                                                                       |
 
-流水线：`FS 事件 → debounce(debounce_ms) → 触发信号 → throttle(throttle_ms) → run_directive`。详见 [架构 · Watch 事件管道](./架构.md#watch-事件管道)。
+流水线：`FS 事件 → 合并 → 防抖门(debounce_ms) → 节流门(throttle_ms) → run_directive`。详见 [架构 · Watch 事件管道](./架构.md#watch-事件管道)。
+
+### 防抖与节流
+
+两者是**同一台状态机**，差别只有 lodash 的 `maxWait`：
+
+```js
+_.throttle(fn, w, o) === _.debounce(fn, w, { ...o, maxWait: w })
+```
+
+| 级   | 字段                       | 额外保证                                                           |
+| ---- | -------------------------- | ------------------------------------------------------------------ |
+| 防抖 | `debounce_ms` + `debounce` | 没有 `maxWait`：一阵抖动**只跑一次**（安静期之后）                 |
+| 节流 | `throttle_ms` + `throttle` | `maxWait = throttle_ms`：连续触发时**每 `throttle_ms` 至少跑一次** |
+
+`leading` / `trailing`（两个键取值相同）只决定「哪条边沿执行」：
+
+| 取值       | 等价 lodash 选项                 | 首次触发 | 窗口内再有触发             |
+| ---------- | -------------------------------- | -------- | -------------------------- |
+| `leading`  | `leading: true, trailing: false` | 立即执行 | 不产生后续执行 ⚠️          |
+| `trailing` | `leading: false, trailing: true` | 不执行   | 合并，窗口结束时执行一次   |
+| `both`     | 两者皆是（lodash 默认）          | 立即执行 | 合并，窗口结束时再执行一次 |
+
+- 「窗口」在防抖里是**安静期**（从最后一个触发起算，每次触发往后推）；在节流里是**两次执行之间的最小间隔**（由 `maxWait` 保证，不会被后续触发顺延）。
+- 只有 `leading` 会**落后**：窗口内到达的触发不产生后续执行，而它们发生在上一次执行**之后**——那次执行看不到它们，要等下一个窗口外的触发才会重跑。注册时会对 `leading` 打一条 warn。
+- 想「首个事件立刻跑」用 `debounce: leading`（最快，代价是抖动期间的改动被吞）；想「不丢改动」就保持默认（`debounce: trailing` + `throttle: both`）。
+- **例外：单飞**。一次只跑一轮（CAS + `is_running`）。边沿放行的执行若撞上正在跑的那轮，会等它收尾再执行——只会**推迟**，不会并发，也不会因此变成两轮；`leading` 在窗口内该丢的照丢（包括运行期间到达的改动）。
 
 YAML `triggers` 规则：
 

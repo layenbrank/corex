@@ -20,7 +20,9 @@ triggers:
   - type: watch
     paths: ["./src"]
     debounce_ms: 500
+    debounce: trailing   # 防抖：安静 500ms 后跑一次（默认）
     throttle_ms: 1200
+    throttle: both       # 节流：最多每 1200ms 跑一次，窗口内合并（默认）
 
 steps:
   - id: doc
