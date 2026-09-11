@@ -106,7 +106,7 @@ cargo build -p corex -p corex-daemon
 corex run hello
 corex run hello -i who=Corex
 corex schedule
-corex actions
+corex actions file.copy
 corex validate examples/directives/hello.yaml
 
 # 升级 corex 自身（见 reference/自更新.md）
