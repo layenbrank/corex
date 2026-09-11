@@ -81,7 +81,7 @@ corex validate examples/actions/<file>.yaml
 
 | 文件 | 说明 |
 |------|------|
-| [triggers-declared.yaml](./triggers-declared.yaml) | `triggers.cron` / `triggers.watch` 声明；配合 `corex cron run` / `corex watch run` |
+| [triggers-declared.yaml](./triggers-declared.yaml) | `triggers.cron` / `triggers.watch` 声明（含 `debounce` / `throttle` 边沿）；配合 `corex cron run` / `corex watch run` |
 | [cron-schedule-demo.yaml](./cron-schedule-demo.yaml) | `cron.schedule` 动态注册（需 `corex cron run`） |
 
 手动执行始终用 `corex run <name>`，无需在 YAML 中声明。

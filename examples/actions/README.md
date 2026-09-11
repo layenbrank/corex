@@ -41,6 +41,7 @@ cargo test -p corex-engine --test examples
 | `scan.os` | [scan.os.yaml](./scan.os.yaml) | [scan-env-demo.yaml](../directives/scan-env-demo.yaml) |
 | `capture.*` | [capture.screenshot.yaml](./capture.screenshot.yaml) | [capture-demo.yaml](../directives/capture-demo.yaml) |
 | `ui.*` | [ui.window.list.yaml](./ui.window.list.yaml) | [ui-smoke-notepad.yaml](../directives/ui-smoke-notepad.yaml) |
+| `dialog.*` / `url.open` / `process.*` | [dialog.confirm.yaml](./dialog.confirm.yaml) · [url.open.yaml](./url.open.yaml) · [process.list.yaml](./process.list.yaml) | — |
 | `morph.*` | [morph.export.yaml](./morph.export.yaml) | [morph-demo.yaml](../directives/morph-demo.yaml) |
 
 平台标记：`capture.*`、`bootstrap.*`、`ui.*` 主要为 **Windows**；`morph.meta` / `morph.render` **尚未实现**（调用即报错）。
