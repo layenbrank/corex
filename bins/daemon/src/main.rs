@@ -3,11 +3,12 @@
 use anyhow::{Context, Result, bail};
 use clap::Parser;
 use corex_core::{
-    DaemonConfig, ExecutionContext, LoggingConfig, RuntimeConfig, Value, check_runtime_allowed,
+    DaemonConfig, ExecutionContext, LoggingConfig, Mark, Observer, RuntimeConfig, Spot, Value,
+    check_runtime_allowed,
 };
 use corex_engine::{AuditEntry, Directive, ExecutionAudit, ExecutionHistory, Pipeline};
 use corex_ipc::protocol::{Request, Response, RpcError};
-use corex_ipc::{config_paths, data_dir, ipc_endpoint, serve_ipc};
+use corex_ipc::{FrameSink, Outlet, ProgressEvent, config_paths, data_dir, serve_ipc};
 use corex_registry::ActionRegistry;
 use fs2::FileExt;
 use rand::RngExt;
@@ -17,7 +18,8 @@ use std::fs::File;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::time::Duration;
 #[cfg(unix)]
 use tracing::error;
 use tracing::{info, warn};
@@ -69,7 +71,7 @@ async fn main() -> Result<()> {
         warn!(key = issue.key, "{}", issue.message);
     }
 
-    let endpoint = resolve_endpoint(args.socket, &config.daemon, &data);
+    let endpoint = resolve_endpoint(args.socket, &config.daemon, &data)?;
     let lock_path = resolve_lock_path(&config.daemon, &data);
     let directives_dir = args.directives.unwrap_or_else(|| data.join("directives"));
     std::fs::create_dir_all(&directives_dir)?;
@@ -120,9 +122,9 @@ async fn main() -> Result<()> {
     info!(endpoint = %endpoint.display(), "corex-daemon 启动");
 
     let state_serve = Arc::clone(&state);
-    let result = serve_ipc(&endpoint, move |req| {
+    let result = serve_ipc(&endpoint, move |req, outlet| {
         let state = Arc::clone(&state_serve);
-        async move { handle_request(&state, req).await }
+        async move { handle_request(&state, req, outlet).await }
     })
     .await;
 
@@ -135,7 +137,55 @@ async fn main() -> Result<()> {
     Ok(())
 }
 
-async fn handle_request(state: &DaemonState, req: Request) -> Response {
+/// 把流水线进度推给正在等这条请求的连接。
+///
+/// 一帧都不 `await`：`frame` 会被 `parallel` 分支并发调用，一条渲染慢（或干脆
+/// 不再读）的客户端不该让 daemon 的流水线慢下来——`Outlet` 队列满即丢帧。
+#[derive(Debug)]
+struct StreamObserver {
+    outlet: Outlet,
+    seq: AtomicU64,
+}
+
+impl StreamObserver {
+    fn new(outlet: Outlet) -> Self {
+        Self {
+            outlet,
+            seq: AtomicU64::new(0),
+        }
+    }
+}
+
+impl Observer for StreamObserver {
+    fn begin(&self, at: Spot<'_>) {
+        self.outlet.frame(&ProgressEvent::StepStart {
+            seq: self.seq.fetch_add(1, Ordering::Relaxed) + 1,
+            step: at.id.to_string(),
+            action: at.action.to_string(),
+        });
+    }
+
+    fn chunk(&self, at: Spot<'_>, mark: Mark) {
+        self.outlet.frame(&ProgressEvent::StepProgress {
+            step: at.id.to_string(),
+            action: at.action.to_string(),
+            done: mark.done,
+            total: mark.total,
+            unit: mark.unit,
+        });
+    }
+
+    fn end(&self, at: Spot<'_>, took: Duration, ok: bool) {
+        self.outlet.frame(&ProgressEvent::StepEnd {
+            step: at.id.to_string(),
+            action: at.action.to_string(),
+            took_ms: took.as_millis() as u64,
+            ok,
+        });
+    }
+}
+
+async fn handle_request(state: &DaemonState, req: Request, outlet: Outlet) -> Response {
     let id = req.id();
     if !token_matches(req.auth_token(), &state.auth_token) {
         return Response::error(id, RpcError::unauthorized("invalid or missing auth token"));
@@ -143,6 +193,11 @@ async fn handle_request(state: &DaemonState, req: Request) -> Response {
     if state.shutdown.load(Ordering::SeqCst) {
         return Response::Bye { id };
     }
+
+    // 只有显式置了 `stream` 的请求才建上报口：其余请求连一次额外写入也不会有。
+    let observer = req
+        .wants_stream()
+        .then(|| Arc::new(StreamObserver::new(outlet)) as Arc<dyn Observer>);
 
     match req {
         Request::Ping { id, .. } => Response::Pong { id },
@@ -183,7 +238,7 @@ async fn handle_request(state: &DaemonState, req: Request) -> Response {
             input,
             path,
             ..
-        } => match run_directive(state, &name, path.as_deref(), input).await {
+        } => match run_directive(state, &name, path.as_deref(), input, observer.as_ref()).await {
             Ok(v) => Response::ok(id, v),
             Err(e) => {
                 let msg = e.to_string();
@@ -196,7 +251,7 @@ async fn handle_request(state: &DaemonState, req: Request) -> Response {
         },
         Request::Invoke {
             id, action, params, ..
-        } => match invoke_action(state, &action, params).await {
+        } => match invoke_action(state, &action, params, observer.as_ref()).await {
             Ok(v) => Response::ok(id, v),
             Err(e) => {
                 let msg = e.to_string();
@@ -215,6 +270,7 @@ async fn run_directive(
     name: &str,
     path: Option<&str>,
     input: std::collections::HashMap<String, Value>,
+    observer: Option<&Arc<dyn Observer>>,
 ) -> Result<Value> {
     let file = if let Some(p) = path {
         confine_under(&state.directives_dir, Path::new(p))
@@ -231,23 +287,46 @@ async fn run_directive(
     if let Some(audit) = &state.audit {
         pipeline = pipeline.with_audit(audit.clone());
     }
+    if let Some(observer) = observer {
+        pipeline = pipeline.with_observer(Arc::clone(observer));
+    }
     Ok(pipeline.execute(&directive, ctx).await?)
 }
 
-async fn invoke_action(state: &DaemonState, action_id: &str, params: Value) -> Result<Value> {
+async fn invoke_action(
+    state: &DaemonState,
+    action_id: &str,
+    params: Value,
+    observer: Option<&Arc<dyn Observer>>,
+) -> Result<Value> {
     check_invoke_allowed(&state.config, &*state.registry, action_id)?;
     let action = state
         .registry
         .get(action_id)
         .with_context(|| format!("动作未注册: {action_id}"))?;
+    let at = Spot {
+        id: "invoke",
+        action: action_id,
+    };
     let t0 = std::time::Instant::now();
     let mut ctx = ExecutionContext::new(state.config.clone());
+    // 让动作的 `ctx.chunk()` 知道自己属于哪一步。指令路径上这是 `Pipeline` 的职责，
+    // 而单动作直调绕过了它——不补这一步，动作上报的分块进度会全部落空。
+    ctx.enter_step(at.id, at.action);
+    if let Some(observer) = observer {
+        ctx.observer = Some(Arc::clone(observer));
+        observer.begin(at);
+    }
     let outcome = async {
         action.validate(&params).await?;
         action.execute(params, &mut ctx).await
     }
     .await;
+    ctx.leave_step();
     let duration_ms = t0.elapsed().as_millis() as u64;
+    if let Some(observer) = observer {
+        observer.end(at, t0.elapsed(), outcome.is_ok());
+    }
     if let Some(audit) = &state.audit {
         let entry = AuditEntry::from_action(
             "invoke",
@@ -358,36 +437,19 @@ fn open_history(data: &Path, config: &RuntimeConfig) -> Result<Option<ExecutionH
     ))
 }
 
-/// 解析配置里的路径：绝对路径原样；相对路径拼到 `data` 下。
-/// Windows 上 `\\.\pipe\...`（以及 `//./pipe/...`）那一类属于命名管道名字，直接用。
-fn resolve_data_relative(data: &Path, path: &Path) -> PathBuf {
-    #[cfg(windows)]
-    {
-        let s = path.to_string_lossy();
-        if s.starts_with(r"\\.\pipe\") || s.starts_with("//./pipe/") {
-            return path.to_path_buf();
-        }
-    }
-    if path.is_absolute() {
-        path.to_path_buf()
-    } else {
-        data.join(path)
-    }
-}
-
-fn resolve_endpoint(cli: Option<PathBuf>, daemon: &DaemonConfig, data: &Path) -> PathBuf {
-    if let Some(p) = cli {
-        return p;
-    }
-    if let Some(p) = &daemon.socket_path {
-        return resolve_data_relative(data, p);
-    }
-    ipc_endpoint(data)
+/// 本次运行实际使用的 IPC 端点。
+///
+/// `--socket` 优先于配置里的 `socket_path`；两者都没有就是平台默认端点（见
+/// [`corex_ipc::ipc_endpoint`]）。解析与平台校验都在 `corex-ipc` 里，
+/// 使 CLI 与 daemon 不可能对“端点是什么”产生分歧。
+fn resolve_endpoint(cli: Option<PathBuf>, daemon: &DaemonConfig, data: &Path) -> Result<PathBuf> {
+    let configured = cli.or_else(|| daemon.socket_path.clone());
+    Ok(corex_ipc::resolve_endpoint(data, configured.as_deref())?)
 }
 
 fn resolve_lock_path(daemon: &DaemonConfig, data: &Path) -> PathBuf {
     match &daemon.lock_path {
-        Some(p) => resolve_data_relative(data, p),
+        Some(p) => corex_ipc::resolve_data_relative(data, p),
         None => data.join("corex.lock"),
     }
 }

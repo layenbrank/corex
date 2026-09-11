@@ -1,5 +1,6 @@
 //! 类 JSON-RPC 的请求 / 响应类型。
 
+use crate::progress::ProgressEvent;
 use corex_core::Value;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -47,6 +48,12 @@ pub enum Request {
         input: HashMap<String, Value>,
         #[serde(default)]
         path: Option<String>,
+        /// 为真时 daemon 会在这条请求期间推 `event` 帧（进度）。
+        ///
+        /// 默认关：不置位的客户端拿到的线与旧版完全一致，而多推的帧会被
+        /// 只读一行的一问一答客户端误当成终帧。
+        #[serde(default)]
+        stream: bool,
     },
     /// 按 id 调用单个动作。
     Invoke {
@@ -57,6 +64,9 @@ pub enum Request {
         action: String,
         #[serde(default)]
         params: Value,
+        /// 同 [`Request::RunDirective`] 的 `stream`。
+        #[serde(default)]
+        stream: bool,
     },
 }
 
@@ -69,6 +79,16 @@ impl Request {
             | Request::ListActions { id, .. }
             | Request::RunDirective { id, .. }
             | Request::Invoke { id, .. } => *id,
+        }
+    }
+
+    /// 本请求是否要求 daemon 推中间帧。
+    ///
+    /// 只有 `run_directive` 与 `invoke` 能开；其余变体没有这个字段，永远是 `false`。
+    pub fn wants_stream(&self) -> bool {
+        match self {
+            Request::RunDirective { stream, .. } | Request::Invoke { stream, .. } => *stream,
+            _ => false,
         }
     }
 
@@ -113,6 +133,14 @@ pub enum Response {
     Error {
         id: u64,
         error: RpcError,
+    },
+    /// 同一 `id` 请求的**中间帧**：只在请求置了 `stream` 时出现。
+    ///
+    /// 一条请求可以有零个或多个 `event`，它们一定排在终帧（`ok` / `error`）
+    /// 之前；收到它的一方不该把它当成一次回答的结束。
+    Event {
+        id: u64,
+        progress: ProgressEvent,
     },
     Bye {
         id: u64,
@@ -212,10 +240,36 @@ mod tests {
             auth_token: None,
             action: "template.render".into(),
             params: Value::Null,
+            stream: false,
         }
         .with_auth_token("tok");
         assert_eq!(req.auth_token(), Some("tok"));
         let json = serde_json::to_value(&req).unwrap();
         assert_eq!(json["auth_token"], "tok");
+    }
+
+    /// 旧客户端的线上形状里没有 `stream`：它必须默认成关，否则升级 daemon 就会
+    /// 给只读一行的老客户端塞进一个它认不出的帧。
+    #[test]
+    fn a_request_without_stream_stays_one_shot() {
+        let json = r#"{"type":"invoke","id":1,"action":"template.render"}"#;
+        let req: Request = serde_json::from_str(json).unwrap();
+        assert!(!req.wants_stream());
+
+        let json = r#"{"type":"run_directive","id":2,"name":"hello"}"#;
+        let req: Request = serde_json::from_str(json).unwrap();
+        assert!(!req.wants_stream());
+    }
+
+    #[test]
+    fn only_the_two_long_running_requests_can_stream() {
+        let json = r#"{"type":"run_directive","id":2,"name":"hello","stream":true}"#;
+        let req: Request = serde_json::from_str(json).unwrap();
+        assert!(req.wants_stream());
+
+        // `ping` 之类没有这个字段，永远不上报。
+        let json = r#"{"type":"ping","id":3}"#;
+        let req: Request = serde_json::from_str(json).unwrap();
+        assert!(!req.wants_stream());
     }
 }

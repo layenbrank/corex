@@ -3,10 +3,20 @@
 
 [daemon]
 # 下列路径若非绝对路径，则在平台数据目录下解析
-# （例如 Linux 的 ~/.local/share/corex）。Windows 命名管道如 \\.\pipe\corex 原样使用。
-# IPC 端点：Unix socket 路径或 Windows 命名管道
-# 运行时未设置时，Windows 管道为 \\.\pipe\corex
-socket_path = "corex.sock"
+# （例如 Linux 的 ~/.local/share/corex）。
+#
+# IPC 端点。**省略即平台默认**，这也是跨平台共用一份配置时唯一不会踩坑的写法：
+#   Unix    → <数据目录>/corex.sock
+#   Windows → \\.\pipe\corex
+#
+# 要改就按平台改：Unix 写 socket 路径（相对名或绝对路径），Windows **只能**写命名
+# 管道——写成 Unix 风格的文件路径会在启动时直接被拒，而不是静默回退。
+#
+# Unix：
+# socket_path = "corex.sock"
+# Windows（TOML 单引号字面量，反斜杠不必转义）：
+# socket_path = '\\.\pipe\corex'
+#
 # 单例锁文件
 lock_path = "corex.lock"
 # IPC 共享认证密钥。设置环境变量 COREX_TOKEN 时以它优先。

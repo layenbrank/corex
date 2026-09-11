@@ -1,10 +1,10 @@
 //! Unix domain socket 传输（换行分隔的 JSON）。
 
-use super::{Transport, TransportError};
-use crate::protocol::{MAX_LINE_BYTES, Request, Response, RpcError};
+use super::{Transport, TransportError, read_final, serve_connection, write_request};
+use crate::progress::{FrameSink, Outlet};
+use crate::protocol::{Request, Response};
 use async_trait::async_trait;
 use std::path::{Path, PathBuf};
-use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 
 /// 在 Unix domain socket 上跑换行分隔的 JSON。
 #[derive(Debug, Clone)]
@@ -24,7 +24,7 @@ impl UnixSocketTransport {
     /// 服务连接：对每个换行分隔的 JSON 请求调用 `handler`。
     pub async fn serve<F, Fut>(path: &Path, mut handler: F) -> Result<(), TransportError>
     where
-        F: FnMut(Request) -> Fut + Send,
+        F: FnMut(Request, Outlet) -> Fut + Send,
         Fut: std::future::Future<Output = Response> + Send,
     {
         use std::os::unix::fs::PermissionsExt;
@@ -44,73 +44,26 @@ impl UnixSocketTransport {
 
         loop {
             let (stream, _) = listener.accept().await?;
-            let (reader, mut writer) = stream.into_split();
-            let mut lines = BufReader::new(reader).lines();
-            while let Some(line) = lines.next_line().await? {
-                if line.trim().is_empty() {
-                    continue;
-                }
-                if line.len() > MAX_LINE_BYTES {
-                    let resp = Response::error(
-                        0,
-                        RpcError::invalid(format!("请求超过最大长度 {MAX_LINE_BYTES} 字节")),
-                    );
-                    write_response(&mut writer, &resp).await?;
-                    continue;
-                }
-                let resp = match serde_json::from_str::<Request>(&line) {
-                    Ok(req) => handler(req).await,
-                    Err(e) => Response::error(0, RpcError::invalid(format!("请求解析失败: {e}"))),
-                };
-                write_response(&mut writer, &resp).await?;
-
-                if matches!(resp, Response::Bye { .. }) {
-                    return Ok(());
-                }
-            }
+            let (reader, writer) = stream.into_split();
+            serve_connection(reader, writer, &mut handler).await?;
         }
     }
 }
 
-async fn write_response<W: AsyncWriteExt + Unpin>(
-    writer: &mut W,
-    resp: &Response,
-) -> Result<(), TransportError> {
-    let mut payload =
-        serde_json::to_string(resp).map_err(|e| TransportError::Protocol(e.to_string()))?;
-    payload.push('\n');
-    writer.write_all(payload.as_bytes()).await?;
-    writer.flush().await?;
-    Ok(())
-}
-
 #[async_trait]
 impl Transport for UnixSocketTransport {
-    async fn send(&mut self, request: &Request) -> Result<Response, TransportError> {
+    async fn send_events(
+        &mut self,
+        request: &Request,
+        sink: &dyn FrameSink,
+    ) -> Result<Response, TransportError> {
         use tokio::net::UnixStream;
 
         let stream = UnixStream::connect(&self.path)
             .await
             .map_err(|e| TransportError::Connect(format!("{}: {e}", self.path.display())))?;
         let (reader, mut writer) = stream.into_split();
-        let mut payload =
-            serde_json::to_string(request).map_err(|e| TransportError::Protocol(e.to_string()))?;
-        if payload.len() > MAX_LINE_BYTES {
-            return Err(TransportError::Protocol(format!(
-                "请求超过最大长度 {MAX_LINE_BYTES} 字节"
-            )));
-        }
-        payload.push('\n');
-        writer.write_all(payload.as_bytes()).await?;
-        writer.flush().await?;
-
-        let mut lines = BufReader::new(reader).lines();
-        let line = lines
-            .next_line()
-            .await?
-            .ok_or_else(|| TransportError::Protocol("连接已关闭".into()))?;
-        let resp: Response = serde_json::from_str(&line)
-            .map_err(|e| TransportError::Protocol(format!("响应解析失败: {e}")))?;
-        Ok(resp)
+        write_request(&mut writer, request).await?;
+        read_final(reader, sink).await
     }
 }
