@@ -1,9 +1,15 @@
 //! 内置动作共用的参数辅助函数。
 
 use corex_core::path::confine_in_roots;
-use corex_core::{ActionError, ExecutionContext, Unit, Value};
+use corex_core::{ActionError, ExecutionContext, Value};
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
+
+// 分块拷贝是三处拷贝动作共用的实现（`copy.run` / `file.copy` / `morph.export`），
+// 因此跟着它们一起 gate：一个 `act-*` 都不开时，这里不该剩下几个没人用的函数。
+#[cfg(any(feature = "act-copy", feature = "act-file", feature = "act-morph"))]
+use corex_core::Unit;
+#[cfg(any(feature = "act-copy", feature = "act-file", feature = "act-morph"))]
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 /// 设了 roots 时，拒绝 `ctx.config.filesystem_roots` 之外的路径。
@@ -70,8 +76,11 @@ pub fn ensure_parent(path: &std::path::Path) -> Result<(), ActionError> {
 /// 分块拷贝的进度落点：`done` 是当前文件已拷字节，`total` 是源文件大小（读不到时为 `None`）。
 ///
 /// 传 `None` 表示没人看进度——那就走平台最优路径，别为一个没人看的百分比放弃它。
+#[cfg(any(feature = "act-copy", feature = "act-file", feature = "act-morph"))]
 type Sink<'a> = &'a mut (dyn FnMut(u64, Option<u64>) + Send);
+
 /// 分块拷贝的缓冲区：兼顾吞吐与上报粒度。
+#[cfg(any(feature = "act-copy", feature = "act-file", feature = "act-morph"))]
 const COPY_CHUNK: usize = 1024 * 1024;
 
 /// 复制单个文件，按需上报分块进度。
@@ -80,6 +89,7 @@ const COPY_CHUNK: usize = 1024 * 1024;
 /// 按 [`COPY_CHUNK`] 分块拷——大文件能给出中间进度就靠这一点，只数文件是不够的。
 ///
 /// 进度语义（算多少、怎么算）由调用方决定，见 [`copy_bytes`]。
+#[cfg(any(feature = "act-copy", feature = "act-file", feature = "act-morph"))]
 async fn copy_file(from: &Path, to: &Path, sink: Option<Sink<'_>>) -> Result<(), ActionError> {
     let Some(report) = sink else {
         tokio::fs::copy(from, to)
@@ -123,6 +133,7 @@ async fn copy_file(from: &Path, to: &Path, sink: Option<Sink<'_>>) -> Result<(),
 /// 整棵树用累加值——这样界面上的百分比始终是「这整件事干到哪儿了」。
 ///
 /// 没有上报口就不挂口子，[`copy_file`] 会改走平台最优路径。
+#[cfg(any(feature = "act-copy", feature = "act-file", feature = "act-morph"))]
 pub(crate) async fn copy_bytes(
     from: &Path,
     to: &Path,
