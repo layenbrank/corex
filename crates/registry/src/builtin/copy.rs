@@ -3,7 +3,7 @@
 use crate::ActionRegistry;
 use crate::builtin::filter::Filter;
 use crate::builtin::util::{
-    confine_path, ensure_parent, opt_bool, opt_strs, require_map, require_path,
+    Sink, confine_path, copy_file, ensure_parent, opt_bool, opt_strs, require_map, require_path,
 };
 use async_trait::async_trait;
 use corex_core::{
@@ -26,7 +26,7 @@ impl Action for CopyRun {
         ActionMeta::new(
             "copy.run",
             "复制",
-            "复制文件或目录（支持 includes/excludes）",
+            "复制文件或目录（支持 includes/excludes，可上报分块进度）",
             Bucket::Data,
         )
         .with_params(vec![
@@ -51,9 +51,9 @@ impl Action for CopyRun {
         let excludes = opt_strs(map, "excludes");
 
         let path = if from.is_file() {
-            copy_single_file(&from, &to)?
+            copy_single_file(&from, &to, ctx).await?
         } else if from.is_dir() {
-            copy_directory(&from, &to, empty, &includes, &excludes, ctx)?
+            copy_directory(&from, &to, empty, &includes, &excludes, ctx).await?
         } else {
             return Err(ActionError::execution(format!(
                 "源路径不存在: {}",
@@ -64,18 +64,28 @@ impl Action for CopyRun {
     }
 }
 
-fn copy_single_file(from: &Path, to: &Path) -> Result<PathBuf, ActionError> {
+/// 单个文件：进度就是这个文件自己的字节数。
+async fn copy_single_file(
+    from: &Path,
+    to: &Path,
+    ctx: &ExecutionContext,
+) -> Result<PathBuf, ActionError> {
     let target = if to.is_dir() {
         to.join(from.file_name().unwrap_or_default())
     } else {
         ensure_parent(to)?;
         to.to_path_buf()
     };
-    std::fs::copy(from, &target)?;
+    let total = std::fs::metadata(from).map(|m| m.len()).unwrap_or(0);
+    copy_reported(from, &target, 0, total, ctx).await?;
     Ok(target)
 }
 
-fn copy_directory(
+/// 目录：先量一遍，再逐文件拷，进度报在**整棵树的字节量**上。
+///
+/// 只按文件计数是不够的：一个大文件从 0 跳到 1，中间什么都没有。按字节报与 `file.copy`
+/// 是同一套观感，百分比也才会真的动。
+async fn copy_directory(
     from: &Path,
     to: &Path,
     empty: bool,
@@ -84,54 +94,85 @@ fn copy_directory(
     ctx: &ExecutionContext,
 ) -> Result<PathBuf, ActionError> {
     let filter = Filter::new(includes, excludes);
-    // 先数一遍：上报进度需要总量。递归目录复制正是最需要「还剩多少」的那种步骤。
-    let total = count_files(from, &filter)?;
-    if total == 0 {
+    let tree = Tree::scan(from, &filter)?;
+    if tree.files.is_empty() {
         return Err(ActionError::execution("没有文件需要复制"));
     }
-    ctx.chunk(0, Some(total), Unit::Items);
+    ctx.chunk(0, Some(tree.bytes), Unit::Bytes);
     std::fs::create_dir_all(to)?;
     if empty {
         empty_dir(to)?;
     }
-    let mut done = 0u64;
-    for entry in WalkDir::new(from).into_iter().filter_map(Result::ok) {
-        let source = entry.path();
-        let relative = source
-            .strip_prefix(from)
-            .map_err(|e| ActionError::execution(e.to_string()))?;
-        if filter.is_filtered(relative) {
-            continue;
-        }
+    // 目录先全部建出来：空目录也是目录树的一部分，不该因为「没有文件」而消失。
+    for relative in &tree.dirs {
+        std::fs::create_dir_all(to.join(relative))?;
+    }
+    let mut copied = 0u64;
+    for (relative, size) in &tree.files {
         let target = to.join(relative);
-        if source.is_dir() {
-            std::fs::create_dir_all(&target)?;
-        } else if source.is_file() {
-            ensure_parent(&target)?;
-            std::fs::copy(source, &target)?;
-            done += 1;
-            ctx.chunk(done, Some(total), Unit::Items);
-        }
+        ensure_parent(&target)?;
+        copy_reported(&from.join(relative), &target, copied, tree.bytes, ctx).await?;
+        copied += size;
     }
     Ok(to.to_path_buf())
 }
 
-/// 用同一套过滤规则数一遍会被复制的文件。
-fn count_files(from: &Path, filter: &Filter) -> Result<u64, ActionError> {
-    let mut count = 0u64;
-    for entry in WalkDir::new(from).into_iter().filter_map(Result::ok) {
-        let source = entry.path();
-        if !source.is_file() {
-            continue;
+/// 用 `file.copy` 的那套分块实现拷一个文件，把进度报在**整批**的字节量上：
+/// `offset` 是本批已完成的字节，`total` 是本批总量。
+async fn copy_reported(
+    from: &Path,
+    to: &Path,
+    offset: u64,
+    total: u64,
+    ctx: &ExecutionContext,
+) -> Result<(), ActionError> {
+    let mut report = |done: u64, _file_total: Option<u64>| {
+        ctx.chunk(offset + done, Some(total), Unit::Bytes);
+    };
+    // 没人看进度就不挂上报口：`copy_file` 会改走平台最优路径。
+    let sink = ctx.observer.is_some().then_some(&mut report as Sink);
+    copy_file(from, to, sink).await
+}
+
+/// 一次遍历量出的目录树：要建的目录、要拷的文件，以及文件总字节数。
+struct Tree {
+    /// 相对源根的目录（不含源根本身）。
+    dirs: Vec<PathBuf>,
+    /// 相对源根的文件及其大小。
+    files: Vec<(PathBuf, u64)>,
+    /// 所有文件字节之和，用作进度的分母。
+    bytes: u64,
+}
+
+impl Tree {
+    /// 按同一套过滤规则扫一遍。
+    ///
+    /// 先量后拷是为了给进度一个分母——一边拷一边数，就永远只有「已拷多少」。
+    fn scan(from: &Path, filter: &Filter) -> Result<Self, ActionError> {
+        let mut tree = Self {
+            dirs: Vec::new(),
+            files: Vec::new(),
+            bytes: 0,
+        };
+        for entry in WalkDir::new(from).into_iter().filter_map(Result::ok) {
+            let source = entry.path();
+            let relative = source
+                .strip_prefix(from)
+                .map_err(|e| ActionError::execution(e.to_string()))?;
+            // 源根本身由调用方创建。
+            if relative.as_os_str().is_empty() || filter.is_filtered(relative) {
+                continue;
+            }
+            if source.is_dir() {
+                tree.dirs.push(relative.to_path_buf());
+            } else if source.is_file() {
+                let size = std::fs::metadata(source).map(|m| m.len()).unwrap_or(0);
+                tree.bytes += size;
+                tree.files.push((relative.to_path_buf(), size));
+            }
         }
-        let relative = source
-            .strip_prefix(from)
-            .map_err(|e| ActionError::execution(e.to_string()))?;
-        if !filter.is_filtered(relative) {
-            count += 1;
-        }
+        Ok(tree)
     }
-    Ok(count)
 }
 
 fn empty_dir(dir: &Path) -> Result<(), ActionError> {
@@ -156,7 +197,7 @@ pub fn register(registry: &mut ActionRegistry) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use corex_core::ExecutionContext;
+    use corex_core::{ExecutionContext, Mark, Observer, Spot};
     use std::collections::BTreeMap;
     use tempfile::tempdir;
 
@@ -181,6 +222,55 @@ mod tests {
         CopyRun.execute(Value::Map(params), &mut ctx).await.unwrap();
         assert!(dst.join("a/keep.txt").exists());
         assert!(!dst.join("a/skip.tmp").exists());
+    }
+
+    /// 进度要按**整棵树的字节**报：文件计数在大文件上等于没有进度。
+    #[tokio::test]
+    async fn reports_bytes_for_the_whole_tree() {
+        let dir = tempdir().unwrap();
+        let src = dir.path().join("src");
+        let dst = dir.path().join("dst");
+        std::fs::create_dir_all(src.join("nested")).unwrap();
+        std::fs::create_dir_all(src.join("empty")).unwrap();
+        std::fs::write(src.join("a.bin"), vec![7u8; 4096]).unwrap();
+        std::fs::write(src.join("nested/b.bin"), vec![9u8; 8192]).unwrap();
+
+        let recorder = Arc::new(Bytes::default());
+        let mut ctx = ExecutionContext::default();
+        ctx.observer = Some(Arc::clone(&recorder) as Arc<dyn Observer>);
+        // 引擎只在动作步骤内上报；这里模拟那一步。
+        ctx.enter_step("copy", "copy.run");
+
+        let mut params = BTreeMap::new();
+        params.insert("from".into(), Value::Str(src.to_string_lossy().into()));
+        params.insert("to".into(), Value::Str(dst.to_string_lossy().into()));
+        CopyRun.execute(Value::Map(params), &mut ctx).await.unwrap();
+
+        let total = 4096 + 8192;
+        let marks = recorder.marks.lock().unwrap().clone();
+        assert_eq!(marks.first(), Some(&(0, Some(total))), "{marks:?}");
+        assert_eq!(marks.last(), Some(&(total, Some(total))), "{marks:?}");
+        assert!(
+            marks.iter().all(|(_, each)| *each == Some(total)),
+            "分母要始终是整棵树：{marks:?}"
+        );
+        // 空目录也是目录树的一部分。
+        assert!(dst.join("empty").is_dir());
+        assert!(dst.join("nested/b.bin").is_file());
+    }
+
+    /// 只记字节进度：要钉住的正是「copy.run 与 file.copy 一样按字节报」。
+    #[derive(Debug, Default)]
+    struct Bytes {
+        marks: std::sync::Mutex<Vec<(u64, Option<u64>)>>,
+    }
+
+    impl Observer for Bytes {
+        fn chunk(&self, _at: Spot<'_>, mark: Mark) {
+            if mark.unit == Unit::Bytes {
+                self.marks.lock().unwrap().push((mark.done, mark.total));
+            }
+        }
     }
 
     #[tokio::test]

@@ -38,7 +38,7 @@
 | `cron.schedule` | `act-cron` | `expr`；`timezone?`；`directive?` | 在活动的 `corex cron` 监督进程上注册 cron 任务 |
 | `keyring.get` | `act-keyring` | `service`、`user` | 读取系统钥匙串 |
 | `keyring.set` | `act-keyring` | `service`、`user`、`password` | 写入系统钥匙串 |
-| `copy.run` | `act-copy` | `from`、`to`；`empty?`、`includes?`、`excludes?` | 目录树 / 过滤复制 |
+| `copy.run` | `act-copy` | `from`、`to`；`empty?`、`includes?`、`excludes?` | 目录树 / 过滤复制（按字节上报进度） |
 | `scrub.run` | `act-scrub` | `source`、`target`；`recursive?` | 路径清理 / 消毒 |
 | `shade.convert` | `act-shade` | `from`、`to`；`format?`、`quality?` | 图像转换 |
 | `compression.compress` | `act-compression` | `from`、`to`；`format?` (zip)、`level?`、`includes?`、`excludes?` | zip / tar.gz；**`7z` 软失败**（错误：当前构建未启用） |
@@ -295,6 +295,7 @@ IPC: `{"type":"invoke","action":"dir.read","params":{"path":".","mode":"tree"}}`
 #### `copy.run`
 
 - 示例：[`examples/actions/copy.run.yaml`](../../examples/actions/copy.run.yaml) · [`copy-demo.yaml`](../../examples/directives/copy-demo.yaml)
+- 进度：先量一遍目录树，再逐文件拷，进度报在**整棵树的字节量**上；被过滤掉的文件不计入分母。
 
 ```yaml
 - id: copy

@@ -1,51 +1,6 @@
 //! `file.copy` / `file.update` / `file.remove`。
 
 use super::*;
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
-
-/// 分块复制的缓冲区：兼顾吞吐与进度上报粒度。
-const COPY_CHUNK: usize = 1024 * 1024;
-
-/// 复制单个文件，并在有上报口时按块报告进度。
-///
-/// 没人看进度时交给 `tokio::fs::copy`——它会走平台的最优路径
-/// （`copy_file_range` / `CopyFileEx`），没必要为了一个没人看的百分比放弃它。
-async fn copy_file(from: &Path, to: &Path, ctx: &ExecutionContext) -> Result<(), ActionError> {
-    if ctx.observer.is_none() {
-        tokio::fs::copy(from, to)
-            .await
-            .map_err(|e| ActionError::execution(format!("复制失败: {e}")))?;
-        return Ok(());
-    }
-
-    let total = tokio::fs::metadata(from).await.map(|m| m.len()).ok();
-    let mut src = tokio::fs::File::open(from)
-        .await
-        .map_err(|e| ActionError::execution(format!("复制失败: {e}")))?;
-    let mut dst = tokio::fs::File::create(to)
-        .await
-        .map_err(|e| ActionError::execution(format!("复制失败: {e}")))?;
-    let mut buf = vec![0u8; COPY_CHUNK];
-    let mut done = 0u64;
-    loop {
-        let n = src
-            .read(&mut buf)
-            .await
-            .map_err(|e| ActionError::execution(format!("复制失败: {e}")))?;
-        if n == 0 {
-            break;
-        }
-        dst.write_all(&buf[..n])
-            .await
-            .map_err(|e| ActionError::execution(format!("复制失败: {e}")))?;
-        done += n as u64;
-        ctx.chunk(done, total, Unit::Bytes);
-    }
-    dst.flush()
-        .await
-        .map_err(|e| ActionError::execution(format!("复制失败: {e}")))?;
-    Ok(())
-}
 
 #[async_trait]
 impl Action for FileCopy {
@@ -80,7 +35,10 @@ impl Action for FileCopy {
         {
             tokio::fs::create_dir_all(parent).await?;
         }
-        copy_file(&from, &to, ctx).await?;
+        let mut report = |done: u64, total: Option<u64>| ctx.chunk(done, total, Unit::Bytes);
+        // 没人看进度就不挂上报口：`copy_file` 会改走平台最优路径。
+        let sink = ctx.observer.is_some().then_some(&mut report as Sink);
+        copy_file(&from, &to, sink).await?;
         Ok(Value::File(to))
     }
 }
