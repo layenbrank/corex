@@ -53,6 +53,7 @@ corex validate examples/actions/<file>.yaml
 | [generate-path-demo.yaml](./generate-path-demo.yaml) | `generate.path` 路径列表 | `corex run generate-path-demo` |
 | [inject-build-time.yaml](./inject-build-time.yaml) | 时间戳注入 JSON / JS marker | `corex run inject-build-time -i json_path=./package.json` |
 | [generate-demo.yaml](./generate-demo.yaml) | UUID / 时间戳 / CVID | `corex run generate-demo` |
+| [upload-chunked.yaml](./upload-chunked.yaml) | 大文件分片上传：`generate.chunks` 规划 + `http.send` multipart + `repeat` 逐片（含秒传短路） | `corex run upload-chunked -i file=D:/big.bin` |
 | [scrub-demo.yaml](./scrub-demo.yaml) | `scrub.run` 递归删除匹配文件 | `corex run scrub-demo` |
 | [shade-demo.yaml](./shade-demo.yaml) | `shade.convert` PNG→JPEG | `corex run shade-demo` |
 | [morph-demo.yaml](./morph-demo.yaml) | `morph.export` / `merge` / `split`（需 `-i pdf_path=`） | `corex run morph-demo -i pdf_path=...` |

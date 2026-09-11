@@ -1,0 +1,147 @@
+# 大文件分片上传 —— generate.chunks 规划 + http.send(multipart) 逐片上传 + repeat 循环
+#
+# 服务端契约（以本机 services/upload 为准）：
+#   POST  /api/v1/auth/signin     {username, password, captchaKey, captchaValue} → data.token
+#   POST  /api/v1/upload/prepare  {name, size, mime, chunk}                      → data.id
+#   PATCH /api/v1/upload/hash     {id, hash}        # 整文件 sha256，尽早绑定（可命中秒传）
+#   POST  /api/v1/upload/chunk    multipart: id / index / hash + chunk(这一片的字节)
+#   POST  /api/v1/upload/finalize {id}              # 服务端按序校验整文件 hash
+#
+# 三个要点都落在动作上，指令里没有算术：
+# - `generate.chunks` 一遍读完文件，给出整文件摘要与每片的 index/offset/length/hex；
+#   指令的 `{{ }}` 只做取值，算不出的边界由它算。
+# - 每片是 `http.send` 的 multipart 文件部件，直接带 offset/length —— 不必先落盘切片。
+# - development 下验证码关着，占位填 `captchaKey: dev` / `captchaValue: "0"`。
+#
+# 运行:
+#   corex run upload-chunked -i file=D:/big.bin
+#   corex run upload-chunked -i file=D:/big.bin -i base=http://127.0.0.1:3000
+#
+# 夜里自动上传：`corex cron start` 之后用 cron 注册本指令，或给指令加 `triggers: [{type: cron, …}]`。
+name: upload-chunked
+description: 把一个大文件分片上传（先算摘要，再逐片 multipart 上传，最后 finalize）
+version: "1.0"
+
+permissions:
+  filesystem: true
+  network: true
+
+inputs:
+  - name: file
+    description: 要上传的本地文件
+    required: true
+  - name: base
+    description: 服务基址
+    required: false
+    default: "http://127.0.0.1:3000"
+  - name: user
+    description: 登录用户名
+    required: false
+    default: admin
+  - name: password
+    description: 登录密码
+    required: false
+    default: "123456"
+  - name: chunk
+    description: 分片大小（字节；该服务要求 10MB~100MB）
+    required: false
+    default: 10485760
+
+steps:
+  - id: stat
+    action: file.read
+    params:
+      path: "{{input.file}}"
+      mode: stat
+
+  - id: plan
+    action: generate.chunks
+    params:
+      path: "{{input.file}}"
+      chunk: "{{input.chunk}}"
+
+  - id: signin
+    action: http.send
+    params:
+      url: "{{input.base}}/api/v1/auth/signin"
+      method: POST
+      json:
+        username: "{{input.user}}"
+        password: "{{input.password}}"
+        captchaKey: dev
+        captchaValue: "0"
+
+  - id: auth
+    action: codec.json.parse
+    params:
+      text: "{{steps.signin.body}}"
+
+  # 秒传：prepare 带上整文件 hash，服务端已有同样布局就直接复用，一片都不用传。
+  - id: prepare
+    action: http.send
+    params:
+      url: "{{input.base}}/api/v1/upload/prepare"
+      method: POST
+      token: "{{steps.auth.data.token}}"
+      json:
+        name: "{{steps.stat.name}}"
+        size: "{{steps.plan.size}}"
+        mime: application/octet-stream
+        chunk: "{{steps.plan.chunk}}"
+        hash: "{{steps.plan.hash}}"
+
+  - id: session
+    action: codec.json.parse
+    params:
+      text: "{{steps.prepare.body}}"
+
+  - id: bind
+    action: http.send
+    params:
+      url: "{{input.base}}/api/v1/upload/hash"
+      method: PATCH
+      token: "{{steps.auth.data.token}}"
+      json:
+        id: "{{steps.session.data.id}}"
+        hash: "{{steps.plan.hash}}"
+
+  - id: parts
+    repeat:
+      each: "{{steps.plan.chunks}}"
+      as: part
+    steps:
+      - id: put
+        action: http.send
+        # 秒传命中（服务端已有同样布局）时一片都不用传；`repeat` 上没有 `when`，
+        # 条件因此挂在这一步上：逐片判断，命中就都跳过。
+        when:
+          ne: ["{{steps.session.data.exists}}", true]
+        params:
+          url: "{{input.base}}/api/v1/upload/chunk"
+          method: POST
+          token: "{{steps.auth.data.token}}"
+          multipart:
+            id: "{{steps.session.data.id}}"
+            index: "{{part.index}}"
+            hash: "{{part.hex}}"
+            chunk:
+              path: "{{input.file}}"
+              offset: "{{part.offset}}"
+              length: "{{part.length}}"
+              filename: "chunk-{{part.index}}.part"
+              content_type: application/octet-stream
+        retry: 2
+
+  - id: finalize
+    action: http.send
+    params:
+      url: "{{input.base}}/api/v1/upload/finalize"
+      method: POST
+      token: "{{steps.auth.data.token}}"
+      json:
+        id: "{{steps.session.data.id}}"
+
+  - id: done
+    action: codec.json.parse
+    params:
+      text: "{{steps.finalize.body}}"

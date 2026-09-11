@@ -21,11 +21,11 @@
 | Action ID | 功能门控 | 必填 / 常用参数 | 说明 |
 |-----------|---------|--------------------------|--------|
 | `shell.run` | `act-shell` | `command` (str)；`args?`、`cwd?`、`host?`、`allow_nonzero?`、`input?`、`wait?` | 进程启动器（门面）；始终返回 `{stdout,stderr,exit_code,success}` |
-| `http.send` | `act-http` | `url`；`method?` (GET)、`params?`/`query?`、`headers?`、`token?`、`auth?`、`body?`、`json?`、`form?`、`timeout_ms?`、`follow_redirects?` | HTTP 客户端（curl/fetch 风格；响应体按块读并上报下载进度） |
+| `http.send` | `act-http` | `url`；`method?` (GET)、`params?`/`query?`、`headers?`、`token?`、`auth?`、`body?`、`json?`、`form?`、`multipart?`、`timeout_ms?`、`follow_redirects?` | HTTP 客户端（curl/fetch 风格；multipart 可带文件部件与字节区间） |
 | `clipboard.get` | `act-clipboard` | `format?` (`text` \| `image`) | 读取剪贴板 |
 | `clipboard.set` | `act-clipboard` | `format?`；`text?`；`file?` (image) | 写入剪贴板 |
 | `notify.send` | `act-notify` | `summary`；`body?`、`appname?` (corex) | 桌面通知 |
-| `file.read` | `act-file` | `path`；`mode?` (`content` \| `lines` \| `stat` \| `exists`)；`start_line?`/`end_line?`/`limit?`/`max_bytes?` | 全文、行窗或轻量元数据 |
+| `file.read` | `act-file` | `path`；`mode?` (`content` \| `lines` \| `stat` \| `exists` \| `bytes`)；`start_line?`/`end_line?`/`limit?`/`offset?`/`length?`/`max_bytes?` | 全文、行窗、二进制段或轻量元数据 |
 | `file.write` | `act-file` | `path`；`mode?` (`overwrite` \| `append` \| `str_replace` \| `replace_lines` \| `insert_lines` \| `delete_lines` \| `splice` \| `regex` \| `json_set` \| `patch`)；`newline?`；`backup?` | 写入 / 迷你 IDE 局部更新 |
 | `file.update` | `act-file` | `from`、`to`；`create_dirs?` | 重命名 / 移动文件 |
 | `file.copy` | `act-file` | `from`、`to` | 复制文件 |
@@ -46,6 +46,8 @@
 | `generate.uuid` | `act-generate` | `count?`、`uppercase?` | UUID（可多个） |
 | `generate.cvid` | `act-generate` | — | 紧凑 ID |
 | `generate.timestamp` | `act-generate` | `format?`、`utc?` | 当前时间 `{ value, unix, iso8601 }` |
+| `generate.hash` | `act-generate` | `algorithm?` (sha256)、`path?`/`text?`；`offset?`、`length?` | 流式摘要（sha256 / sha512 / md5），可只算一段 |
+| `generate.chunks` | `act-generate` | `path`、`chunk`；`algorithm?`、`offset?`、`length?` | 一遍读完：整段摘要 + 每片 `index`/`offset`/`length`/`hex`（分片上传用） |
 | `generate.path` | `act-generate` | `from`、`to`、`transform`；… | 路径变换 / 重命名辅助 |
 | `exec.run` | `act-exec` | `script` (path)；`args?`、`cwd?`、`host?`、`allow_nonzero?`、`input?`、`wait?` | 脚本文件运行器（与 `shell.run` 共用同一启动内核） |
 | `bootstrap.env` | `act-bootstrap` | — | 面向 Windows 的环境引导（非 Windows 会报错） |
@@ -204,6 +206,9 @@ IPC: `{"type":"invoke","action":"cron.schedule","params":{"expr":"0 0 12 * * *",
 
 - 示例：[`examples/actions/http.send.yaml`](../../examples/actions/http.send.yaml) · [`http-post-json.yaml`](../../examples/directives/http-post-json.yaml)
 - 进度：响应体逐块读取，`Content-Length` 作分母；分块传输（或压缩后）没有总量时只报已下载字节。
+- 上传大文件用 `multipart`：字段值为标量就是文本字段，值里带 `path` 就是文件部件，
+  可再给 `offset`/`length` 只发这一段字节（分片上传因此不必先落盘切片）。
+  它与 `json` / `form` / `body` 四选一。
 
 ```yaml
 - id: get
@@ -278,6 +283,21 @@ IPC: `{"type":"invoke","action":"template.render","params":{"template":"Hi","con
 ```
 
 IPC: `{"type":"invoke","action":"file.copy","params":{"from":"a.txt","to":"b.txt"}}`
+
+`mode: bytes` 读二进制：给出 `offset`/`length` 就只读这一段，返回 `Bytes`（可直接当 `http.send` 的 `body`）。
+上限是 `max_bytes`（默认 32 MiB）—— 大块数据应当用 `http.send` 的 multipart 文件部件直发，不必先进内存里的值。
+
+```yaml
+- id: head
+  action: file.read
+  params:
+    path: "{{env.TEMP}}/blob.bin"
+    mode: bytes
+    offset: 0
+    length: 4096
+```
+
+`mode: stat` 返回 `{ path, name, kind, size, readonly, modified? }`。
 
 #### `dir.write` / `dir.read` / `dir.update` / `dir.remove`
 
@@ -390,6 +410,28 @@ IPC: `{"type":"invoke","action":"compression.compress","params":{"from":"dir","t
 ```
 
 IPC: `{"type":"invoke","action":"codec.json.parse","params":{"text":"{\"a\":1}"}}`
+
+#### `generate.hash` / `generate.chunks`
+
+- 示例：[`upload-chunked.yaml`](../../examples/directives/upload-chunked.yaml)（分片上传的完整用法）
+- `generate.hash`：`path`（可带 `offset`/`length`）或 `text` → `{ algorithm, hex, size }`，流式读取，
+  10 GB 的文件也只占一个缓冲区；`md5` 是 `codec.hash.md5` 的通用形式。
+- `generate.chunks`：一遍读完文件，既给整段 `hash`，也给每片的 `index` / `offset` / `length` / `hex`。
+  分片边界因此不用在指令里算（`{{ }}` 只做取值，没有算术）。
+
+```yaml
+- id: plan
+  action: generate.chunks
+  params:
+    path: "{{input.file}}"
+    chunk: 10485760   # 每片 10 MiB
+```
+
+```text
+plan.size   26214400      plan.chunk  10485760
+plan.total  3             plan.hash   d0bbb823…（整文件 sha256）
+plan.chunks [{index:0, offset:0, length:10485760, hex:fe13ac…}, …]
+```
 
 ### 桌面与密钥
 
