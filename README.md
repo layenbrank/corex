@@ -33,7 +33,7 @@ corex actions file.copy        # 某个动作的参数表 + 可直接粘的步�
 | `corex create [名称]`                   | 指令脚手架（交互向导，或 `-t hello\|http\|file\|shell\|cron\|watch`） |
 | `corex edit <名称>` / `corex repl`      | 用编辑器打开 / 交互式 REPL                                            |
 | `corex schema`                          | 输出指令 YAML 的 JSON Schema，供编辑器补全与校验                      |
-| `corex completions <shell>`             | 打印 shell 补全脚本                                                   |
+| `corex completions <shell>`             | 打印 shell 补全注册脚本（候选由 corex 现算）                          |
 | `corex doctor`                          | 自检数据目录、配置、守护进程、动作与指令                              |
 | `corex daemon start\|stop\|status\|run` | Daemon 管理                                                           |
 | `corex ui ...`                          | Windows UI 探测                                                       |

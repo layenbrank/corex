@@ -21,7 +21,7 @@
 | Action ID | 功能门控 | 必填 / 常用参数 | 说明 |
 |-----------|---------|--------------------------|--------|
 | `shell.run` | `act-shell` | `command` (str)；`args?`、`cwd?`、`host?`、`allow_nonzero?`、`input?`、`wait?` | 进程启动器（门面）；始终返回 `{stdout,stderr,exit_code,success}` |
-| `http.send` | `act-http` | `url`；`method?` (GET)、`params?`/`query?`、`headers?`、`token?`、`auth?`、`body?`、`json?`、`form?`、`timeout_ms?`、`follow_redirects?` | HTTP 客户端（curl/fetch 风格） |
+| `http.send` | `act-http` | `url`；`method?` (GET)、`params?`/`query?`、`headers?`、`token?`、`auth?`、`body?`、`json?`、`form?`、`timeout_ms?`、`follow_redirects?` | HTTP 客户端（curl/fetch 风格；响应体按块读并上报下载进度） |
 | `clipboard.get` | `act-clipboard` | `format?` (`text` \| `image`) | 读取剪贴板 |
 | `clipboard.set` | `act-clipboard` | `format?`；`text?`；`file?` (image) | 写入剪贴板 |
 | `notify.send` | `act-notify` | `summary`；`body?`、`appname?` (corex) | 桌面通知 |
@@ -61,7 +61,7 @@
 | `capture.ocr` | `act-capture` | `file`；`language?` | OCR（Windows Media OCR） |
 | `capture.crop` | `act-capture` | `from`、`to`、`x`、`y`、`width`、`height` | 裁剪图像 |
 | `capture.monitors` | `act-capture` | — | 列出显示器（Windows 后端） |
-| `capture.find` | `act-capture` | `haystack`、`needle`；`threshold?`、`step?`、区域 | 模板匹配找图 |
+| `capture.find` | `act-capture` | `haystack`、`needle`；`threshold?`、`step?`、区域 | 模板匹配找图（逐行上报扫描进度） |
 | `ui.window.list` | `act-ui` | — | 列出顶层窗口（`hwnd`/`title`/`class`/`pid`） |
 | `ui.window.desktop` | `act-ui` | — | 桌面图标 ListItem |
 | `ui.window.focus` | `act-ui` | `title_contains?`、`hwnd?`、`prefer_largest?`、`class_name?` | 聚焦窗口；更新 ui_session 作用域 |
@@ -86,9 +86,9 @@
 | `process.list` / `kill` | `act-sys` | list:`name_contains?`；kill:`pid` | 进程枚举/结束 |
 | `morph.meta` | `act-morph` | `path` | **未实现** —— 调用即返回错误 |
 | `morph.render` | `act-morph` | `path`；`offset?`、`scale?` | **未实现** —— 调用即返回错误 |
-| `morph.export` | `act-morph` | `src`、`dest` | PDF 导出 |
-| `morph.merge` | `act-morph` | `paths`、`dest` | 合并 PDF |
-| `morph.split` | `act-morph` | `path`、`dir`；`limit?`、`ranges?` | 拆分 PDF |
+| `morph.export` | `act-morph` | `src`、`dest` | PDF 导出（按字节上报进度） |
+| `morph.merge` | `act-morph` | `paths`、`dest` | 合并 PDF（按输入文件数上报进度） |
+| `morph.split` | `act-morph` | `path`、`dir`；`limit?`、`ranges?` | 拆分 PDF（按输出分段数上报进度） |
 
 > **可运行示例：** 多步流程见 [`examples/directives/`](../../examples/directives/README.md)；单 Action 存根见 [`examples/actions/`](../../examples/actions/README.md)。
 
@@ -203,6 +203,7 @@ IPC: `{"type":"invoke","action":"cron.schedule","params":{"expr":"0 0 12 * * *",
 #### `http.send`
 
 - 示例：[`examples/actions/http.send.yaml`](../../examples/actions/http.send.yaml) · [`http-post-json.yaml`](../../examples/directives/http-post-json.yaml)
+- 进度：响应体逐块读取，`Content-Length` 作分母；分块传输（或压缩后）没有总量时只报已下载字节。
 
 ```yaml
 - id: get
@@ -432,6 +433,7 @@ IPC: `{"type":"invoke","action":"codec.json.parse","params":{"text":"{\"a\":1}"}
 #### `capture.screenshot` / `capture.crop` / `capture.monitors` / `capture.ocr`
 
 - 示例：[`examples/actions/capture.screenshot.yaml`](../../examples/actions/capture.screenshot.yaml) · [`capture-demo.yaml`](../../examples/directives/capture-demo.yaml)
+- `capture.ocr` 是一次 WinRT 调用，中间没有可拆的块，因此它不上报分块进度（要看进度的是 `capture.find`）。
 
 ```yaml
 - id: shot
@@ -471,6 +473,7 @@ IPC: `{"type":"invoke","action":"capture.screenshot","params":{"to":"C:/Temp/sho
 #### `morph.export` / `morph.merge` / `morph.split`
 
 - 示例：[`examples/actions/morph.export.yaml`](../../examples/actions/morph.export.yaml) · [`morph-demo.yaml`](../../examples/directives/morph-demo.yaml)
+- 进度：`export` 按字节（与 `file.copy` 同一条链路）；`merge` 按输入文件数、`split` 按输出分段数（条目）。
 
 ```yaml
 - id: export
