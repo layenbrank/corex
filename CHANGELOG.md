@@ -8,7 +8,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 See also [Conventional Commits](https://www.conventionalcommits.org/).
 
 ---
-## [Unreleased](https://github.com/layenbrank/corex/compare/v6.0.1..HEAD)
+## [7.0.0](https://github.com/layenbrank/corex/compare/v6.1.0..v7.0.0) - 2026-09-11
+
+### 🚀 Features
+- **(engine)** watch 计时收敛为防抖门 + 节流门，并开放执行边沿 · ([`82ca328`](https://github.com/layenbrank/corex/commit/82ca32803483ec263202d1d227ffc07e9f4bd13c)) · lh
+- **(registry)** shell.run / exec.run 支持 input 写入子进程 stdin · ([`e44d0f8`](https://github.com/layenbrank/corex/commit/e44d0f8a6c7a47c510cb6065e2268d69d401e77a)) · lh
+
+---
+## [6.1.0](https://github.com/layenbrank/corex/compare/v6.0.1..v6.1.0) - 2026-09-10
 
 ### 🚀 Features
 - **(core)** 抽出 config 模块，配置解析失败即报错 · ([`24087ad`](https://github.com/layenbrank/corex/commit/24087ad92f94126a7df8874eeea8c3216cec1ae5)) · lh
@@ -33,6 +40,10 @@ See also [Conventional Commits](https://www.conventionalcommits.org/).
 
 ### 🎨 Style
 - 统一命名与文案（去掉 list / apply / load，注释与显示名中文化） · ([`d102344`](https://github.com/layenbrank/corex/commit/d1023442d02ff74279221d712319cf9f7e94fc98)) · lh
+
+
+### 📦 Release
+- **(release)** bump version to 6.1.0 · ([`39c19e7`](https://github.com/layenbrank/corex/commit/39c19e7815d6a65d4a24bb744ea9f227ee2fa8fe)) · lh
 
 
 ### 🔧 Miscellaneous
@@ -424,7 +435,8 @@ See also [Conventional Commits](https://www.conventionalcommits.org/).
 - fluxor.yml · ([`322cb9c`](https://github.com/layenbrank/corex/commit/322cb9cb8c1e91f0b0a0b47e0014ae4c872fa846)) · layenbrank
 - Remove legacy notification examples and related files to streamline the project structure and focus on the updated notification system. This includes deleting old test files, configuration files, and XML templates that are no longer in use. · ([`fc89b31`](https://github.com/layenbrank/corex/commit/fc89b313725223dd1b0ce38ed5ad6b877f9a16e8)) · 李贺
 
-[unreleased]: https://github.com/layenbrank/corex/compare/v6.0.1..HEAD
+[7.0.0]: https://github.com/layenbrank/corex/compare/v6.1.0..v7.0.0
+[6.1.0]: https://github.com/layenbrank/corex/compare/v6.0.1..v6.1.0
 [6.0.1]: https://github.com/layenbrank/corex/compare/v6.0.0..v6.0.1
 [6.0.0]: https://github.com/layenbrank/corex/compare/v5.3.1..v6.0.0
 [5.3.1]: https://github.com/layenbrank/corex/compare/v5.3.0..v5.3.1
