@@ -818,7 +818,7 @@ dependencies = [
 
 [[package]]
 name = "corex"
-version = "7.0.1"
+version = "7.1.0"
 dependencies = [
  "anyhow",
  "clap",
@@ -841,7 +841,7 @@ dependencies = [
 
 [[package]]
 name = "corex-core"
-version = "7.0.1"
+version = "7.1.0"
 dependencies = [
  "async-trait",
  "serde",
@@ -854,7 +854,7 @@ dependencies = [
 
 [[package]]
 name = "corex-daemon"
-version = "7.0.1"
+version = "7.1.0"
 dependencies = [
  "anyhow",
  "clap",
@@ -872,7 +872,7 @@ dependencies = [
 
 [[package]]
 name = "corex-engine"
-version = "7.0.1"
+version = "7.1.0"
 dependencies = [
  "async-trait",
  "chrono",
@@ -900,7 +900,7 @@ dependencies = [
 
 [[package]]
 name = "corex-ipc"
-version = "7.0.1"
+version = "7.1.0"
 dependencies = [
  "async-trait",
  "corex-core",
@@ -916,7 +916,7 @@ dependencies = [
 
 [[package]]
 name = "corex-plugin-sdk"
-version = "7.0.1"
+version = "7.1.0"
 dependencies = [
  "serde",
  "serde_json",
@@ -924,7 +924,7 @@ dependencies = [
 
 [[package]]
 name = "corex-registry"
-version = "7.0.1"
+version = "7.1.0"
 dependencies = [
  "arboard",
  "async-trait",
@@ -966,7 +966,7 @@ dependencies = [
 
 [[package]]
 name = "corex-updater"
-version = "7.0.1"
+version = "7.1.0"
 dependencies = [
  "chrono",
  "corex-core",

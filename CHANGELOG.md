@@ -8,12 +8,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 See also [Conventional Commits](https://www.conventionalcommits.org/).
 
 ---
+## [7.1.0](https://github.com/layenbrank/corex/compare/v7.0.1..v7.1.0) - 2026-09-11
+
+### 🚀 Features
+- **(cli)** run 出进度，并补齐诊断与脚手架（doctor / schema / completions / actions <id>） · ([`91566fe`](https://github.com/layenbrank/corex/commit/91566fe4f4fdbc0b97714bf7165c8307c4d21307)) · lh
+- **(core,engine)** 执行进度上报口（Observer），长耗时动作可汇报分块进度 · ([`9e3a0e2`](https://github.com/layenbrank/corex/commit/9e3a0e252d7b35dac23faeae9055780c359e008c)) · lh
+- **(ipc,daemon)** 请求可开流进度帧，端点解析收敛到 corex-ipc · ([`c7bf378`](https://github.com/layenbrank/corex/commit/c7bf378b12b50c9c032bdabb4dc8dabc94a179bb)) · lh
+- **(registry)** file.copy 与删除类动作上报分块进度 · ([`ab17677`](https://github.com/layenbrank/corex/commit/ab17677339b806d3f2fee2bdb2522fb84c5fb32c)) · lh
+
+
+### 📚 Documentation
+- 补 v7 的进度通道、CLI 交互与 IPC 端点说明 · ([`e8044cd`](https://github.com/layenbrank/corex/commit/e8044cd1d5a6e1a2c1e75d75fbde49b0c3b5df9d)) · lh
+
+---
 ## [7.0.1](https://github.com/layenbrank/corex/compare/v7.0.0..v7.0.1) - 2026-09-11
 
 ### 📚 Documentation
 - **(examples)** 补齐示例索引漏项 · ([`4a2519d`](https://github.com/layenbrank/corex/commit/4a2519db294190eea4f769fc1be3a7326b8edd41)) · lh
 - 把 README 与文档索引的版本号同步到 v7.0.0 · ([`0e3e757`](https://github.com/layenbrank/corex/commit/0e3e757fd10a25103ccb534902bf3459f18c4eed)) · lh
 - 把文档与技能里的版本代称从 v6 同步到 v7 · ([`576bbe3`](https://github.com/layenbrank/corex/commit/576bbe31bf85733a07cce0a5a34d1b49f59ea0a9)) · lh
+
+
+### 📦 Release
+- **(release)** bump version to 7.0.1 · ([`a973cfb`](https://github.com/layenbrank/corex/commit/a973cfbd9d9c15166fa1cb0d556b37369eb9bbc8)) · lh
 
 ---
 ## [7.0.0](https://github.com/layenbrank/corex/compare/v6.1.0..v7.0.0) - 2026-09-11
@@ -447,6 +464,7 @@ See also [Conventional Commits](https://www.conventionalcommits.org/).
 - fluxor.yml · ([`322cb9c`](https://github.com/layenbrank/corex/commit/322cb9cb8c1e91f0b0a0b47e0014ae4c872fa846)) · layenbrank
 - Remove legacy notification examples and related files to streamline the project structure and focus on the updated notification system. This includes deleting old test files, configuration files, and XML templates that are no longer in use. · ([`fc89b31`](https://github.com/layenbrank/corex/commit/fc89b313725223dd1b0ce38ed5ad6b877f9a16e8)) · 李贺
 
+[7.1.0]: https://github.com/layenbrank/corex/compare/v7.0.1..v7.1.0
 [7.0.1]: https://github.com/layenbrank/corex/compare/v7.0.0..v7.0.1
 [7.0.0]: https://github.com/layenbrank/corex/compare/v6.1.0..v7.0.0
 [6.1.0]: https://github.com/layenbrank/corex/compare/v6.0.1..v6.1.0
