@@ -7,6 +7,7 @@
 //! 引擎只负责在正确的位置把事实说出来。守护进程、CLI、嵌入式宿主因此共用同一套事实源。
 
 use serde::{Deserialize, Serialize};
+use std::sync::Arc;
 use std::time::Duration;
 
 /// 步骤在指令里的位置。借自正在执行的指令，不复制字符串。
@@ -55,6 +56,47 @@ pub trait Observer: Send + Sync + std::fmt::Debug {
 
     /// 动作步骤结束。`took` 是整步的墙钟耗时，`ok` 为假表示这一步以失败告终。
     fn end(&self, _at: Spot<'_>, _took: Duration, _ok: bool) {}
+}
+
+/// 可持有、可跨线程的上报句柄。
+///
+/// 阻塞任务里的动作借不到 [`ExecutionContext`]——它只在执行栈上——而长时间没动静的
+/// 恰恰是那些地方（模板匹配、OCR）。[`reporter`] 把上报口与当前步骤复制成一个可 `Send`
+/// 的句柄，之后在哪个线程上报都行。
+///
+/// [`ExecutionContext`]: crate::ExecutionContext
+/// [`reporter`]: crate::ExecutionContext::reporter
+#[derive(Debug, Clone)]
+pub struct Reporter {
+    observer: Arc<dyn Observer>,
+    id: String,
+    action: String,
+}
+
+impl Reporter {
+    /// 只由 [`ExecutionContext`] 构造：拿到的句柄一定对应一个真实存在的步骤。
+    ///
+    /// [`ExecutionContext`]: crate::ExecutionContext
+    pub(crate) fn new(observer: Arc<dyn Observer>, at: &Owned) -> Self {
+        Self {
+            observer,
+            id: at.id.clone(),
+            action: at.action.clone(),
+        }
+    }
+
+    /// 上报一块进度，语义与 [`ExecutionContext::chunk`] 相同。
+    ///
+    /// [`ExecutionContext::chunk`]: crate::ExecutionContext::chunk
+    pub fn chunk(&self, done: u64, total: Option<u64>, unit: Unit) {
+        self.observer.chunk(
+            Spot {
+                id: &self.id,
+                action: &self.action,
+            },
+            Mark { done, total, unit },
+        );
+    }
 }
 
 /// [`Spot`] 的持有形式：引擎在调用动作前把它放进 [`ExecutionContext`]，

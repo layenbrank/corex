@@ -1,6 +1,6 @@
 //! 传给每次动作调用的执行上下文。
 
-use crate::progress::{Mark, Observer, Owned, Spot, Unit};
+use crate::progress::{Mark, Observer, Owned, Reporter, Spot, Unit};
 use crate::value::Value;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -502,7 +502,9 @@ impl ExecutionContext {
     /// 上报当前步骤的分块进度。
     ///
     /// 没有上报口、或不在动作步骤内时是空操作，因此动作可以无条件调用它。
-    /// `unit` 只影响展示，上报口不负责换算。
+    /// `unit` 只影响展示，上报口不负责换算。要跨线程报，先用 [`reporter`]。
+    ///
+    /// [`reporter`]: Self::reporter
     pub fn chunk(&self, done: u64, total: Option<u64>, unit: Unit) {
         let (Some(observer), Some(current)) = (&self.observer, &self.current) else {
             return;
@@ -514,6 +516,16 @@ impl ExecutionContext {
             },
             Mark { done, total, unit },
         );
+    }
+
+    /// 取一个可持有、可跨线程的上报句柄。
+    ///
+    /// 没有上报口、或不在动作步骤内时返回 `None`。阻塞任务里的动作（模板匹配、OCR）
+    /// 只能用它：工作线程上借不到 `&self`，而进度恰好出在那里。
+    pub fn reporter(&self) -> Option<Reporter> {
+        let observer = self.observer.clone()?;
+        let current = self.current.as_ref()?;
+        Some(Reporter::new(observer, current))
     }
 
     pub fn set_variable(&mut self, name: impl Into<String>, value: Value) {
