@@ -201,6 +201,18 @@ pub(crate) fn use_utf8_console() {
 #[cfg(not(windows))]
 pub(crate) fn use_utf8_console() {}
 
+/// 控制台当前的输出代码页；没有连接控制台时为 `None`。
+///
+/// 进程启动时 [`use_utf8_console`] 会把它设成 UTF-8，所以这里读到 65001 是预期结果；
+/// 读到别的值（或读不到）说明那次设置没生效，而中文乱码正是从那里开始的。
+#[cfg(windows)]
+pub(crate) fn console_page() -> Option<u32> {
+    use windows::Win32::System::Console::GetConsoleOutputCP;
+    // 没有控制台时返回 0，而不是报错。
+    let page = unsafe { GetConsoleOutputCP() };
+    (page != 0).then_some(page)
+}
+
 /// 往 stdout 写一行；见 [`line`]。
 macro_rules! outln {
     ($($arg:tt)*) => {

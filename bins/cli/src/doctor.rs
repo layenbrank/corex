@@ -33,6 +33,7 @@ pub(crate) async fn run() -> Result<()> {
             schema::DIRECTIVE.len()
         ),
     );
+    check_console(&mut report);
 
     match settings::source() {
         Some(path) => {
@@ -92,6 +93,31 @@ pub(crate) async fn run() -> Result<()> {
     outln!("");
     report.finish()
 }
+
+/// 控制台编码：中文乱码的根源，而它只存在于 Windows。
+///
+/// `output::use_utf8_console` 在启动时已经把输出代码页改成 UTF-8，这里报的是它**没生效**
+/// 的那种情况——没有控制台（输出被重定向、由别的程序拉起），或那次调用失败了。
+#[cfg(windows)]
+fn check_console(report: &mut Report) {
+    /// `CP_UTF8`
+    const UTF8: u32 = 65001;
+    match output::console_page() {
+        Some(UTF8) => report.ok("控制台编码", "65001 (UTF-8)".into()),
+        Some(page) => report.note(
+            "控制台编码",
+            format!("{page} —— 中文与符号可能乱码，chcp 65001 可切换"),
+        ),
+        None => report.note(
+            "控制台编码",
+            "未连接控制台（子进程输出按系统代码页解码）".into(),
+        ),
+    }
+}
+
+/// 非 Windows 上编码没有代码页这回事：字节流就是 UTF-8。
+#[cfg(not(windows))]
+fn check_console(_report: &mut Report) {}
 
 /// 数据目录能不能写：写一个探针文件再删掉。
 ///
