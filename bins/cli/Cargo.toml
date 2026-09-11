@@ -18,13 +18,15 @@ corex-engine = { workspace = true, features = ["triggers"] }
 # （`discovery::discover` 只属于守护进程），所以这里的 wasm 运行时是
 # 够不着的体积。`quality.yml` 的 `features` 任务断言 CLI
 # 依赖树里不含 wasmtime。
-corex-registry     = { workspace = true }
-corex-ipc          = { workspace = true }
-corex-updater      = { workspace = true }
-anyhow             = { workspace = true }
-chrono             = { workspace = true }
-clap               = { workspace = true }
-clap_complete      = { workspace = true }
+corex-registry = { workspace = true }
+corex-ipc      = { workspace = true }
+corex-updater  = { workspace = true }
+anyhow         = { workspace = true }
+chrono         = { workspace = true }
+clap           = { workspace = true }
+# `unstable-dynamic`：补全候选由 `corex` 自己现算（`COMPLETE=<shell> corex --`），
+# 升级后不必重新生成脚本，见 `main.rs` 开头的 `CompleteEnv`。
+clap_complete      = { workspace = true, features = ["unstable-dynamic"] }
 dialoguer          = { workspace = true }
 indicatif          = { workspace = true }
 rustyline          = { workspace = true }

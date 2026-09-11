@@ -625,3 +625,44 @@ fn doctor_reports_the_data_directory() {
     let stdout = String::from_utf8_lossy(&out.stdout);
     assert!(stdout.contains("corex"), "stdout: {stdout}");
 }
+
+/// 补全脚本是**回调式**的：脚本只把 shell 挂回 `corex`，候选由本进程现算。
+///
+/// 这条链路有两段，而两段写坏的观感完全一样：按 Tab 什么都不出来。
+#[test]
+fn completions_registers_a_callback() {
+    let out = run(&["completions", "bash"]);
+    assert!(
+        out.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let script = String::from_utf8_lossy(&out.stdout);
+    assert!(script.contains("COMPLETE=\"bash\""), "script: {script}");
+    assert!(script.contains("_clap_complete_corex"), "script: {script}");
+    assert!(script.contains("complete -"), "script: {script}");
+}
+
+/// 回调那一段：`COMPLETE=<shell> corex -- <命令行>` 要吐出候选。
+///
+/// bash 版的游标位置来自环境变量（PowerShell 版来自参数个数），这里补上它就是
+/// `corex ru<Tab>` 那一刻。
+#[test]
+fn completion_callback_returns_candidates() {
+    let out = Command::new(COREX)
+        .args(["--", "corex", "ru"])
+        .env("COMPLETE", "bash")
+        .env("_CLAP_COMPLETE_INDEX", "1")
+        .output()
+        .expect("corex completes");
+    assert!(
+        out.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let candidates = String::from_utf8_lossy(&out.stdout);
+    assert!(
+        candidates.lines().any(|line| line.trim() == "run"),
+        "candidates: {candidates:?}"
+    );
+}

@@ -38,6 +38,10 @@ use std::process::{Command, ExitCode, Stdio};
 
 #[tokio::main]
 async fn main() -> ExitCode {
+    // 动态补全：shell 用 `COMPLETE=<shell> corex -- …` 回来问候选。它必须跑在**任何
+    // stdout 输出之前**——注册与候选都是写 stdout 然后直接退出的。
+    clap_complete::CompleteEnv::with_factory(<Cli as clap::CommandFactory>::command).complete();
+
     // 先设控制台代码页：中文与符号经 console 输出时按当前代码页解码，cp936 下会乱码。
     output::use_utf8_console();
 
@@ -275,14 +279,27 @@ pub(crate) fn edit(name: &str, dir: Option<&Path>) -> Result<()> {
     Ok(())
 }
 
-/// 打印某个 shell 的补全脚本。
+/// 打印某个 shell 的补全注册脚本。
 ///
-/// 走 `output::bytes` 而不是 `outln!`：生成的是脚本，不是一行文本，而 shell 补全
-/// 最常见的用法就是 `corex completions powershell | Out-File ...`——这条管道的读方随时会离开。
+/// 脚本只做一件事：把该 shell 的补全回调指向 `corex` 自己（`COMPLETE=<shell> corex -- …`）。
+/// 候选因此是当前这个二进制现算的——升级 corex 之后不必重新生成脚本，
+/// 生成静态候选表的旧路子也就不必留了。
+///
+/// 走 `output::bytes` 而不是 `outln!`：这是一整份脚本，不是一行文本，而补全最常见的
+/// 用法就是 `corex completions powershell | Out-File ...`——这条管道的读方随时会离开。
 fn completions(shell: clap_complete::Shell) -> Result<()> {
+    use clap_complete::env::Shells;
+
+    let name = shell.to_string();
+    let shells = Shells::builtins();
+    let completer = shells
+        .completer(&name)
+        .ok_or_else(|| anyhow::anyhow!("不支持的 shell: {name}"))?;
     let mut script = Vec::new();
-    let mut command = <Cli as clap::CommandFactory>::command();
-    clap_complete::generate(shell, &mut command, "corex", &mut script);
+    // `bin` 与 `completer` 都用名字而不是当前 exe 路径：换版本 / 挪位置后脚本照样能用。
+    completer
+        .write_registration("COMPLETE", "corex", "corex", "corex", &mut script)
+        .context("生成补全脚本失败")?;
     output::bytes(&script)?;
     Ok(())
 }

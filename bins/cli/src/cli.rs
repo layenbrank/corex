@@ -110,7 +110,7 @@ pub(crate) enum Commands {
         #[arg(long, value_name = "PATH")]
         write: Option<PathBuf>,
     },
-    /// 打印某个 shell 的补全脚本
+    /// 打印某个 shell 的补全注册脚本（候选由 corex 现算，升级后无需重生成）
     Completions {
         /// 目标 shell
         shell: clap_complete::Shell,
