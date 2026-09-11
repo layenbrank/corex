@@ -15,6 +15,8 @@ wparam = "wparam"
 # 配置文档里故意写错的对照例：拼错的
 # `strict_permissons` 正是解析器如今会拒绝的写法。
 permissons = "permissons"
+# 集成测试里故意拼错的动作 id：它断言 `corex actions` 会给出最接近的名字。
+coppy = "coppy"
 
 [files]
 extend-exclude = [

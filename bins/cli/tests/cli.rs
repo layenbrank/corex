@@ -238,3 +238,301 @@ fn missing_directive_is_a_usage_error() {
         String::from_utf8_lossy(&out.stderr)
     );
 }
+
+/// 写一条指令的临时夹具，返回 (目录, yaml 路径)。
+fn directive(name: &str, body: &str) -> (tempfile::TempDir, std::path::PathBuf) {
+    let dir = tempfile::tempdir().expect("temp dir");
+    let path = dir.path().join(format!("{name}.yaml"));
+    std::fs::write(&path, body).expect("write fixture");
+    (dir, path)
+}
+
+/// 两步骤的最小指令：第一步渲染，第二步把结果写进临时目录。
+const TWO_STEPS: &str = concat!(
+    "name: probe\n",
+    "permissions:\n",
+    "  filesystem: true\n",
+    "steps:\n",
+    "  - id: render\n",
+    "    action: template.render\n",
+    "    params:\n",
+    "      template: \"hi\"\n",
+    "    save_to: message\n",
+    "  - id: write\n",
+    "    action: file.write\n",
+    "    params:\n",
+    "      path: \"{{env.TEMP}}/corex-cli-test.txt\"\n",
+    "      content: \"{{message}}\"\n",
+);
+
+/// 进度是给人看的，而且不能跑进 stdout：结果通道被污染，`| jq` 立刻读不懂。
+#[test]
+fn progress_goes_to_stderr_not_stdout() {
+    let (_dir, path) = directive("probe", TWO_STEPS);
+    let out = run(&["run", path.to_str().expect("utf-8 path")]);
+
+    assert!(
+        out.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(stderr.contains("template.render"), "stderr: {stderr}");
+    assert!(stderr.contains("file.write"), "stderr: {stderr}");
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(
+        !stdout.contains("template.render"),
+        "progress must not reach stdout: {stdout}"
+    );
+    // 结果仍然是一份可解析的 JSON 文档。
+    let value: serde_json::Value = serde_json::from_str(&stdout).expect("stdout is JSON");
+    assert!(value.is_object(), "stdout: {stdout}");
+}
+
+/// `--quiet` 必须真的安静，否则脚本里的 stderr 会多出没人要的行。
+#[test]
+fn quiet_drops_the_progress_channel() {
+    let (_dir, path) = directive("probe", TWO_STEPS);
+    let out = run(&["run", path.to_str().expect("utf-8 path"), "--quiet"]);
+
+    assert!(out.status.success());
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(
+        !stderr.contains("template.render") && !stderr.contains("file.write"),
+        "stderr: {stderr}"
+    );
+}
+
+/// `--json-events`：stdout 是 NDJSON，最后一条固定是 `result`。
+///
+/// 每一行的负载就是 `corex_ipc::ProgressEvent`——与 daemon 在 `--remote` 下推回来的帧
+/// 是同一种词汇，所以宿主不必为两条路径记两套字段名。
+#[test]
+fn json_events_end_with_the_result() {
+    let (_dir, path) = directive("probe", TWO_STEPS);
+    let out = run(&["run", path.to_str().expect("utf-8 path"), "--json-events"]);
+
+    assert!(
+        out.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    let events: Vec<serde_json::Value> = stdout
+        .lines()
+        .map(|line| serde_json::from_str(line).unwrap_or_else(|e| panic!("{line}: {e}")))
+        .collect();
+    assert_eq!(
+        events.first().and_then(|e| e["kind"].as_str()),
+        Some("step_start")
+    );
+    assert_eq!(
+        events.last().and_then(|e| e["kind"].as_str()),
+        Some("result")
+    );
+    assert!(
+        events
+            .iter()
+            .any(|e| e["kind"] == "step_end" && e["ok"] == true),
+        "expected a successful step_end: {stdout}"
+    );
+}
+
+/// 没给指令名时，非终端环境必须当场失败，而不是静默挑一条跑。
+#[test]
+fn run_without_a_name_needs_a_terminal() {
+    let dir = tempfile::tempdir().expect("temp dir");
+    let out = run(&["--dir", dir.path().to_str().expect("utf-8 path"), "run"]);
+    assert_eq!(
+        out.status.code(),
+        Some(2),
+        "stderr: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+}
+
+/// 拼错动作 id 也是用法失误，并且要给出最接近的名字。
+#[test]
+fn unknown_action_suggests_a_neighbour() {
+    let out = run(&["actions", "file.coppy"]);
+    assert_eq!(
+        out.status.code(),
+        Some(2),
+        "stderr: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(stderr.contains("file.copy"), "stderr: {stderr}");
+}
+
+/// `--dry-run` 不执行，但要把步骤摊开；权限不覆盖时照旧退 3。
+#[test]
+fn dry_run_plans_without_executing() {
+    let dir = tempfile::tempdir().expect("temp dir");
+    // 输出路径跟着临时目录走：别的用例也会往 TEMP 里写文件，共用一个路径就会互相干扰。
+    let target = dir.path().join("should-not-exist.txt");
+    let path = dir.path().join("probe.yaml");
+    let body = format!(
+        concat!(
+            "name: probe\n",
+            "permissions:\n",
+            "  filesystem: true\n",
+            "steps:\n",
+            "  - id: render\n",
+            "    action: template.render\n",
+            "    params:\n",
+            "      template: \"hi\"\n",
+            "    save_to: message\n",
+            "  - id: write\n",
+            "    action: file.write\n",
+            "    params:\n",
+            "      path: \"{}\"\n",
+            "      content: \"{{{{message}}}}\"\n",
+        ),
+        // Windows 路径要换成正斜杠：双引号标量里的 `\U` 是 YAML 转义序列。
+        target.display().to_string().replace('\\', "/")
+    );
+    std::fs::write(&path, body).expect("write fixture");
+
+    let out = run(&["run", path.to_str().expect("utf-8 path"), "--dry-run"]);
+    assert!(
+        out.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(stdout.contains("render"), "stdout: {stdout}");
+    assert!(stdout.contains("file.write"), "stdout: {stdout}");
+    assert!(
+        !target.exists(),
+        "--dry-run must not execute steps: {}",
+        target.display()
+    );
+
+    let (_dir2, wide) = directive(
+        "too-wide",
+        concat!(
+            "name: too-wide\n",
+            "permissions:\n",
+            "  network: true\n",
+            "steps:\n",
+            "  - id: write\n",
+            "    action: file.write\n",
+            "    params:\n",
+            "      path: \"{{env.TEMP}}/corex-dry-probe.txt\"\n",
+            "      content: hi\n",
+        ),
+    );
+    let refused = run(&["run", wide.to_str().expect("utf-8 path"), "--dry-run"]);
+    assert_eq!(
+        refused.status.code(),
+        Some(3),
+        "stderr: {}",
+        String::from_utf8_lossy(&refused.stderr)
+    );
+}
+
+/// `corex create` 生成的骨架必须能直接通过 `--strict` 校验，
+/// 并在指令目录旁放一份 schema 供编辑器引用。
+#[test]
+fn created_scaffold_validates() {
+    let dir = tempfile::tempdir().expect("temp dir");
+    let base = dir.path().to_str().expect("utf-8 path").to_string();
+
+    let created = run(&["create", "probe", "-t", "hello", "--dir", &base]);
+    assert!(
+        created.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&created.stderr)
+    );
+
+    let yaml = dir.path().join("probe.yaml");
+    let text = std::fs::read_to_string(&yaml).expect("scaffold exists");
+    assert!(
+        text.contains("yaml-language-server"),
+        "the scaffold should carry the editor hint: {text}"
+    );
+    assert!(
+        dir.path().join("directive.schema.json").exists(),
+        "a schema copy should sit next to the directive"
+    );
+
+    let validated = run(&["validate", yaml.to_str().expect("utf-8 path"), "--strict"]);
+    assert!(
+        validated.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&validated.stderr)
+    );
+}
+
+/// `corex schema` 打出来的是完整 JSON，不是一行摘要。
+#[test]
+fn schema_is_emitted_as_json() {
+    let out = run(&["schema"]);
+    assert!(
+        out.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(stdout.contains("\"$schema\""), "stdout: {stdout}");
+    serde_json::from_str::<serde_json::Value>(&stdout).expect("schema is valid JSON");
+}
+
+/// `--watch` 要有东西可盯；空转的开关正是本仓库想清掉的东西。
+#[test]
+fn watch_without_a_path_is_a_usage_error() {
+    let out = run(&["validate", "--watch"]);
+    assert_eq!(
+        out.status.code(),
+        Some(2),
+        "stderr: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+}
+
+/// 未注册的动作是「你给的东西不对」，两条路径必须给同一个数字。
+/// `validate` 曾经走裸 `bail!`（退 1），而 `run --dry-run` 是 `ActionNotRegistered`（退 2）。
+#[test]
+fn an_unregistered_action_is_a_usage_error_on_both_paths() {
+    let (_dir, path) = directive(
+        "probe",
+        concat!(
+            "name: probe\n",
+            "steps:\n",
+            "  - id: nope\n",
+            "    action: does.not.exist\n",
+        ),
+    );
+    let file = path.to_str().expect("utf-8 path");
+
+    let validated = run(&["validate", file]);
+    assert_eq!(
+        validated.status.code(),
+        Some(2),
+        "validate stderr: {}",
+        String::from_utf8_lossy(&validated.stderr)
+    );
+
+    let previewed = run(&["run", file, "--dry-run"]);
+    assert_eq!(
+        previewed.status.code(),
+        Some(2),
+        "dry-run stderr: {}",
+        String::from_utf8_lossy(&previewed.stderr)
+    );
+}
+
+/// `corex doctor` 至少不能崩，且要把数据目录报出来。
+#[test]
+fn doctor_reports_the_data_directory() {
+    let out = run(&["doctor"]);
+    assert!(
+        out.status.code().is_some_and(|code| code <= 1),
+        "doctor should be 0 or 1, got {:?}: {}",
+        out.status.code(),
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(stdout.contains("corex"), "stdout: {stdout}");
+}

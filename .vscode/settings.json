@@ -4,7 +4,9 @@
       "examples/directives/*.yaml",
       "examples/directives/*.yml",
       "examples/actions/*.yaml",
-      "examples/actions/*.yml"
+      "examples/actions/*.yml",
+      "**/directives/*.yaml",
+      "**/directives/*.yml"
     ]
   }
 }

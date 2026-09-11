@@ -10,25 +10,32 @@
 
 ```powershell
 cargo build -p corex -p corex-daemon
-corex run hello
+corex run hello                # 不给名称也行：会在终端里列出来让你选
 corex run hello -i who=Corex
 corex schedule
-corex actions
+corex actions file.copy        # 某个动作的参数表 + 可直接粘的步骤片段
 ```
 
 ## 常用命令
 
-| 命令                                    | 说明                       |
-| --------------------------------------- | -------------------------- |
-| `corex run <名称\|路径>`                | 执行指令（`-i KEY=VALUE`） |
-| `corex schedule`                        | 列出指令                   |
-| `corex watch …` / `corex cron …`        | 文件监听 / 定时守护        |
-| `corex actions`                         | 列出 Action                |
-| `corex validate <path>`                 | 校验 YAML                  |
-| `corex create` / `edit` / `repl`        | 脚手架 / 编辑 / REPL       |
-| `corex daemon start\|stop\|status\|run` | Daemon 管理                |
-| `corex ui ...`                          | Windows UI 探测            |
-| `corex update`                          | 自更新（`--check` 只检查） |
+| 命令                                    | 说明                                                                  |
+| --------------------------------------- | --------------------------------------------------------------------- |
+| `corex run [名称\|路径]`                | 执行指令；省略名称就交互挑选，`-i KEY=VALUE` 传参                     |
+| `corex run <名称> --dry-run`            | 只解析与校验（含运行时权限门），打印将要执行的步骤                    |
+| `corex run <名称> --json-events`        | 步骤事件按 NDJSON 输出给宿主消费                                      |
+| `corex run <名称> --remote`             | 交给 `corex-daemon` 执行（插件 Action 只在它那里可用），进度按帧流回  |
+| `corex schedule`                        | 列出指令                                                              |
+| `corex watch …` / `corex cron …`        | 文件监听 / 定时守护                                                   |
+| `corex actions [id]`                    | 列出 Action；给 id 则打印参数表、权限与步骤片段                       |
+| `corex validate <path>`                 | 校验 YAML；`--watch` 存一次盘重校一次                                 |
+| `corex create [名称]`                   | 指令脚手架（交互向导，或 `-t hello\|http\|file\|shell\|cron\|watch`） |
+| `corex edit <名称>` / `corex repl`      | 用编辑器打开 / 交互式 REPL                                            |
+| `corex schema`                          | 输出指令 YAML 的 JSON Schema，供编辑器补全与校验                      |
+| `corex completions <shell>`             | 打印 shell 补全脚本                                                   |
+| `corex doctor`                          | 自检数据目录、配置、守护进程、动作与指令                              |
+| `corex daemon start\|stop\|status\|run` | Daemon 管理                                                           |
+| `corex ui ...`                          | Windows UI 探测                                                       |
+| `corex update`                          | 自更新（`--check` 只检查）                                            |
 
 ## 文档
 

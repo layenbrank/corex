@@ -22,15 +22,23 @@ static STDOUT_CLOSED: AtomicBool = AtomicBool::new(false);
 
 /// 往 stdout 写一行，容忍管道关闭。
 pub fn line(text: &str) {
-    write_stdout(text, true);
-}
-
-/// 往 stdout 写 `text`，不补换行，然后 flush。
-///
-/// 用于交互式提示：文字必须在程序阻塞等输入之前显示出来。
-pub fn prompt(text: &str) {
-    write_stdout(text, false);
-    let _ = io::stdout().flush();
+    // 读方走后，后续每次写入都只会以同样方式失败；直接跳过，
+    // 免得长列表白白付出几千次注定失败的 syscall。
+    if is_stdout_closed() {
+        return;
+    }
+    let stdout = io::stdout();
+    let result = {
+        let mut out = stdout.lock();
+        writeln!(out, "{text}")
+    };
+    match result {
+        Ok(()) => {}
+        Err(err) if err.kind() == io::ErrorKind::BrokenPipe => {
+            STDOUT_CLOSED.store(true, Ordering::Relaxed);
+        }
+        Err(err) => tracing::debug!(error = %err, "写入 stdout 失败"),
+    }
 }
 
 /// 把原始字节流写到 stdout，容忍管道关闭。
@@ -68,30 +76,6 @@ pub fn error_line(text: &str) {
 /// `main` 据此返回退出码 0，而不是失败。
 pub fn is_stdout_closed() -> bool {
     STDOUT_CLOSED.load(Ordering::Relaxed)
-}
-
-fn write_stdout(text: &str, newline: bool) {
-    // 读方走后，后续每次写入都只会以同样方式失败；直接跳过，
-    // 免得长列表白白付出几千次注定失败的 syscall。
-    if is_stdout_closed() {
-        return;
-    }
-    let stdout = io::stdout();
-    let result = {
-        let mut out = stdout.lock();
-        if newline {
-            writeln!(out, "{text}")
-        } else {
-            write!(out, "{text}")
-        }
-    };
-    match result {
-        Ok(()) => {}
-        Err(err) if err.kind() == io::ErrorKind::BrokenPipe => {
-            STDOUT_CLOSED.store(true, Ordering::Relaxed);
-        }
-        Err(err) => tracing::debug!(error = %err, "写入 stdout 失败"),
-    }
 }
 
 /// 往 stdout 写一行；见 [`line`]。

@@ -29,26 +29,52 @@ pub(crate) struct Cli {
 pub(crate) enum Commands {
     /// 按名称或文件路径运行指令
     #[command(long_about = "按名称或文件路径运行指令。\n\n\
+        省略名称时在终端里交互挑选；给出名称时会做模糊匹配，唯一命中就直接跑。\n\n\
         只有内置 Action 可用：`corex run` 在进程内执行，且刻意从不加载 WASM 插件，\
         所以使用插件提供的 Action 的指令会以 `动作未注册` 失败。这类指令请用守护进程\
         （`corex daemon start`，再通过 IPC 调用）。")]
     Run {
-        /// 指令名（不含 .yaml）或 YAML 文件路径
-        target: String,
+        /// 指令名（不含 .yaml）或 YAML 文件路径；省略则交互挑选
+        target: Option<String>,
         /// 输入，形式为 KEY=VALUE
         #[arg(short, long = "input", value_name = "KEY=VALUE")]
         inputs: Vec<String>,
+        /// 只解析与校验，打印将要执行的步骤，不真的执行
+        #[arg(long)]
+        dry_run: bool,
+        /// 把步骤事件按 NDJSON 写到 stdout（最后一条是 result）
+        #[arg(long = "json-events", conflicts_with = "quiet")]
+        json_events: bool,
+        /// 不打进度；结果照常输出
+        #[arg(short, long)]
+        quiet: bool,
+        /// 不要交互追问：缺指令名或必填输入就直接报错
+        #[arg(short = 'y', long)]
+        yes: bool,
+        /// 交给 corex-daemon 执行（插件 Action 只在它那里可用），进度按帧流回
+        #[arg(long, conflicts_with = "dry_run")]
+        remote: bool,
     },
     /// 列出可用指令名
     Schedule {
         #[arg(long)]
         dir: Option<PathBuf>,
     },
-    /// 列出已注册动作
-    Actions,
-    /// 生成新的指令骨架
+    /// 列出已注册动作；给 id 时打印它的参数表与步骤片段
+    Actions {
+        /// 动作 id，如 file.copy
+        id: Option<String>,
+    },
+    /// 生成新的指令骨架（交互向导，或 -t 选模板）
     Create {
-        name: String,
+        /// 指令名；省略则在交互里问
+        name: Option<String>,
+        /// 模板：内置名（blank / hello / http / file / cron / watch / ui）、目录或 YAML 路径
+        #[arg(short, long)]
+        template: Option<String>,
+        /// 目标文件已存在时覆盖
+        #[arg(short, long)]
+        force: bool,
         #[arg(long)]
         dir: Option<PathBuf>,
     },
@@ -65,7 +91,23 @@ pub(crate) enum Commands {
         /// 要求声明的权限覆盖全部步骤（仅指令）
         #[arg(long)]
         strict: bool,
+        /// 盯着文件改：每次保存后重新校验，Ctrl+C 退出
+        #[arg(long)]
+        watch: bool,
     },
+    /// 输出指令 YAML 的 JSON Schema，供编辑器补全与校验
+    Schema {
+        /// 写到该路径；省略则打到 stdout
+        #[arg(long, value_name = "PATH")]
+        write: Option<PathBuf>,
+    },
+    /// 打印某个 shell 的补全脚本
+    Completions {
+        /// 目标 shell
+        shell: clap_complete::Shell,
+    },
+    /// 自检：数据目录、配置、守护进程、动作与指令
+    Doctor,
     /// 交互式 REPL
     Repl,
     /// 守护进程控制
@@ -99,7 +141,8 @@ impl Commands {
     /// 本命令是否应该跑后台版本检查。
     ///
     /// 长时间运行的 supervisor 与面向机器的命令都跳过：它们的输出由脚本或宿主程序读取，
-    /// 那里弹一条主动发起的 stderr 提示只是噪声。`update` 跳过是因为它自己报告版本。
+    /// 那里弹一条主动发起的 stderr 提示只是噪声。`update` 跳过是因为它自己报告版本；
+    /// `schema` / `completions` 的输出会被重定向进文件；`doctor` 自己就在做检查。
     pub(crate) fn wants_update_notice(&self) -> bool {
         !matches!(
             self,
@@ -108,6 +151,9 @@ impl Commands {
                 | Commands::Watch { .. }
                 | Commands::Cron { .. }
                 | Commands::Ui { .. }
+                | Commands::Schema { .. }
+                | Commands::Completions { .. }
+                | Commands::Doctor
                 | Commands::Repl
         )
     }

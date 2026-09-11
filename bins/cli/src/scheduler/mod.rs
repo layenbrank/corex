@@ -7,6 +7,7 @@ mod control;
 mod logs;
 mod start;
 
+use crate::fuzzy;
 use anyhow::{Result, bail};
 use corex_core::EngineError;
 use corex_engine::{Directive, JobKind, JobMeta};
@@ -18,6 +19,28 @@ use std::sync::Arc;
 pub(crate) use control::{cmd_ps, cmd_restart, cmd_send, cmd_stop};
 pub(crate) use logs::{cmd_attach, cmd_logs};
 pub(crate) use start::{Spec, cmd_run};
+
+/// 仓库自带的演示指令目录，也是解析失败前的最后一站。
+const EXAMPLES: &str = "examples/directives";
+
+/// 一条可运行的指令：名字与它来自哪里。
+pub(crate) struct Named {
+    pub(crate) name: String,
+    pub(crate) path: PathBuf,
+    /// 来自 `examples/directives`（仓库自带），而不是用户的指令目录。
+    pub(crate) example: bool,
+}
+
+impl Named {
+    /// 列在选单 / `schedule` 里的一行。
+    pub(crate) fn label(&self) -> String {
+        if self.example {
+            format!("{}  (examples)", self.name)
+        } else {
+            self.name.clone()
+        }
+    }
+}
 
 /// 指令文件所在位置，`run` / `validate` / `schedule` 与两个调度器共用。
 pub(crate) struct Paths;
@@ -49,6 +72,52 @@ impl Paths {
         )))
     }
 
+    /// 像 [`Self::resolve`] 一样解析，但失败时把最接近的名字一并说出来。
+    ///
+    /// 手敲名字必然会有错别字，而“指令不存在”本身并不告诉用户拼错了哪个字母。
+    pub(crate) fn resolve_near(target: &str, dir: Option<&Path>) -> Result<PathBuf> {
+        if let Ok(path) = Self::resolve(target, dir) {
+            return Ok(path);
+        }
+        let near = Self::nearby(target, dir).unwrap_or_default();
+        let hint = if near.is_empty() {
+            format!("指令不存在: {target}（`corex schedule` 看全部）")
+        } else {
+            format!("指令不存在: {target}（最接近的: {}）", near.join("、"))
+        };
+        Err(anyhow::Error::new(EngineError::DirectiveNotFound(hint)))
+    }
+
+    /// 指令目录与 `examples/directives` 里的全部指令，按名字排序。
+    ///
+    /// 同名时以自有目录为准：用户自己的指令不应该被仓库里的演示遮住。
+    pub(crate) fn names(dir: Option<&Path>) -> Result<Vec<Named>> {
+        let mut found: Vec<Named> = Vec::new();
+        for (base, example) in [(Self::dir(dir)?, false), (PathBuf::from(EXAMPLES), true)] {
+            for path in yaml_files(&base)? {
+                let Some(name) = path.file_stem().and_then(|s| s.to_str()) else {
+                    continue;
+                };
+                if found.iter().any(|n| n.name == name) {
+                    continue;
+                }
+                found.push(Named {
+                    name: name.to_string(),
+                    path,
+                    example,
+                });
+            }
+        }
+        found.sort_by(|a, b| a.name.cmp(&b.name));
+        Ok(found)
+    }
+
+    /// 最像 `target` 的几个指令名（不区分大小写）。
+    pub(crate) fn nearby(target: &str, dir: Option<&Path>) -> Result<Vec<String>> {
+        let names: Vec<String> = Self::names(dir)?.into_iter().map(|n| n.name).collect();
+        Ok(fuzzy::nearest(target, &names))
+    }
+
     /// 指令目录：给了 `--dir` 就用它，否则是 `<data-dir>/directives`。
     pub(crate) fn dir(override_dir: Option<&Path>) -> Result<PathBuf> {
         if let Some(d) = override_dir {
@@ -58,6 +127,24 @@ impl Paths {
         std::fs::create_dir_all(&d)?;
         Ok(d)
     }
+}
+
+/// `base` 下的 `*.yaml` / `*.yml`（不递归）；目录不存在就是空列表。
+fn yaml_files(base: &Path) -> Result<Vec<PathBuf>> {
+    let mut found = Vec::new();
+    if !base.exists() {
+        return Ok(found);
+    }
+    for entry in std::fs::read_dir(base)? {
+        let path = entry?.path();
+        if matches!(
+            path.extension().and_then(|e| e.to_str()),
+            Some("yaml") | Some("yml")
+        ) {
+            found.push(path);
+        }
+    }
+    Ok(found)
 }
 
 /// `watch` 与 `cron` 共用的登记逻辑；两者只在 [`JobKind`] 上不同。

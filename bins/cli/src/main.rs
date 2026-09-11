@@ -1,15 +1,25 @@
 //! Corex CLI 入口。
 
+mod actions;
+mod ask;
 mod cli;
+mod create;
 mod cron;
+mod doctor;
 mod editor;
 mod exit;
+mod fuzzy;
 mod output;
+mod progress;
 mod repl;
+mod run;
 mod scheduler;
+mod schema;
 mod settings;
+mod steps;
 mod ui;
 mod update;
+mod validate;
 mod watch;
 
 use crate::cli::{Cli, Commands, DaemonCmd};
@@ -17,15 +27,13 @@ use crate::output::{errln, outln};
 use crate::scheduler::Paths;
 use anyhow::{Context, Result, bail};
 use clap::Parser;
-use corex_core::{ExecutionContext, Value};
-use corex_engine::{Directive, ExecutionAudit, ExecutionHistory, Pipeline, validate_permissions};
+use corex_core::Value;
 use corex_ipc::protocol::{Request, Response};
-use corex_ipc::{Transport, config_paths, data_dir, ipc_connect, ipc_endpoint};
+use corex_ipc::{Transport, config_paths, data_dir, ipc_connect};
 use corex_registry::ActionRegistry;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitCode, Stdio};
-use std::sync::Arc;
 
 #[tokio::main]
 async fn main() -> ExitCode {
@@ -82,14 +90,52 @@ async fn main() -> ExitCode {
 }
 
 /// 把解析好的命令送到对应实现。
-async fn dispatch(cli: Cli) -> Result<()> {
+///
+/// `corex repl` 也走这里：REPL 里的每一行都会被重新拼成 `corex ...` 再进来，
+/// 因此命令行与 REPL 永远共用同一套行为。
+pub(crate) async fn dispatch(cli: Cli) -> Result<()> {
     match cli.command {
-        Commands::Run { target, inputs } => cmd_run(&target, &inputs, cli.dir.as_deref()).await,
+        Commands::Run {
+            target,
+            inputs,
+            dry_run,
+            json_events,
+            quiet,
+            yes,
+            remote,
+        } => {
+            let options = run::Options {
+                inputs,
+                dry_run,
+                json_events,
+                quiet,
+                yes,
+                remote,
+            };
+            run::cmd_run(target.as_deref(), &options, cli.dir.as_deref()).await
+        }
         Commands::Schedule { dir } => cmd_schedule(dir.or(cli.dir).as_deref()),
-        Commands::Actions => cmd_actions(),
-        Commands::Create { name, dir } => cmd_create(&name, dir.or(cli.dir).as_deref()),
+        Commands::Actions { id } => actions::cmd_actions(id.as_deref()),
+        Commands::Create {
+            name,
+            template,
+            force,
+            dir,
+        } => create::cmd_create(
+            name.as_deref(),
+            template.as_deref(),
+            force,
+            dir.or(cli.dir).as_deref(),
+        ),
         Commands::Edit { name, dir } => cmd_edit(&name, dir.or(cli.dir).as_deref()),
-        Commands::Validate { path, strict } => cmd_validate(path.as_deref(), strict),
+        Commands::Validate {
+            path,
+            strict,
+            watch,
+        } => validate::cmd_validate(path.as_deref(), strict, watch).await,
+        Commands::Schema { write } => schema::cmd_schema(write.as_deref()),
+        Commands::Completions { shell } => cmd_completions(shell),
+        Commands::Doctor => doctor::cmd_doctor().await,
         Commands::Repl => repl::run(cli.dir).await,
         Commands::Watch { command } => watch::run(command, cli.dir.as_deref()).await,
         Commands::Cron { command } => cron::run(command, cli.dir.as_deref()).await,
@@ -103,10 +149,19 @@ async fn dispatch(cli: Cli) -> Result<()> {
 }
 
 fn init_tracing(verbose: u8) {
-    // 没有 `-v` 时由配置决定；`COREX_LOG` 仍然压过两者，因为下面的 env filter 会更早被查询。
-    let configured = settings::effective().logging.level.clone();
+    // CLI 的默认级别是 `warn`，**不是**配置里的 `[logging].level`。
+    //
+    // 理由是同一条事实不该在两个通道里各说一遍：CLI 已经有专门的进度通道（stderr 上的
+    // ✓ 行 + spinner）与结果通道（stdout），而引擎还会在同样的位置用日志格式再说一遍
+    // （`corex_engine::audit` 在每个步骤前后各一条 info）。两个通道讲同一件事的结果，
+    // 就是 `corex run` 的进度与结果被十几行 `INFO corex_engine::audit:` 埋掉。
+    //
+    // 想要日志时它是随手可得的：`-v` 开 debug、`-vv` 开 trace，`COREX_LOG` 压过两者
+    // （下面的 env filter 会更早被查询）。
+    //
+    // `[logging]` 因此只对守护进程生效——那里没有进度通道，日志流就是它的输出。
     let level = match verbose {
-        0 => configured.as_str(),
+        0 => "warn",
         1 => "debug",
         _ => "trace",
     };
@@ -115,7 +170,7 @@ fn init_tracing(verbose: u8) {
     let _ = tracing_subscriber::fmt()
         .with_timer(timer)
         // 用 stderr，绝不用 stdout。`fmt()` 默认写 stdout，于是任何 info 级事件都会
-        // 落在命令结果中间——`corex run x --json | jq` 就会看到它——而且读方提前关闭
+        // 落在命令结果中间——`corex run x --json-events | jq` 就会看到它——而且读方提前关闭
         // stdout（`| head`）时连日志写入者一起弄坏。
         .with_writer(std::io::stderr)
         .with_env_filter(
@@ -125,34 +180,19 @@ fn init_tracing(verbose: u8) {
         .try_init();
 }
 
-fn resolve_endpoint() -> Result<PathBuf> {
+/// 本次运行实际使用的 IPC 端点：配置里没写 `socket_path` 时就是平台默认端点。
+///
+/// 端点无效属于配置问题，所以走 `EngineError::Config`（退出码 2），
+/// 与「配置损坏」保持一致，而不是退成通用失败。
+pub(crate) fn resolve_endpoint() -> Result<PathBuf> {
     let data = data_dir()?;
-    let config = settings::effective();
-    if let Some(p) = &config.daemon.socket_path {
-        return Ok(resolve_data_relative(&data, p));
-    }
-    Ok(ipc_endpoint(&data))
-}
-
-/// 解析配置里的路径：绝对路径原样；相对路径拼到 `data` 下。
-/// Windows 上 `\\.\pipe\...`（以及 `//./pipe/...`）那一类属于命名管道名字，直接用。
-fn resolve_data_relative(data: &Path, path: &Path) -> PathBuf {
-    #[cfg(windows)]
-    {
-        let s = path.to_string_lossy();
-        if s.starts_with(r"\\.\pipe\") || s.starts_with("//./pipe/") {
-            return path.to_path_buf();
-        }
-    }
-    if path.is_absolute() {
-        path.to_path_buf()
-    } else {
-        data.join(path)
-    }
+    let configured = settings::effective().daemon.socket_path.clone();
+    corex_ipc::resolve_endpoint(&data, configured.as_deref())
+        .map_err(|e| anyhow::Error::new(corex_core::EngineError::Config(e.to_string())))
 }
 
 /// 守护进程 IPC 的鉴权 token：先用 `COREX_TOKEN` 环境变量，否则读 `<data_dir>/token`。
-fn auth_token() -> Result<String> {
+pub(crate) fn auth_token() -> Result<String> {
     if let Ok(t) = std::env::var("COREX_TOKEN")
         && !t.is_empty()
     {
@@ -168,14 +208,19 @@ fn auth_token() -> Result<String> {
     Ok(token)
 }
 
-fn build_registry() -> ActionRegistry {
+pub(crate) fn build_registry() -> ActionRegistry {
     let mut reg = ActionRegistry::new();
     reg.register_builtins();
     reg.remove_disabled(&settings::effective().plugins);
     reg
 }
 
-fn parse_inputs(pairs: &[String]) -> Result<HashMap<String, Value>> {
+/// CLI 自己的用法失误：走 `EngineError::Usage` 才对应退出码 2，而不是通用失败 1。
+pub(crate) fn usage(message: impl Into<String>) -> anyhow::Error {
+    anyhow::Error::new(corex_core::EngineError::Usage(message.into()))
+}
+
+pub(crate) fn parse_inputs(pairs: &[String]) -> Result<HashMap<String, Value>> {
     let mut map = HashMap::new();
     for p in pairs {
         let (k, v) = p
@@ -186,118 +231,19 @@ fn parse_inputs(pairs: &[String]) -> Result<HashMap<String, Value>> {
     Ok(map)
 }
 
-pub(crate) async fn cmd_run(target: &str, inputs: &[String], dir: Option<&Path>) -> Result<()> {
-    let path = Paths::resolve(target, dir)?;
-    let directive = Directive::from_yaml_file(&path)?;
-    let input = parse_inputs(inputs)?;
-    let config = settings::effective().clone();
-    let ctx = ExecutionContext::new(config.clone()).with_input(input);
-
-    let registry = Arc::new(build_registry());
-    let mut pipeline = Pipeline::new(registry);
-    if config.history.enabled {
-        let hist_path = if config.history.file.is_absolute() {
-            config.history.file.clone()
-        } else {
-            data_dir()?.join(&config.history.file)
-        };
-        let history = ExecutionHistory::open(hist_path).context("无法打开执行历史")?;
-        pipeline = pipeline.with_history(history);
-    }
-    {
-        let audit_path = data_dir()?.join("audit.jsonl");
-        let audit_display = audit_path.display().to_string();
-        match ExecutionAudit::open(audit_path) {
-            Ok(audit) => pipeline = pipeline.with_audit(audit),
-            // 刻意只做尽力而为，但绝不静默：用户以为已记录的运行，
-            // 不能一声不喘地没被记录。
-            Err(err) => errln!("警告: 无法打开审计日志 {audit_display}（{err}）"),
-        }
-    }
-    let result = pipeline.execute(&directive, ctx).await?;
-    outln!("{}", serde_json::to_string_pretty(&result.to_json())?);
-    Ok(())
-}
-
+/// 列出可用指令名。
+///
+/// 自有指令与 `examples/directives` 里的演示一起列，后者带 `(examples)` 后缀；
+/// 枚举与选单共用 [`Paths::names`]，两处不会走偏。
 pub(crate) fn cmd_schedule(dir: Option<&Path>) -> Result<()> {
-    let base = Paths::dir(dir)?;
-    let mut names = Vec::new();
-    if base.exists() {
-        for entry in std::fs::read_dir(&base)? {
-            let entry = entry?;
-            let path = entry.path();
-            if matches!(
-                path.extension().and_then(|e| e.to_str()),
-                Some("yaml") | Some("yml")
-            ) && let Some(stem) = path.file_stem()
-            {
-                names.push(stem.to_string_lossy().to_string());
-            }
-        }
-    }
-    // 顺带列出 examples 里的指令
-    let examples = PathBuf::from("examples/directives");
-    if examples.exists() {
-        for entry in std::fs::read_dir(&examples)? {
-            let entry = entry?;
-            let path = entry.path();
-            if matches!(
-                path.extension().and_then(|e| e.to_str()),
-                Some("yaml") | Some("yml")
-            ) && let Some(stem) = path.file_stem()
-            {
-                let name = stem.to_string_lossy().to_string();
-                if !names.contains(&name) {
-                    names.push(format!("{name} (examples)"));
-                }
-            }
-        }
-    }
-    names.sort();
-    if names.is_empty() {
+    let named = Paths::names(dir)?;
+    if named.is_empty() {
         outln!("(无指令)");
-    } else {
-        for n in names {
-            outln!("{n}");
-        }
+        return Ok(());
     }
-    Ok(())
-}
-
-pub(crate) fn cmd_actions() -> Result<()> {
-    let reg = build_registry();
-    for meta in reg.actions() {
-        outln!(
-            "{:<24} [{}] {}",
-            meta.id,
-            format!("{:?}", meta.category).to_lowercase(),
-            meta.description
-        );
+    for entry in named {
+        outln!("{}", entry.label());
     }
-    Ok(())
-}
-
-fn cmd_create(name: &str, dir: Option<&Path>) -> Result<()> {
-    let base = Paths::dir(dir)?;
-    let path = base.join(format!("{name}.yaml"));
-    if path.exists() {
-        bail!("已存在: {}", path.display());
-    }
-    let scaffold = format!(
-        r#"name: {name}
-description: ""
-inputs: []
-variables: {{}}
-steps:
-  - id: hello
-    action: template.render
-    params:
-      template: "Hello from {name}"
-    save_to: message
-"#
-    );
-    std::fs::write(&path, scaffold)?;
-    outln!("已创建 {}", path.display());
     Ok(())
 }
 
@@ -308,76 +254,18 @@ pub(crate) fn cmd_edit(name: &str, dir: Option<&Path>) -> Result<()> {
     Ok(())
 }
 
-/// 校验指令；不给路径时校验配置。
+/// 打印某个 shell 的补全脚本。
 ///
-/// 配置分支直接用 `settings` 已经读到的结果，不重新解析文件，
-/// 这样报出的就是本进程实际用的那份。
-fn cmd_validate(path: Option<&Path>, strict: bool) -> Result<()> {
-    let Some(path) = path else {
-        if strict {
-            // 默默忽略它就会变成一个空转开关，正是本仓库想清掉的东西；
-            // `Usage` 把它归为用法错误，而不是运行失败。
-            return Err(corex_core::EngineError::Usage(
-                "--strict 只用于指令校验，不适用于配置检查".into(),
-            )
-            .into());
-        }
-        return cmd_validate_config();
-    };
-    let directive = Directive::from_yaml_file(path)?;
-    let reg = build_registry();
-    let mut missing = Vec::new();
-    fn walk(steps: &[corex_engine::Step], reg: &ActionRegistry, missing: &mut Vec<String>) {
-        use corex_engine::Step;
-        for s in steps {
-            match s {
-                Step::Action(a) => {
-                    if !reg.contains(&a.action) {
-                        missing.push(format!("{} ({})", a.action, a.id));
-                    }
-                }
-                Step::If(i) => {
-                    walk(&i.then, reg, missing);
-                    walk(&i.else_steps, reg, missing);
-                }
-                Step::Repeat(r) => walk(&r.steps, reg, missing),
-                Step::Parallel(p) => walk(&p.parallel, reg, missing),
-            }
-        }
-    }
-    walk(&directive.steps, &reg, &mut missing);
-    if !missing.is_empty() {
-        bail!("未注册的动作: {}", missing.join(", "));
-    }
-    if strict {
-        // `validate_permissions` 只给出文字，所以需要一个带类型的载体——
-        // 而门禁拒绝就是权限错误，退出码表已经认得它。
-        validate_permissions(&reg, &directive)
-            .map_err(|e| anyhow::Error::new(corex_core::ActionError::PermissionDenied(e)))?;
-    }
-    outln!(
-        "校验通过: {}（{} 步）",
-        directive.name,
-        directive.steps.len()
-    );
+/// 走 `output::bytes` 而不是 `outln!`：生成的是脚本，不是一行文本，而 shell 补全
+/// 最常见的用法就是 `corex completions powershell | Out-File ...`——这条管道的读方随时会离开。
+fn cmd_completions(shell: clap_complete::Shell) -> Result<()> {
+    let mut script = Vec::new();
+    let mut command = <Cli as clap::CommandFactory>::command();
+    clap_complete::generate(shell, &mut command, "corex", &mut script);
+    output::bytes(&script)?;
     Ok(())
 }
 
-/// 报告生效配置以及其中的问题。
-fn cmd_validate_config() -> Result<()> {
-    match settings::source() {
-        Some(path) => outln!("配置文件: {}", path.display()),
-        None => outln!("未找到配置文件，使用默认值"),
-    }
-    let issues = corex_core::config::validate(settings::effective());
-    if issues.is_empty() {
-        outln!("配置有效");
-        return Ok(());
-    }
-    // 这些问题本身在启动阶段已经作为告警报过；脚本在这里需要的是退出状态。
-    // `EngineError::Config` 对应 usage 码，所以配置损坏与运行失败是可区分的。
-    Err(corex_core::EngineError::Config(format!("配置有 {} 个问题", issues.len())).into())
-}
 /// 以后台方式启动 `corex-daemon`，并给它自己的日志文件。
 ///
 /// 守护进程的日志流按设计就是它的 stdout，因此绝不能继承 CLI 的 stdout：这里的 stdout
@@ -436,36 +324,33 @@ async fn cmd_daemon(cmd: DaemonCmd) -> Result<()> {
             }
         }
         DaemonCmd::Status => {
-            let endpoint = resolve_endpoint()?;
-            let token = match auth_token() {
-                Ok(t) => t,
-                Err(err) => {
-                    // token 文件缺失是正常的“从未启动过”，但真的读取失败会和它长得一样。
-                    errln!("提示: 未读到 auth token（{err}），按未运行处理");
-                    outln!("已停止");
-                    return Ok(());
-                }
-            };
-            let mut transport = ipc_connect(&endpoint);
-            let req = Request::Ping {
-                id: 1,
-                auth_token: None,
-            }
-            .with_auth_token(token);
-            match transport.send(&req).await {
-                Ok(Response::Pong { .. }) => {
-                    outln!("运行中 ({})", endpoint.display());
-                    Ok(())
-                }
-                Ok(other) => {
-                    outln!("意外状态: {other:?}");
-                    Ok(())
-                }
-                Err(_) => {
-                    outln!("已停止");
-                    Ok(())
-                }
-            }
+            outln!("{}", daemon_state().await?);
+            Ok(())
         }
     }
+}
+
+/// 守护进程当前状态的一行结论；`corex daemon status` 与 `corex doctor` 共用。
+pub(crate) async fn daemon_state() -> Result<String> {
+    let endpoint = resolve_endpoint()?;
+    let token = match auth_token() {
+        Ok(token) => token,
+        Err(err) => {
+            // token 文件缺失是正常的“从未启动过”，但真的读取失败会和它长得一样。
+            // 结论一样是「没在跑」，细节留给 `-v`。
+            tracing::debug!(error = %err, "未读到 auth token，按未运行处理");
+            return Ok("已停止".to_string());
+        }
+    };
+    let mut transport = ipc_connect(&endpoint);
+    let req = Request::Ping {
+        id: 1,
+        auth_token: None,
+    }
+    .with_auth_token(token);
+    Ok(match transport.send(&req).await {
+        Ok(Response::Pong { .. }) => format!("运行中 ({})", endpoint.display()),
+        Ok(other) => format!("意外状态: {other:?}"),
+        Err(_) => "已停止".to_string(),
+    })
 }
