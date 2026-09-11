@@ -2,12 +2,13 @@
 
 use crate::ActionRegistry;
 use crate::builtin::util::{
-    confine_path, ensure_parent, opt_i64, opt_strs, require_map, require_path, require_str,
+    confine_path, copy_bytes, ensure_parent, opt_i64, opt_strs, require_map, require_path,
+    require_str,
 };
 use async_trait::async_trait;
 use corex_core::{
     Action, ActionError, ActionMeta, Bucket, ExecutionContext, ParamSchema, PermissionSet,
-    SchemaType, Value,
+    SchemaType, Unit, Value,
 };
 use lopdf::{Document as LopdfDoc, Object as LopdfObj, ObjectId as LopdfId, dictionary};
 use std::collections::{HashSet, VecDeque};
@@ -106,7 +107,8 @@ impl Action for MorphExport {
         let src = confine_path(ctx, &require_path(map, "src")?)?;
         let dest = confine_path(ctx, &require_path(map, "dest")?)?;
         ensure_parent(&dest)?;
-        std::fs::copy(&src, &dest)?;
+        let total = std::fs::metadata(&src).map(|m| m.len()).unwrap_or(0);
+        copy_bytes(&src, &dest, 0, total, ctx).await?;
         Ok(Value::File(dest))
     }
 }
@@ -147,7 +149,9 @@ impl Action for MorphMerge {
         let mut kids: Vec<LopdfId> = Vec::new();
         merged.max_id += 1;
         let pages_id: LopdfId = (merged.max_id, 0);
-        for path in &confined {
+        // 一个个文件地合，进度就报在文件数上：拆不动的是单个大 PDF，不是合计。
+        ctx.chunk(0, Some(confined.len() as u64), Unit::Items);
+        for (done, path) in confined.iter().enumerate() {
             let mut src = LopdfDoc::load(path)
                 .map_err(|e| ActionError::execution(format!("无法加载 {}: {e}", path.display())))?;
             src.renumber_objects_with(merged.max_id + 1);
@@ -165,6 +169,11 @@ impl Action for MorphMerge {
             }
             merged.max_id = src.max_id;
             kids.extend(page_ids);
+            ctx.chunk(
+                done as u64 + 1,
+                Some(confined.len() as u64),
+                Unit::Items,
+            );
         }
         merged.objects.insert(
             pages_id,
@@ -266,7 +275,12 @@ impl Action for MorphSplit {
             ranges
         };
 
-        let paths = split_pdf(&path.to_string_lossy(), ranges, &dir.to_string_lossy())?;
+        let paths = split_pdf(
+            &path.to_string_lossy(),
+            ranges,
+            &dir.to_string_lossy(),
+            ctx,
+        )?;
         Ok(Value::Array(
             paths.into_iter().map(|p| Value::File(p.into())).collect(),
         ))
@@ -364,7 +378,12 @@ fn write_pages(source: &LopdfDoc, page_ids: &[LopdfId], dest: &str) -> Result<()
     Ok(())
 }
 
-fn split_pdf(path: &str, ranges: Vec<[u32; 2]>, dir: &str) -> Result<Vec<String>, ActionError> {
+fn split_pdf(
+    path: &str,
+    ranges: Vec<[u32; 2]>,
+    dir: &str,
+    ctx: &ExecutionContext,
+) -> Result<Vec<String>, ActionError> {
     let source =
         LopdfDoc::load(path).map_err(|e| ActionError::execution(format!("加载 PDF 失败: {e}")))?;
     let pages_map = source.get_pages();
@@ -374,6 +393,7 @@ fn split_pdf(path: &str, ranges: Vec<[u32; 2]>, dir: &str) -> Result<Vec<String>
         .and_then(|s| s.to_str())
         .unwrap_or("output");
     let mut output_paths = Vec::new();
+    ctx.chunk(0, Some(ranges.len() as u64), Unit::Items);
     for range in &ranges {
         let start = range[0];
         let end = range[1];
@@ -393,6 +413,7 @@ fn split_pdf(path: &str, ranges: Vec<[u32; 2]>, dir: &str) -> Result<Vec<String>
         let out_path = format!("{dir}/{stem}_{start}_{end}.pdf");
         write_pages(&source, &range_ids, &out_path)?;
         output_paths.push(out_path);
+        ctx.chunk(output_paths.len() as u64, Some(ranges.len() as u64), Unit::Items);
     }
     Ok(output_paths)
 }
@@ -403,4 +424,50 @@ pub fn register(registry: &mut ActionRegistry) {
     registry.register(Arc::new(MorphMerge));
     registry.register(Arc::new(MorphSplit));
     registry.register(Arc::new(MorphExport));
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::builtin::util::probe::Probe;
+    use corex_core::Observer;
+    use std::collections::BTreeMap;
+    use tempfile::tempdir;
+
+    /// 导出就是一次拷贝：进度得跟 `file.copy` 一样按字节走，而不是「开始 / 结束」两帧。
+    #[tokio::test]
+    async fn export_reports_bytes() {
+        const SIZE: usize = 3 * 1024 * 1024;
+        let dir = tempdir().unwrap();
+        let src = dir.path().join("in.pdf");
+        let dst = dir.path().join("out.pdf");
+        std::fs::write(&src, vec![7u8; SIZE]).unwrap();
+
+        let probe = Probe::bytes();
+        let mut ctx = ExecutionContext::default();
+        ctx.observer = Some(Arc::clone(&probe) as Arc<dyn Observer>);
+        ctx.enter_step("export", "morph.export");
+
+        let out = MorphExport
+            .execute(
+                Value::Map(BTreeMap::from([
+                    ("src".into(), Value::Str(src.to_string_lossy().into())),
+                    ("dest".into(), Value::Str(dst.to_string_lossy().into())),
+                ])),
+                &mut ctx,
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(out, Value::File(dst.clone()));
+        assert_eq!(std::fs::read(&dst).unwrap().len(), SIZE);
+
+        let total = SIZE as u64;
+        let marks = probe.marks();
+        assert_eq!(marks.last(), Some(&(total, Some(total))), "{marks:?}");
+        assert!(
+            marks.iter().all(|(_, each)| *each == Some(total)),
+            "分母要始终是这个文件：{marks:?}"
+        );
+    }
 }

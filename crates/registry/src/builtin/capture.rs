@@ -10,7 +10,7 @@ use crate::builtin::util::{
 use async_trait::async_trait;
 use corex_core::{
     Action, ActionError, ActionMeta, Bucket, ExecutionContext, ParamSchema, PermissionSet,
-    SchemaType, Value,
+    SchemaType, Unit, Value,
 };
 use std::collections::BTreeMap;
 use std::sync::Arc;
@@ -226,6 +226,8 @@ impl Action for CaptureFind {
             _ => None,
         };
 
+        // 匹配跑在阻塞线程上，那里借不到 `ctx`：先把上报句柄取出来一起搬进去。
+        let report = ctx.reporter();
         tokio::task::spawn_blocking(move || {
             let hay = image::open(&haystack)
                 .map_err(|e| ActionError::execution(format!("打开 haystack 失败: {e}")))?;
@@ -233,7 +235,12 @@ impl Action for CaptureFind {
                 .map_err(|e| ActionError::execution(format!("打开 needle 失败: {e}")))?;
             let hay_g = match_img::to_gray(hay);
             let ndl_g = match_img::to_gray(ndl);
-            let m = match_img::find_template(&hay_g, &ndl_g, region, step, threshold)?;
+            let mut on_row = |done: u32, rows: u32| {
+                if let Some(report) = &report {
+                    report.chunk(done as u64, Some(rows as u64), Unit::Items);
+                }
+            };
+            let m = match_img::find_template(&hay_g, &ndl_g, region, step, threshold, &mut on_row)?;
             let mut out = BTreeMap::new();
             out.insert("found".into(), Value::Bool(m.found));
             out.insert("score".into(), Value::Float(m.score));
@@ -385,4 +392,79 @@ async fn capture_monitors_impl() -> Result<Value, ActionError> {
     Err(ActionError::execution(
         "capture.monitors 在当前平台不可用（需要原生截图后端）",
     ))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::builtin::util::probe::Probe;
+    use corex_core::Observer;
+    use image::{GrayImage, Luma};
+    use std::sync::Arc;
+    use tempfile::tempdir;
+
+    const NEEDLE: u32 = 24;
+
+    /// 在 `img` 的 `(ox, oy)` 处画一块棋盘：纯色块没有方差，NCC 恒为 0，匹配不上。
+    fn stamp(img: &mut GrayImage, ox: u32, oy: u32) {
+        for j in 0..NEEDLE {
+            for i in 0..NEEDLE {
+                let v = if (i + j) % 2 == 0 { 50 } else { 250 };
+                img.put_pixel(ox + i, oy + j, Luma([v]));
+            }
+        }
+    }
+
+    /// 模板匹配是唯一真的能算进度的地方：报的是「扫到第几行」，分母是总行数。
+    #[tokio::test]
+    async fn find_reports_scanned_rows() {
+        let dir = tempdir().unwrap();
+        let hay_path = dir.path().join("hay.png");
+        let needle_path = dir.path().join("needle.png");
+
+        let mut hay = GrayImage::from_pixel(400, 300, Luma([50]));
+        stamp(&mut hay, 100, 120);
+        hay.save(&hay_path).unwrap();
+        let mut needle = GrayImage::from_pixel(NEEDLE, NEEDLE, Luma([50]));
+        stamp(&mut needle, 0, 0);
+        needle.save(&needle_path).unwrap();
+
+        let probe = Probe::items();
+        let mut ctx = ExecutionContext::default();
+        ctx.observer = Some(Arc::clone(&probe) as Arc<dyn Observer>);
+        ctx.enter_step("find", "capture.find");
+
+        let out = CaptureFind
+            .execute(
+                Value::Map(BTreeMap::from([
+                    (
+                        "haystack".into(),
+                        Value::Str(hay_path.to_string_lossy().into()),
+                    ),
+                    (
+                        "needle".into(),
+                        Value::Str(needle_path.to_string_lossy().into()),
+                    ),
+                    ("step".into(), Value::Int(2)),
+                ])),
+                &mut ctx,
+            )
+            .await
+            .unwrap();
+
+        let map = out.as_map().unwrap();
+        assert_eq!(map.get("found"), Some(&Value::Bool(true)), "{map:?}");
+        assert_eq!(map.get("x"), Some(&Value::Int(100)));
+        assert_eq!(map.get("y"), Some(&Value::Int(120)));
+
+        // 行数与 `find_template` 用同一套算法：从 0 起每 2 行一行，站得住的都算。
+        let rows = (300 - NEEDLE) / 2 + 1;
+        let marks = probe.marks();
+        assert_eq!(
+            marks.last(),
+            Some(&(rows as u64, Some(rows as u64))),
+            "{marks:?}"
+        );
+        assert!(marks.len() > 100, "应当逐行上报：{}", marks.len());
+    }
 }

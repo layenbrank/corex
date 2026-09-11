@@ -6,12 +6,16 @@ use image::{GrayImage, Luma};
 const MAX_HAYSTACK_PIXELS: u64 = 8_000_000;
 
 /// 在 `haystack` 中搜索 `needle`（可限定区域），返回最佳匹配。
+///
+/// 每扫完一行调一次 `on_row(已扫行数, 总行数)`：匹配是 O(行 × 列 × 模板) 的纯算术，
+/// 大图上耗得住时间，进度就只存在于这里。
 pub fn find_template(
     haystack: &GrayImage,
     needle: &GrayImage,
     region: Option<(u32, u32, u32, u32)>,
     step: u32,
     threshold: f64,
+    on_row: &mut dyn FnMut(u32, u32),
 ) -> Result<MatchResult, ActionError> {
     let (hw, hh) = haystack.dimensions();
     let (nw, nh) = needle.dimensions();
@@ -49,6 +53,9 @@ pub fn find_template(
         height: nh,
     };
 
+    // 行数先算死：`y` 从 `y0` 起步、每行跨 `step`，能站住的行数是闭式解。
+    let rows = (y1 - nh - y0) / step + 1;
+    let mut scanned = 0u32;
     let mut y = y0;
     while y + nh <= y1 {
         let mut x = x0;
@@ -61,6 +68,8 @@ pub fn find_template(
             }
             x += step;
         }
+        scanned += 1;
+        on_row(scanned, rows);
         y += step;
     }
 

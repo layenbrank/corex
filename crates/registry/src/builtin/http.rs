@@ -5,7 +5,7 @@ use crate::builtin::util::{opt_bool, opt_i64, require_map, require_str};
 use async_trait::async_trait;
 use corex_core::{
     Action, ActionError, ActionMeta, Bucket, ExecutionContext, ParamSchema, PermissionSet,
-    SchemaType, Value,
+    SchemaType, Unit, Value,
 };
 use reqwest::header::{CONTENT_TYPE, HeaderName, HeaderValue};
 use reqwest::{Client, Method, RequestBuilder};
@@ -60,7 +60,7 @@ impl Action for HttpSend {
     async fn execute(
         &self,
         params: Value,
-        _ctx: &mut ExecutionContext,
+        ctx: &mut ExecutionContext,
     ) -> Result<Value, ActionError> {
         let map = require_map(&params)?;
         let url = require_str(map, "url")?;
@@ -75,7 +75,7 @@ impl Action for HttpSend {
             .send()
             .await
             .map_err(|e| ActionError::execution(format!("HTTP 请求失败: {e}")))?;
-        response_to_value(resp).await
+        response_to_value(resp, ctx).await
     }
 }
 
@@ -235,7 +235,10 @@ fn with_body(
     Ok(builder)
 }
 
-async fn response_to_value(resp: reqwest::Response) -> Result<Value, ActionError> {
+async fn response_to_value(
+    mut resp: reqwest::Response,
+    ctx: &ExecutionContext,
+) -> Result<Value, ActionError> {
     let status = resp.status().as_u16() as i64;
     let ok = resp.status().is_success();
     let final_url = resp.url().to_string();
@@ -249,10 +252,7 @@ async fn response_to_value(resp: reqwest::Response) -> Result<Value, ActionError
             )
         })
         .collect();
-    let text = resp
-        .text()
-        .await
-        .map_err(|e| ActionError::execution(format!("读取响应失败: {e}")))?;
+    let text = read_body(&mut resp, ctx).await?;
     let mut out = BTreeMap::new();
     out.insert("status".into(), Value::Int(status));
     out.insert("ok".into(), Value::Bool(ok));
@@ -260,6 +260,31 @@ async fn response_to_value(resp: reqwest::Response) -> Result<Value, ActionError
     out.insert("headers".into(), Value::Map(headers_map));
     out.insert("body".into(), Value::Str(text));
     Ok(Value::Map(out))
+}
+
+/// 逐块读响应体，顺手把已下载字节报上去。
+///
+/// 大文件下载是 HTTP 动作里唯一耗得住时间的地方：一次 `text()` 读完，界面上就只剩
+/// 一个不动的 spinner。`Content-Length` 在就有总量（分块传输 / 解压后就没有，只报已读）。
+/// 解码沿用 reqwest 无 `charset` 特性时的行为：UTF-8，非法字节替换。
+async fn read_body(
+    resp: &mut reqwest::Response,
+    ctx: &ExecutionContext,
+) -> Result<String, ActionError> {
+    let total = resp.content_length().filter(|n| *n > 0);
+    let mut body = Vec::new();
+    loop {
+        let Some(chunk) = resp
+            .chunk()
+            .await
+            .map_err(|e| ActionError::execution(format!("读取响应失败: {e}")))?
+        else {
+            break;
+        };
+        body.extend_from_slice(&chunk);
+        ctx.chunk(body.len() as u64, total, Unit::Bytes);
+    }
+    Ok(String::from_utf8_lossy(&body).into_owned())
 }
 
 fn value_to_string(value: &Value) -> String {
@@ -279,7 +304,8 @@ pub fn register(registry: &mut ActionRegistry) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use corex_core::ExecutionContext;
+    use crate::builtin::util::probe::Probe;
+    use corex_core::{ExecutionContext, Observer};
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
     use tokio::net::TcpListener;
 
@@ -419,5 +445,50 @@ mod tests {
         m.insert("body".into(), Value::Str("x".into()));
         let err = with_body(Client::new().get("http://example.com"), &m).expect_err("conflict");
         assert!(err.to_string().contains("只能指定其一"));
+    }
+
+    /// 大文件下载要能看见字节在走：帧的总量取自 `Content-Length`。
+    #[tokio::test]
+    async fn reports_download_bytes() {
+        const SIZE: usize = 64 * 1024;
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        tokio::spawn(async move {
+            let (mut sock, _) = listener.accept().await.unwrap();
+            let mut buf = vec![0u8; 8192];
+            let _ = sock.read(&mut buf).await;
+            let head = format!(
+                "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: {SIZE}\r\nConnection: close\r\n\r\n"
+            );
+            let _ = sock.write_all(head.as_bytes()).await;
+            // 分两段写：读方至少能拿到不止一块，进度就不止一帧。
+            let _ = sock.write_all(&vec![b'a'; SIZE / 2]).await;
+            let _ = sock.flush().await;
+            let _ = tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+            let _ = sock.write_all(&vec![b'a'; SIZE / 2]).await;
+        });
+
+        let probe = Probe::bytes();
+        let mut ctx = ExecutionContext::default();
+        ctx.observer = Some(std::sync::Arc::clone(&probe) as std::sync::Arc<dyn Observer>);
+        ctx.enter_step("fetch", "http.send");
+        let mut m = BTreeMap::new();
+        m.insert("url".into(), Value::Str(format!("http://{addr}/big")));
+        let out = HttpSend.execute(Value::Map(m), &mut ctx).await.unwrap();
+        let body = out.as_map().unwrap().get("body").unwrap();
+        assert_eq!(body.as_str().unwrap().len(), SIZE);
+
+        let total = SIZE as u64;
+        let marks = probe.marks();
+        assert!(!marks.is_empty(), "应当有分块帧");
+        assert!(
+            marks.iter().all(|(_, each)| *each == Some(total)),
+            "总量取自 Content-Length：{marks:?}"
+        );
+        assert_eq!(marks.last(), Some(&(total, Some(total))), "{marks:?}");
+        assert!(
+            marks.windows(2).all(|w| w[0].0 < w[1].0),
+            "帧应当单调递增：{marks:?}"
+        );
     }
 }
