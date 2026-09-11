@@ -40,6 +40,9 @@ impl Action for ShellRun {
             ParamSchema::new("allow_nonzero", SchemaType::Bool, false)
                 .with_description("非零退出时仍返回 Ok（默认 false，报错）")
                 .with_default(false),
+            ParamSchema::new("input", SchemaType::Str, false).with_description(
+                "写入子进程 stdin 的内容（写完即关闭），用于自动应答交互式提问；wait: detach 时忽略",
+            ),
             ParamSchema::new("wait", SchemaType::Str, false)
                 .with_default("sync")
                 .with_description("sync | detach（GUI 应用建议 detach）"),

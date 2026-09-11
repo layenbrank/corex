@@ -20,7 +20,7 @@
 
 | Action ID | 功能门控 | 必填 / 常用参数 | 说明 |
 |-----------|---------|--------------------------|--------|
-| `shell.run` | `act-shell` | `command` (str)；`args?`、`cwd?`、`host?`、`allow_nonzero?` | 进程启动器（门面）；始终返回 `{stdout,stderr,exit_code,success}` |
+| `shell.run` | `act-shell` | `command` (str)；`args?`、`cwd?`、`host?`、`allow_nonzero?`、`input?`、`wait?` | 进程启动器（门面）；始终返回 `{stdout,stderr,exit_code,success}` |
 | `http.send` | `act-http` | `url`；`method?` (GET)、`params?`/`query?`、`headers?`、`token?`、`auth?`、`body?`、`json?`、`form?`、`timeout_ms?`、`follow_redirects?` | HTTP 客户端（curl/fetch 风格） |
 | `clipboard.get` | `act-clipboard` | `format?` (`text` \| `image`) | 读取剪贴板 |
 | `clipboard.set` | `act-clipboard` | `format?`；`text?`；`file?` (image) | 写入剪贴板 |
@@ -47,7 +47,7 @@
 | `generate.cvid` | `act-generate` | — | 紧凑 ID |
 | `generate.timestamp` | `act-generate` | `format?`、`utc?` | 当前时间 `{ value, unix, iso8601 }` |
 | `generate.path` | `act-generate` | `from`、`to`、`transform`；… | 路径变换 / 重命名辅助 |
-| `exec.run` | `act-exec` | `script` (path)；`args?`、`cwd?`、`host?`、`allow_nonzero?` | 脚本文件运行器（与 `shell.run` 共用同一启动内核） |
+| `exec.run` | `act-exec` | `script` (path)；`args?`、`cwd?`、`host?`、`allow_nonzero?`、`input?`、`wait?` | 脚本文件运行器（与 `shell.run` 共用同一启动内核） |
 | `bootstrap.env` | `act-bootstrap` | — | 面向 Windows 的环境引导（非 Windows 会报错） |
 | `bootstrap.inspect` | `act-bootstrap` | — | 检查引导状态 |
 | `bootstrap.force` | `act-bootstrap` | — | 强制引导（Windows） |
@@ -100,7 +100,7 @@
 
 #### `shell.run`
 
-- 示例：[`examples/actions/shell.run.yaml`](../../examples/actions/shell.run.yaml) · [`shell-host-demo.yaml`](../../examples/directives/shell-host-demo.yaml)
+- 示例：[`examples/actions/shell.run.yaml`](../../examples/actions/shell.run.yaml) · [`shell-host-demo.yaml`](../../examples/directives/shell-host-demo.yaml) · [`shell-input-demo.yaml`](../../examples/directives/shell-input-demo.yaml)
 
 ```yaml
 - id: run
@@ -114,6 +114,23 @@
 ```
 
 IPC: `{"type":"invoke","action":"shell.run","params":{"command":"echo","args":["hello"]}}`
+
+**交互式提问**：默认子进程继承当前终端，可以手动回答（`corepack`/`pnpm`、`Read-Host`、`set /p` 之类）。
+要无人值守地**自动应答**，用 `input` 把内容写进子进程 stdin（写完即关闭，子进程会读到 EOF）：
+
+```yaml
+- id: ask
+  action: shell.run
+  params:
+    host: powershell
+    command: '$line = [Console]::In.ReadLine(); Write-Output "answered: $line"'
+    input: "{{input.answer}}\n"
+  save_to: out
+```
+
+> `input` 只在 `wait: sync` 下生效（`detach` 不能写 stdin）。从 daemon 运行时既无终端也无 `input`，
+> 子进程的提问会一直等下去，只受 `step_timeout_secs` 兜底——交互式命令务必显式给 `input`。
+> 另一个更省事的办法是直接消灭提问：如 `COREPACK_ENABLE_DOWNLOAD_PROMPT=0`。
 
 #### `exec.run`
 
@@ -136,6 +153,8 @@ IPC: `{"type":"invoke","action":"shell.run","params":{"command":"echo","args":["
 ```
 
 IPC: `{"type":"invoke","action":"exec.run","params":{"script":"C:/Temp/demo.ps1","host":"auto"}}`
+
+与 `shell.run` 一样支持 `input`（写入子进程 stdin）来自动应答脚本里的交互式提问。
 
 #### `bootstrap.env` / `bootstrap.inspect` / `bootstrap.force` (**Win**)
 

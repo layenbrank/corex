@@ -5,7 +5,7 @@ use std::collections::BTreeMap;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
-use tokio::io::{AsyncRead, AsyncReadExt};
+use tokio::io::{AsyncRead, AsyncReadExt, AsyncWriteExt};
 use tokio::process::Command;
 
 /// 显式指定执行宿主。`Auto` 按脚本扩展名 / 命令形式推断。
@@ -104,6 +104,8 @@ pub struct LaunchSpec {
     pub cwd: Option<PathBuf>,
     pub host: Host,
     pub kind: TargetKind,
+    /// 写入子进程 stdin 的内容（写完即关闭）。`None` 时子进程继承父进程 stdin。
+    pub input: Option<String>,
     pub allow_nonzero: bool,
     pub wait: LaunchWait,
     pub if_running: IfRunning,
@@ -261,20 +263,31 @@ fn build_command(spec: &LaunchSpec, host: Host) -> Result<Command, ActionError> 
     if let Some(cwd) = &spec.cwd {
         cmd.current_dir(cwd);
     }
-    // 从 GUI / 无窗口父进程启动时避免闪一下控制台窗口
-    // （daemon、Tauri）；GUI 子系统的目标不受影响。
+    // 从 GUI / 无窗口父进程（daemon、Tauri）启动时避免闪一下控制台窗口。
+    // ⚠️ 父进程**有**控制台时绝不能加：该标志会让子进程挂到新建的隐藏控制台，
+    // 交互式程序（corepack/pnpm、`Read-Host`、`set /p`）的提问既看不见，
+    // 键盘输入也送不进去，只能一直等下去。
     #[cfg(windows)]
-    {
+    if !has_console() {
         const CREATE_NO_WINDOW: u32 = 0x0800_0000;
         cmd.creation_flags(CREATE_NO_WINDOW);
     }
     Ok(cmd)
 }
 
+/// 父进程是否连着控制台（任一标准流是终端即算）。
+#[cfg(windows)]
+fn has_console() -> bool {
+    use std::io::IsTerminal;
+    std::io::stdin().is_terminal()
+        || std::io::stdout().is_terminal()
+        || std::io::stderr().is_terminal()
+}
+
 /// 启动进程并映射成统一结果。会应用 `allow_nonzero`。
 pub async fn launch(spec: LaunchSpec) -> Result<LaunchResult, ActionError> {
     // Windows 上被规范化成 `\\?\` 的路径会让 cmd.exe / 某些 shell 出错。
-    let spec = LaunchSpec {
+    let mut spec = LaunchSpec {
         program: corex_core::path::for_external_process(spec.program),
         cwd: spec.cwd.map(corex_core::path::for_external_process),
         ..spec
@@ -302,6 +315,9 @@ pub async fn launch(spec: LaunchSpec) -> Result<LaunchResult, ActionError> {
         "process_launch"
     );
     let mut cmd = build_command(&spec, host)?;
+    if spec.input.is_some() {
+        cmd.stdin(Stdio::piped());
+    }
 
     if spec.wait == LaunchWait::Detach {
         let child = cmd
@@ -326,6 +342,16 @@ pub async fn launch(spec: LaunchSpec) -> Result<LaunchResult, ActionError> {
         .map_err(|e| ActionError::execution(format!("启动进程失败: {e}")))?;
     let stdout_pipe = child.stdout.take();
     let stderr_pipe = child.stderr.take();
+    // `input` 走管道后必须显式关闭，子进程才会读到 EOF（`read_line` 类提问靠它返回）。
+    let stdin_task = spec.input.take().map(|text| {
+        let sink = child.stdin.take();
+        tokio::spawn(async move {
+            if let Some(mut sink) = sink {
+                let _ = sink.write_all(text.as_bytes()).await;
+                let _ = sink.shutdown().await;
+            }
+        })
+    });
     let stdout_task =
         tokio::spawn(async move { pump_process_stream(stdout_pipe, ProcessStream::Stdout).await });
     let stderr_task =
@@ -334,6 +360,10 @@ pub async fn launch(spec: LaunchSpec) -> Result<LaunchResult, ActionError> {
         .wait()
         .await
         .map_err(|e| ActionError::execution(format!("等待进程失败: {e}")))?;
+    // 子进程已退出，剩余的 stdin 写入不再有意义（大输入还可能写满管道）。
+    if let Some(task) = stdin_task {
+        task.abort();
+    }
     let stdout = stdout_task.await.unwrap_or_default();
     let stderr = stderr_task.await.unwrap_or_default();
     let exit_code = status.code().unwrap_or(-1) as i64;
@@ -655,6 +685,7 @@ pub fn launch_spec_from_command_params(
         cwd: opt_str(map, "cwd").map(PathBuf::from),
         host: host_from_params(map)?,
         kind,
+        input: opt_str(map, "input"),
         allow_nonzero: map
             .get("allow_nonzero")
             .and_then(|v| v.as_bool())
@@ -684,6 +715,7 @@ mod tests {
             cwd: None,
             host: Host::Cmd,
             kind: TargetKind::Command,
+            input: None,
             allow_nonzero: true,
             wait: LaunchWait::Detach,
             if_running: Default::default(),
@@ -736,5 +768,47 @@ mod tests {
     fn explicit_host_overrides_auto() {
         let p = PathBuf::from("build.ps1");
         assert_eq!(resolve_host(Host::Cmd, &p, TargetKind::Script), Host::Cmd);
+    }
+
+    #[test]
+    fn input_param_is_parsed() {
+        let mut m = BTreeMap::new();
+        m.insert("command".into(), Value::Str("echo".into()));
+        m.insert("input".into(), Value::Str("y\n".into()));
+        let spec = launch_spec_from_command_params(&m, PathBuf::from("echo"), TargetKind::Command)
+            .expect("spec");
+        assert_eq!(spec.input.as_deref(), Some("y\n"));
+    }
+
+    /// `input` 要真正送到子进程 stdin，并且在写完后关闭（否则子进程等 EOF 会挂住）。
+    #[tokio::test]
+    async fn input_reaches_child_stdin() {
+        let (program, args) = stdin_echo_command();
+        let spec = LaunchSpec {
+            program,
+            args,
+            cwd: None,
+            host: Host::None,
+            kind: TargetKind::Command,
+            input: Some("corex-stdin\n".into()),
+            allow_nonzero: false,
+            wait: LaunchWait::Sync,
+            if_running: Default::default(),
+            if_running_window: None,
+        };
+        let out = launch(spec).await.expect("stdin roundtrip");
+        assert!(out.stdout.contains("corex-stdin"), "got: {}", out.stdout);
+    }
+
+    /// 把 stdin 原样回显到 stdout 的命令。
+    fn stdin_echo_command() -> (PathBuf, Vec<String>) {
+        #[cfg(windows)]
+        {
+            (PathBuf::from("findstr"), vec![".".into()])
+        }
+        #[cfg(not(windows))]
+        {
+            (PathBuf::from("cat"), Vec::new())
+        }
     }
 }

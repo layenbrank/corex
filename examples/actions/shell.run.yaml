@@ -1,5 +1,6 @@
 # shell.run — 最小示例
 # 运行: corex run examples/actions/shell.run.yaml
+# 交互式提问的自动应答（input）见 ../directives/shell-input-demo.yaml
 name: action-shell-run
 description: "Action: shell.run"
 permissions:

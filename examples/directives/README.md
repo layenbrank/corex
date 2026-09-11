@@ -63,6 +63,7 @@ corex validate examples/actions/<file>.yaml
 |------|------|----------|
 | [exec-run-demo.yaml](./exec-run-demo.yaml) | `exec.run` 脚本文件执行 | `corex run exec-run-demo` |
 | [shell-host-demo.yaml](./shell-host-demo.yaml) | `shell.run`：`host` / `wait` / `allow_nonzero` | `corex run shell-host-demo` |
+| [shell-input-demo.yaml](./shell-input-demo.yaml) | `shell.run`：`input` 自动应答交互式提问 | `corex run shell-input-demo` |
 | [clipboard-notify.yaml](./clipboard-notify.yaml) | 剪贴板读写 + 桌面通知 | `corex run clipboard-notify -i text=你好` |
 | [scan-env-demo.yaml](./scan-env-demo.yaml) | `scan.os` 系统信息摘要 | `corex run scan-env-demo` |
 | [keyring-demo.yaml](./keyring-demo.yaml) | `keyring.set` + `keyring.get` | `corex run keyring-demo` |

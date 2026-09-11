@@ -39,6 +39,8 @@ impl Action for ExecRun {
             ParamSchema::new("allow_nonzero", SchemaType::Bool, false)
                 .with_description("非零退出时仍返回 Ok")
                 .with_default(false),
+            ParamSchema::new("input", SchemaType::Str, false)
+                .with_description("写入子进程 stdin 的内容（写完即关闭）；wait: detach 时忽略"),
             ParamSchema::new("wait", SchemaType::Str, false).with_default("sync"),
             ParamSchema::new("if_running", SchemaType::Str, false).with_default("launch"),
             ParamSchema::new("if_running_window", SchemaType::Map, false),

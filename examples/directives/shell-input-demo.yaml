@@ -1,0 +1,37 @@
+# shell.run —— input：自动应答交互式提问
+#
+# 运行:
+#   corex run shell-input-demo
+#   corex run shell-input-demo -i answer=corex
+#
+# 说明：`input` 把内容写进子进程 stdin（写完即关闭，子进程读到 EOF），
+# 用于 corepack/pnpm、`set /p`、`Read-Host` 这类会停下来提问的命令；
+# 不传 `input` 时子进程继承当前终端，可以直接手动输入。
+name: shell-input-demo
+description: shell.run 的 input 参数（自动应答询问）
+version: "1.1"
+
+inputs:
+  - name: answer
+    description: 应答内容
+    required: false
+    default: "corex"
+
+permissions:
+  shell: true
+
+steps:
+  - id: ask
+    action: shell.run
+    params:
+      host: powershell
+      command: '$line = [Console]::In.ReadLine(); Write-Output "answered: $line"'
+      input: "{{input.answer}}\n"
+      wait: sync
+    save_to: out
+
+  - id: summary
+    action: template.render
+    params:
+      template: "exit={{ out.exit_code }} stdout={{ out.stdout }}"
+    save_to: summary
