@@ -2,7 +2,7 @@
 
 use crate::ActionRegistry;
 pub(crate) use crate::builtin::util::{
-    Sink, confine_path, copy_file, count_entries, opt_bool, opt_str, require_map, require_str,
+    confine_path, copy_bytes, count_entries, opt_bool, opt_str, require_map, require_str,
 };
 use async_trait::async_trait;
 use corex_core::{

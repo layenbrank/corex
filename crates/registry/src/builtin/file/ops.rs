@@ -35,10 +35,8 @@ impl Action for FileCopy {
         {
             tokio::fs::create_dir_all(parent).await?;
         }
-        let mut report = |done: u64, total: Option<u64>| ctx.chunk(done, total, Unit::Bytes);
-        // 没人看进度就不挂上报口：`copy_file` 会改走平台最优路径。
-        let sink = ctx.observer.is_some().then_some(&mut report as Sink);
-        copy_file(&from, &to, sink).await?;
+        let total = std::fs::metadata(&from).map(|m| m.len()).unwrap_or(0);
+        copy_bytes(&from, &to, 0, total, ctx).await?;
         Ok(Value::File(to))
     }
 }

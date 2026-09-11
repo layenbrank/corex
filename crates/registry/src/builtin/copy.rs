@@ -3,7 +3,7 @@
 use crate::ActionRegistry;
 use crate::builtin::filter::Filter;
 use crate::builtin::util::{
-    Sink, confine_path, copy_file, ensure_parent, opt_bool, opt_strs, require_map, require_path,
+    confine_path, copy_bytes, ensure_parent, opt_bool, opt_strs, require_map, require_path,
 };
 use async_trait::async_trait;
 use corex_core::{
@@ -77,7 +77,7 @@ async fn copy_single_file(
         to.to_path_buf()
     };
     let total = std::fs::metadata(from).map(|m| m.len()).unwrap_or(0);
-    copy_reported(from, &target, 0, total, ctx).await?;
+    copy_bytes(from, &target, 0, total, ctx).await?;
     Ok(target)
 }
 
@@ -111,27 +111,10 @@ async fn copy_directory(
     for (relative, size) in &tree.files {
         let target = to.join(relative);
         ensure_parent(&target)?;
-        copy_reported(&from.join(relative), &target, copied, tree.bytes, ctx).await?;
+        copy_bytes(&from.join(relative), &target, copied, tree.bytes, ctx).await?;
         copied += size;
     }
     Ok(to.to_path_buf())
-}
-
-/// 用 `file.copy` 的那套分块实现拷一个文件，把进度报在**整批**的字节量上：
-/// `offset` 是本批已完成的字节，`total` 是本批总量。
-async fn copy_reported(
-    from: &Path,
-    to: &Path,
-    offset: u64,
-    total: u64,
-    ctx: &ExecutionContext,
-) -> Result<(), ActionError> {
-    let mut report = |done: u64, _file_total: Option<u64>| {
-        ctx.chunk(offset + done, Some(total), Unit::Bytes);
-    };
-    // 没人看进度就不挂上报口：`copy_file` 会改走平台最优路径。
-    let sink = ctx.observer.is_some().then_some(&mut report as Sink);
-    copy_file(from, to, sink).await
 }
 
 /// 一次遍历量出的目录树：要建的目录、要拷的文件，以及文件总字节数。
@@ -197,7 +180,8 @@ pub fn register(registry: &mut ActionRegistry) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use corex_core::{ExecutionContext, Mark, Observer, Spot};
+    use crate::builtin::util::probe::Probe;
+    use corex_core::{ExecutionContext, Observer};
     use std::collections::BTreeMap;
     use tempfile::tempdir;
 
@@ -235,9 +219,9 @@ mod tests {
         std::fs::write(src.join("a.bin"), vec![7u8; 4096]).unwrap();
         std::fs::write(src.join("nested/b.bin"), vec![9u8; 8192]).unwrap();
 
-        let recorder = Arc::new(Bytes::default());
+        let probe = Probe::bytes();
         let mut ctx = ExecutionContext::default();
-        ctx.observer = Some(Arc::clone(&recorder) as Arc<dyn Observer>);
+        ctx.observer = Some(Arc::clone(&probe) as Arc<dyn Observer>);
         // 引擎只在动作步骤内上报；这里模拟那一步。
         ctx.enter_step("copy", "copy.run");
 
@@ -247,7 +231,7 @@ mod tests {
         CopyRun.execute(Value::Map(params), &mut ctx).await.unwrap();
 
         let total = 4096 + 8192;
-        let marks = recorder.marks.lock().unwrap().clone();
+        let marks = probe.marks();
         assert_eq!(marks.first(), Some(&(0, Some(total))), "{marks:?}");
         assert_eq!(marks.last(), Some(&(total, Some(total))), "{marks:?}");
         assert!(
@@ -257,20 +241,6 @@ mod tests {
         // 空目录也是目录树的一部分。
         assert!(dst.join("empty").is_dir());
         assert!(dst.join("nested/b.bin").is_file());
-    }
-
-    /// 只记字节进度：要钉住的正是「copy.run 与 file.copy 一样按字节报」。
-    #[derive(Debug, Default)]
-    struct Bytes {
-        marks: std::sync::Mutex<Vec<(u64, Option<u64>)>>,
-    }
-
-    impl Observer for Bytes {
-        fn chunk(&self, _at: Spot<'_>, mark: Mark) {
-            if mark.unit == Unit::Bytes {
-                self.marks.lock().unwrap().push((mark.done, mark.total));
-            }
-        }
     }
 
     #[tokio::test]
