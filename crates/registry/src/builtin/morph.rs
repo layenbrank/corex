@@ -169,11 +169,7 @@ impl Action for MorphMerge {
             }
             merged.max_id = src.max_id;
             kids.extend(page_ids);
-            ctx.chunk(
-                done as u64 + 1,
-                Some(confined.len() as u64),
-                Unit::Items,
-            );
+            ctx.chunk(done as u64 + 1, Some(confined.len() as u64), Unit::Items);
         }
         merged.objects.insert(
             pages_id,
@@ -275,12 +271,7 @@ impl Action for MorphSplit {
             ranges
         };
 
-        let paths = split_pdf(
-            &path.to_string_lossy(),
-            ranges,
-            &dir.to_string_lossy(),
-            ctx,
-        )?;
+        let paths = split_pdf(&path.to_string_lossy(), ranges, &dir.to_string_lossy(), ctx)?;
         Ok(Value::Array(
             paths.into_iter().map(|p| Value::File(p.into())).collect(),
         ))
@@ -413,7 +404,11 @@ fn split_pdf(
         let out_path = format!("{dir}/{stem}_{start}_{end}.pdf");
         write_pages(&source, &range_ids, &out_path)?;
         output_paths.push(out_path);
-        ctx.chunk(output_paths.len() as u64, Some(ranges.len() as u64), Unit::Items);
+        ctx.chunk(
+            output_paths.len() as u64,
+            Some(ranges.len() as u64),
+            Unit::Items,
+        );
     }
     Ok(output_paths)
 }

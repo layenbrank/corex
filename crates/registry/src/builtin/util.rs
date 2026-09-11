@@ -80,11 +80,7 @@ const COPY_CHUNK: usize = 1024 * 1024;
 /// 按 [`COPY_CHUNK`] 分块拷——大文件能给出中间进度就靠这一点，只数文件是不够的。
 ///
 /// 进度语义（算多少、怎么算）由调用方决定，见 [`copy_bytes`]。
-async fn copy_file(
-    from: &Path,
-    to: &Path,
-    sink: Option<Sink<'_>>,
-) -> Result<(), ActionError> {
+async fn copy_file(from: &Path, to: &Path, sink: Option<Sink<'_>>) -> Result<(), ActionError> {
     let Some(report) = sink else {
         tokio::fs::copy(from, to)
             .await
