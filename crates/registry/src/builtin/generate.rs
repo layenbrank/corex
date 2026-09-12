@@ -3,10 +3,11 @@
 use crate::ActionRegistry;
 use crate::builtin::filter::Filter;
 use crate::builtin::util::{
-    MAX_RANGE, Slice, confine_path, ensure_parent, opt_bool, opt_i64, opt_str, opt_strs,
-    range_params, require_map, require_path, require_str,
+    MAX_RANGE, Slice, confine_path, ensure_parent, file_size, hex, opt_bool, opt_i64, opt_str,
+    opt_strs, range_len, range_params, require_map, require_path, require_str,
 };
 use async_trait::async_trait;
+use base64::{Engine, engine::general_purpose::STANDARD};
 use corex_core::{
     Action, ActionError, ActionMeta, Bucket, ExecutionContext, ParamSchema, PermissionSet,
     SchemaType, Unit, Value,
@@ -26,7 +27,7 @@ pub fn generate_secure_cvid() -> String {
     rand::rng().fill(&mut array);
     array[6] = (array[6] & 0x0f) | 0x40;
     array[8] = (array[8] & 0x3f) | 0x80;
-    array.iter().map(|b| format!("{b:02X}")).collect()
+    hex(&array).to_uppercase()
 }
 
 pub struct GenerateUuid;
@@ -182,7 +183,8 @@ impl Action for GeneratePath {
             uppercase: &uppercase,
             separator: &separator,
         };
-        let mut file = std::fs::File::create(&to)?;
+        // 一个文件一行，未缓冲的话每行都是一次系统调用；几千个文件就看得出来。
+        let mut file = std::io::BufWriter::new(std::fs::File::create(&to)?);
         let mut items = 0u64;
         for (key, entry) in entries.iter().enumerate() {
             let line = spec.render(
@@ -198,6 +200,7 @@ impl Action for GeneratePath {
             }
             items += 1;
         }
+        file.flush()?;
 
         let mut out = BTreeMap::new();
         out.insert("path".into(), Value::File(to));
@@ -342,14 +345,8 @@ enum Algo {
 }
 
 impl Algo {
-    fn parse(raw: Option<&str>) -> Result<Self, ActionError> {
-        match raw
-            .unwrap_or("sha256")
-            .trim()
-            .to_ascii_lowercase()
-            .replace('-', "")
-            .as_str()
-        {
+    fn parse(raw: &str) -> Result<Self, ActionError> {
+        match raw.trim().to_ascii_lowercase().replace('-', "").as_str() {
             "sha256" => Ok(Self::Sha256),
             "sha512" => Ok(Self::Sha512),
             "md5" => Ok(Self::Md5),
@@ -376,6 +373,77 @@ impl Algo {
     }
 }
 
+/// 摘要写成什么形式。
+///
+/// 同一个摘要两种说法都有人要：对象存储报十六进制，而不少分片接口要 base64。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Encoding {
+    Hex,
+    Base64,
+}
+
+impl Encoding {
+    fn parse(raw: Option<&str>) -> Result<Self, ActionError> {
+        match raw.map(|s| s.trim().to_ascii_lowercase()).as_deref() {
+            None | Some("") | Some("hex") => Ok(Self::Hex),
+            Some("base64") | Some("b64") => Ok(Self::Base64),
+            Some(other) => Err(ActionError::InvalidParams(format!(
+                "不支持的 encoding: {other}（hex | base64）"
+            ))),
+        }
+    }
+
+    fn name(self) -> &'static str {
+        match self {
+            Self::Hex => "hex",
+            Self::Base64 => "base64",
+        }
+    }
+
+    fn encode(self, digest: &[u8]) -> String {
+        match self {
+            Self::Hex => hex(digest),
+            Self::Base64 => STANDARD.encode(digest),
+        }
+    }
+}
+
+/// 解析 `algorithm`：一个名字，或一串名字。
+///
+/// 分片上传常要两种：整文件按 `sha256` 报，每片按服务端要求的 `md5` 算。
+/// 传数组就是「同一遍读取全算出来」，不必为此再读一遍盘。
+fn algo_params(map: &BTreeMap<String, Value>) -> Result<Vec<Algo>, ActionError> {
+    let raw: Vec<String> = match map.get("algorithm") {
+        None | Some(Value::Null) => vec!["sha256".to_string()],
+        Some(Value::Str(s)) => vec![s.clone()],
+        Some(Value::Array(items)) => items
+            .iter()
+            .map(|v| {
+                v.as_str().map(str::to_string).ok_or_else(|| {
+                    ActionError::InvalidParams("algorithm 数组的元素须是字符串".into())
+                })
+            })
+            .collect::<Result<_, _>>()?,
+        Some(other) => {
+            return Err(ActionError::InvalidParams(format!(
+                "algorithm 须是字符串或字符串数组，收到 {}",
+                other.to_json()
+            )));
+        }
+    };
+    let mut algos: Vec<Algo> = Vec::new();
+    for name in &raw {
+        let algo = Algo::parse(name)?;
+        if !algos.contains(&algo) {
+            algos.push(algo);
+        }
+    }
+    if algos.is_empty() {
+        return Err(ActionError::InvalidParams("algorithm 至少要有一个".into()));
+    }
+    Ok(algos)
+}
+
 /// 可增量喂入的摘要器：三种算法共用同一条读取路径，于是「流式」只需要写一遍。
 enum Hasher {
     Sha256(sha2::Sha256),
@@ -392,29 +460,85 @@ impl Hasher {
         }
     }
 
-    /// 小写十六进制摘要。
-    fn hex(self) -> String {
-        let digest: Vec<u8> = match self {
+    /// 摘要的原始字节；写成 hex 还是 base64 由 [`Encoding`] 决定。
+    fn digest(self) -> Vec<u8> {
+        match self {
             Self::Sha256(h) => h.finalize().to_vec(),
             Self::Sha512(h) => h.finalize().to_vec(),
             Self::Md5(h) => h.finalize().to_vec(),
-        };
-        hex(&digest)
+        }
     }
 }
 
-fn hex(bytes: &[u8]) -> String {
-    bytes.iter().map(|b| format!("{b:02x}")).collect()
+/// 一组摘要器：一次读取同时喂多个算法。
+struct Digests {
+    algos: Vec<Algo>,
+    hashers: Vec<Hasher>,
+}
+
+impl Digests {
+    fn new(algos: &[Algo]) -> Self {
+        Self {
+            algos: algos.to_vec(),
+            hashers: algos.iter().map(|a| a.hasher()).collect(),
+        }
+    }
+
+    fn update(&mut self, bytes: &[u8]) {
+        for hasher in &mut self.hashers {
+            hasher.update(bytes);
+        }
+    }
+
+    fn finish(self) -> Digested {
+        let Self { algos, hashers } = self;
+        Digested {
+            algos,
+            digests: hashers.into_iter().map(Hasher::digest).collect(),
+        }
+    }
+}
+
+/// 算完的一组摘要。
+///
+/// 原始字节先留着，因为同一个摘要要出两种形式：`hex` / `hash` 这两个兼容字段
+/// 永远是十六进制，而 `hashes` 按调用方要的 `encoding` 写。
+struct Digested {
+    algos: Vec<Algo>,
+    digests: Vec<Vec<u8>>,
+}
+
+impl Digested {
+    /// 第一个算法的摘要，十六进制。
+    fn first_hex(&self) -> String {
+        hex(&self.digests[0])
+    }
+
+    /// `hashes` 只在比 `hex` 多说一点时才出现：单算法 + hex 就是纯重复。
+    ///
+    /// 整段与每片共用这一条判据，形状不会两处各说一套。
+    fn has_detail(&self, encoding: Encoding) -> bool {
+        self.algos.len() > 1 || encoding != Encoding::Hex
+    }
+
+    /// `{ "<algo>": "<按 encoding 编码的摘要>" }`。
+    fn map(&self, encoding: Encoding) -> BTreeMap<String, Value> {
+        self.algos
+            .iter()
+            .zip(&self.digests)
+            .map(|(algo, digest)| (algo.name().to_string(), Value::Str(encoding.encode(digest))))
+            .collect()
+    }
 }
 
 /// 把整段流式吃完，边读边报进度。
-async fn hash_slice(
+async fn digest_slice(
     slice: &mut Slice,
-    algo: Algo,
+    algos: &[Algo],
     ctx: &ExecutionContext,
-) -> Result<String, ActionError> {
+) -> Result<Digested, ActionError> {
     let total = slice.len();
-    let mut hasher = algo.hasher();
+    let mut digests = Digests::new(algos);
     let mut buf = vec![0u8; READ_CHUNK];
     let mut done = 0u64;
     loop {
@@ -422,71 +546,61 @@ async fn hash_slice(
         if n == 0 {
             break;
         }
-        hasher.update(&buf[..n]);
+        digests.update(&buf[..n]);
         done += n as u64;
         ctx.chunk(done, Some(total), Unit::Bytes);
     }
-    Ok(hasher.hex())
+    Ok(digests.finish())
 }
 
-/// 一遍读完文件，同时给出整段摘要与每一片的摘要。
-///
-/// 分片上传需要的正是这一张表：`index` / `offset` / `length` / `hex` 直接进 multipart，
-/// 而整段摘要顺手就算出来了（同一批字节喂两个摘要器，不用再读第二遍）。
-async fn chunk_plan(
-    path: &Path,
+/// `generate.chunks` 的一次调用。
+struct ChunkPlan {
     offset: u64,
     length: Option<u64>,
+    /// 每片字节数。
     chunk: u64,
-    algo: Algo,
-    ctx: &ExecutionContext,
-) -> Result<Value, ActionError> {
+    /// 第一片的序号：断点续传时接着上次的编号往下走，服务端才不会错位。
+    index_start: u64,
+}
+
+/// 只切块：把 `[offset, offset + length)` 按 `chunk` 划成一段段，给出每段的
+/// `index` / `offset` / `length`。
+///
+/// **不碰内容，也不算摘要**。每片的摘要由调用方按需向 [`GenerateHash`] 要
+/// （带上这里给出的 `offset` / `length`）——切块和算摘要是两件事，各是一遍读盘，
+/// 只要其中一件的人不必付另一件的代价。这里只 `stat` 一次拿文件大小。
+fn chunk_plan(plan: ChunkPlan, size: u64) -> Result<Value, ActionError> {
+    let ChunkPlan {
+        offset,
+        length,
+        chunk,
+        index_start,
+    } = plan;
+    // 上限来自「一段」的公共天花板：再大的片下游也发不出去，早点说比建完计划再失败好。
     if chunk > MAX_RANGE {
         return Err(ActionError::InvalidParams(format!(
             "chunk {chunk} 超过 {MAX_RANGE} 字节上限"
         )));
     }
-    let mut slice = Slice::open(path, offset, length).await?;
-    let total = slice.len();
-    let mut whole = algo.hasher();
-    let mut buf = vec![0u8; chunk as usize];
-    let mut done = 0u64;
-    let mut items = Vec::new();
-
-    loop {
-        let mut filled = 0usize;
-        while filled < buf.len() {
-            let n = slice.read(&mut buf[filled..]).await?;
-            if n == 0 {
-                break;
-            }
-            filled += n;
-        }
-        if filled == 0 {
-            break;
-        }
-        let part = &buf[..filled];
-        whole.update(part);
-        let mut one = algo.hasher();
-        one.update(part);
-
-        items.push(Value::Map(BTreeMap::from([
-            ("index".into(), Value::Int(items.len() as i64)),
-            ("offset".into(), Value::Int((offset + done) as i64)),
-            ("length".into(), Value::Int(filled as i64)),
-            ("hex".into(), Value::Str(one.hex())),
+    let size = range_len(size, offset, length)?;
+    let total = size.div_ceil(chunk);
+    let mut chunks = Vec::with_capacity(total as usize);
+    for i in 0..total {
+        let start = i * chunk;
+        chunks.push(Value::Map(BTreeMap::from([
+            ("index".into(), Value::Int((index_start + i) as i64)),
+            ("offset".into(), Value::Int((offset + start) as i64)),
+            (
+                "length".into(),
+                Value::Int(size.saturating_sub(start).min(chunk) as i64),
+            ),
         ])));
-        done += filled as u64;
-        ctx.chunk(done, Some(total), Unit::Bytes);
     }
-
     Ok(Value::Map(BTreeMap::from([
-        ("algorithm".into(), Value::Str(algo.name().into())),
-        ("size".into(), Value::Int(total as i64)),
         ("chunk".into(), Value::Int(chunk as i64)),
-        ("total".into(), Value::Int(items.len() as i64)),
-        ("hash".into(), Value::Str(whole.hex())),
-        ("chunks".into(), Value::Array(items)),
+        ("size".into(), Value::Int(size as i64)),
+        ("total".into(), Value::Int(total as i64)),
+        ("chunks".into(), Value::Array(chunks)),
     ])))
 }
 
@@ -507,7 +621,12 @@ impl Action for GenerateHash {
         .with_params(vec![
             ParamSchema::new("algorithm", SchemaType::Str, false)
                 .with_default("sha256")
-                .with_description("sha256 | sha512 | md5"),
+                .with_description("sha256 | sha512 | md5；也可以是数组，一遍读完一起算"),
+            ParamSchema::new("encoding", SchemaType::Str, false)
+                .with_default("hex")
+                .with_description(
+                    "`hashes` 里的写法：hex | base64（单算法 + hex 时不输出 `hashes`）",
+                ),
             ParamSchema::new("path", SchemaType::File, false)
                 .with_description("要摘要的文件；与 text 二选一"),
             ParamSchema::new("text", SchemaType::Str, false).with_description("直接摘要这段文本"),
@@ -523,10 +642,11 @@ impl Action for GenerateHash {
         ctx: &mut ExecutionContext,
     ) -> Result<Value, ActionError> {
         let map = require_map(&params)?;
-        let algo = Algo::parse(opt_str(map, "algorithm").as_deref())?;
+        let algos = algo_params(map)?;
+        let encoding = Encoding::parse(opt_str(map, "encoding").as_deref())?;
         let (offset, length) = range_params(map)?;
 
-        let (hex, size) = match (opt_str(map, "path"), opt_str(map, "text")) {
+        let (digested, size) = match (opt_str(map, "path"), opt_str(map, "text")) {
             (Some(_), Some(_)) => {
                 return Err(ActionError::InvalidParams(
                     "path 与 text 只能指定其一".into(),
@@ -536,10 +656,10 @@ impl Action for GenerateHash {
             (Some(raw), None) => {
                 let path = confine_path(ctx, Path::new(&raw))?;
                 let mut slice = Slice::open(&path, offset, length).await?;
-                // 先记下长度：`hash_slice` 会把这段读完，`left` 就归零了。
+                // 先记下长度：`digest_slice` 会把这段读完，`left` 就归零了。
                 let size = slice.len();
-                let hex = hash_slice(&mut slice, algo, ctx).await?;
-                (hex, size)
+                let digested = digest_slice(&mut slice, &algos, ctx).await?;
+                (digested, size)
             }
             (None, Some(text)) => {
                 // 文本没有「区间」可言：给了就报错，别悄悄忽略。
@@ -548,17 +668,24 @@ impl Action for GenerateHash {
                         "text 输入不支持 offset / length".into(),
                     ));
                 }
-                let mut hasher = algo.hasher();
-                hasher.update(text.as_bytes());
-                (hasher.hex(), text.len() as u64)
+                let mut digests = Digests::new(&algos);
+                digests.update(text.as_bytes());
+                (digests.finish(), text.len() as u64)
             }
         };
 
-        Ok(Value::Map(BTreeMap::from([
-            ("algorithm".into(), Value::Str(algo.name().into())),
-            ("hex".into(), Value::Str(hex)),
+        let algorithms = algos.iter().map(|a| Value::Str(a.name().into())).collect();
+        let mut out = BTreeMap::from([
+            ("algorithm".into(), Value::Str(algos[0].name().into())),
+            ("algorithms".into(), Value::Array(algorithms)),
+            ("encoding".into(), Value::Str(encoding.name().into())),
+            ("hex".into(), Value::Str(digested.first_hex())),
             ("size".into(), Value::Int(size as i64)),
-        ])))
+        ]);
+        if digested.has_detail(encoding) {
+            out.insert("hashes".into(), Value::Map(digested.map(encoding)));
+        }
+        Ok(Value::Map(out))
     }
 }
 
@@ -572,15 +699,15 @@ impl Action for GenerateChunks {
         ActionMeta::new(
             "generate.chunks",
             "生成分片计划",
-            "一遍读完文件：给出整段摘要与每片的 index / offset / length / 摘要",
+            "只切块：给出每片的 index / offset / length（不算摘要，摘要请用 generate.hash）",
             Bucket::Data,
         )
         .with_params(vec![
             ParamSchema::new("path", SchemaType::File, true),
             ParamSchema::new("chunk", SchemaType::Int, true).with_description("每片字节数"),
-            ParamSchema::new("algorithm", SchemaType::Str, false)
-                .with_default("sha256")
-                .with_description("sha256 | sha512 | md5"),
+            ParamSchema::new("index", SchemaType::Int, false)
+                .with_default(0)
+                .with_description("第一片的序号（断点续传时接着上次的编号）"),
             ParamSchema::new("offset", SchemaType::Int, false).with_default(0),
             ParamSchema::new("length", SchemaType::Int, false)
                 .with_description("只规划这么多字节；不填 = 到文件结尾"),
@@ -593,7 +720,6 @@ impl Action for GenerateChunks {
         ctx: &mut ExecutionContext,
     ) -> Result<Value, ActionError> {
         let map = require_map(&params)?;
-        let algo = Algo::parse(opt_str(map, "algorithm").as_deref())?;
         let path = confine_path(ctx, &require_path(map, "path")?)?;
         let chunk = opt_i64(map, "chunk", 0);
         if chunk <= 0 {
@@ -601,8 +727,20 @@ impl Action for GenerateChunks {
                 "chunk 必填且需大于 0（每片字节数）".into(),
             ));
         }
+        let index_start = opt_i64(map, "index", 0);
+        if index_start < 0 {
+            return Err(ActionError::InvalidParams("index 不能为负".into()));
+        }
         let (offset, length) = range_params(map)?;
-        chunk_plan(&path, offset, length, chunk as u64, algo, ctx).await
+        chunk_plan(
+            ChunkPlan {
+                offset,
+                length,
+                chunk: chunk as u64,
+                index_start: index_start as u64,
+            },
+            file_size(&path).await?,
+        )
     }
 }
 
@@ -724,7 +862,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn chunks_cover_the_file_once() {
+    async fn chunks_cover_the_file() {
         const SIZE: usize = 25;
         let dir = tempdir().unwrap();
         let path = dir.path().join("blob.bin");
@@ -745,11 +883,6 @@ mod tests {
 
         assert_eq!(field(&out, "total"), &Value::Int(3));
         assert_eq!(field(&out, "size"), &Value::Int(SIZE as i64));
-        // 整段摘要顺手就算出来了，不用再读第二遍。
-        assert_eq!(
-            field(&out, "hash").as_str().unwrap(),
-            hex(&sha2::Sha256::digest(&bytes))
-        );
 
         let chunks = field(&out, "chunks").as_array().unwrap();
         assert_eq!(chunks.len(), 3);
@@ -758,11 +891,36 @@ mod tests {
             assert_eq!(field(item, "index"), &Value::Int(index));
             assert_eq!(field(item, "offset"), &Value::Int(offset));
             assert_eq!(field(item, "length"), &Value::Int(len as i64));
-            assert_eq!(
-                field(item, "hex").as_str().unwrap(),
-                hex(&sha2::Sha256::digest(&bytes[offset as usize..][..len]))
-            );
         }
+    }
+
+    /// 单一职责：分片计划里**一点摘要都没有**。
+    ///
+    /// 摘要归 `generate.hash`（可按 `offset`/`length` 只算一片），两块拼在一起会让人
+    /// 以为「文件摘要 = 各片摘要的某种聚合」，也逼着只想切块的人多读一遍盘。
+    #[tokio::test]
+    async fn chunks_never_carry_a_digest() {
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("blob.bin");
+        std::fs::write(&path, [7u8; 32]).unwrap();
+        let mut ctx = ExecutionContext::default();
+
+        let out = GenerateChunks
+            .execute(
+                map(&[
+                    ("path", Value::Str(path.to_string_lossy().into())),
+                    ("chunk", Value::Int(10)),
+                ]),
+                &mut ctx,
+            )
+            .await
+            .unwrap();
+
+        let names: Vec<&str> = out.as_map().unwrap().keys().map(String::as_str).collect();
+        assert_eq!(names, vec!["chunk", "chunks", "size", "total"], "{names:?}");
+        let item = &field(&out, "chunks").as_array().unwrap()[0];
+        let names: Vec<&str> = item.as_map().unwrap().keys().map(String::as_str).collect();
+        assert_eq!(names, vec!["index", "length", "offset"], "{names:?}");
     }
 
     #[tokio::test]
@@ -782,5 +940,86 @@ mod tests {
             .await
             .expect_err("chunk 0");
         assert!(err.to_string().contains("chunk"), "{err}");
+    }
+
+    /// 一次读取算多个摘要：整文件报 `sha256`、每片按服务端要求算 `md5` 是常见组合。
+    #[tokio::test]
+    async fn hash_accepts_a_list_of_algorithms() {
+        let mut ctx = ExecutionContext::default();
+        let out = GenerateHash
+            .execute(
+                map(&[
+                    ("text", Value::Str("abc".into())),
+                    (
+                        "algorithm",
+                        Value::Array(vec![Value::Str("sha256".into()), Value::Str("md5".into())]),
+                    ),
+                ]),
+                &mut ctx,
+            )
+            .await
+            .unwrap();
+        assert_eq!(field(&out, "algorithm"), &Value::Str("sha256".into()));
+        assert_eq!(
+            field(&out, "hashes").as_map().unwrap().get("md5"),
+            Some(&Value::Str("900150983cd24fb0d6963f7d28e17f72".into()))
+        );
+        // `hex` 仍是第一个算法的十六进制，老调用方不受影响。
+        assert_eq!(
+            field(&out, "hex").as_str().unwrap(),
+            "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
+        );
+    }
+
+    /// `encoding: base64` 换个写法，`hex` 不动。
+    #[tokio::test]
+    async fn hash_supports_base64_encoding() {
+        let mut ctx = ExecutionContext::default();
+        let out = GenerateHash
+            .execute(
+                map(&[
+                    ("text", Value::Str("abc".into())),
+                    ("encoding", Value::Str("base64".into())),
+                ]),
+                &mut ctx,
+            )
+            .await
+            .unwrap();
+        assert_eq!(field(&out, "encoding"), &Value::Str("base64".into()));
+        assert_eq!(
+            field(&out, "hashes").as_map().unwrap().get("sha256"),
+            Some(&Value::Str(
+                "ungWv48Bz+pBQUDeXa4iI7ADYaOWF3qctBD/YfIAFa0=".into()
+            ))
+        );
+        assert!(field(&out, "hex").as_str().unwrap().starts_with("ba7816bf"));
+    }
+
+    /// 断点续传：接着上次的编号往下走，`offset` 也从中途开始。
+    #[tokio::test]
+    async fn chunks_can_start_at_an_offset_index() {
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("blob.bin");
+        std::fs::write(&path, [0u8; 25]).unwrap();
+
+        let mut ctx = ExecutionContext::default();
+        let out = GenerateChunks
+            .execute(
+                map(&[
+                    ("path", Value::Str(path.to_string_lossy().into())),
+                    ("chunk", Value::Int(10)),
+                    ("offset", Value::Int(20)),
+                    ("index", Value::Int(5)),
+                ]),
+                &mut ctx,
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(field(&out, "total"), &Value::Int(1));
+        let chunks = field(&out, "chunks").as_array().unwrap();
+        assert_eq!(field(&chunks[0], "index"), &Value::Int(5));
+        assert_eq!(field(&chunks[0], "offset"), &Value::Int(20));
+        assert_eq!(field(&chunks[0], "length"), &Value::Int(5));
     }
 }

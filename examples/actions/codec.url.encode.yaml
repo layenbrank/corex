@@ -1,0 +1,11 @@
+# codec.url.encode — 最小示例
+# 运行: corex run examples/actions/codec.url.encode.yaml
+name: action-codec-url-encode
+description: "Action: codec.url.encode"
+steps:
+  - id: demo
+    action: codec.url.encode
+    params:
+      input: "分片 上传"
+      mode: component
+    save_to: result

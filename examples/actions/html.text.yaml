@@ -1,0 +1,12 @@
+# html.text — 最小示例
+# 运行: corex run examples/actions/html.text.yaml
+name: action-html-text
+description: "Action: html.text"
+steps:
+  - id: demo
+    action: html.text
+    params:
+      html: |
+        <article><h1>标题</h1><p>正文 <b>加粗</b> 部分</p></article>
+      selector: "article"
+    save_to: result

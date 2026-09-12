@@ -36,6 +36,8 @@ pub mod exec;
 pub mod file;
 #[cfg(feature = "act-generate")]
 pub mod generate;
+#[cfg(feature = "act-html")]
+pub mod html;
 #[cfg(feature = "act-http")]
 pub mod http;
 #[cfg(feature = "act-keyring")]
@@ -94,6 +96,8 @@ pub fn register_all(registry: &mut ActionRegistry) {
     compression::register(registry);
     #[cfg(feature = "act-generate")]
     generate::register(registry);
+    #[cfg(feature = "act-html")]
+    html::register(registry);
     #[cfg(feature = "act-exec")]
     exec::register(registry);
     #[cfg(feature = "act-bootstrap")]

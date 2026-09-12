@@ -1,0 +1,12 @@
+# html.links — 最小示例
+# 运行: corex run examples/actions/html.links.yaml
+name: action-html-links
+description: "Action: html.links"
+steps:
+  - id: demo
+    action: html.links
+    params:
+      html: |
+        <a href="/a/b">相对</a><a href="https://example.com/x">绝对</a><a href="#top">锚点</a>
+      base: "https://example.com/root/index.html"
+    save_to: result

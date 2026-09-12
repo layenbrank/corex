@@ -106,6 +106,11 @@ glob = "0.3"
 notify = "8.0"
 notify-debouncer-full = "0.7"
 base64 = "0.23.1"
+# 网页/表单常见的 GBK、Big5 等非 UTF-8 编码；`http.send` 的 charset 解码用。
+encoding_rs = "0.8"
+percent-encoding = "2.3"
+url = "2.5"
+scraper = "0.27"
 md-5 = "0.11.0"
 sysinfo = "0.39.6"
 image = { version = "0.25", default-features = false, features = [

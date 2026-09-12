@@ -99,10 +99,17 @@ const LEGACY_GATE: &[(&str, PermissionKind)] = &[
 
     // 什么都不需要。
     ("codec.json.parse", PermissionKind::None),
+    ("codec.json.pick", PermissionKind::None),
+    ("codec.url.decode", PermissionKind::None),
+    ("codec.url.encode", PermissionKind::None),
     ("cron.schedule", PermissionKind::None),
     ("generate.cvid", PermissionKind::None),
     ("generate.timestamp", PermissionKind::None),
     ("generate.uuid", PermissionKind::None),
+    // HTML 提取只吃字符串：不碰网络（响应由 `http.send` 拿）也不碰磁盘。
+    ("html.links", PermissionKind::None),
+    ("html.select", PermissionKind::None),
+    ("html.text", PermissionKind::None),
     ("scan.os", PermissionKind::None),
     ("template.render", PermissionKind::None),
 ];

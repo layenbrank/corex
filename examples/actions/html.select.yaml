@@ -1,0 +1,13 @@
+# html.select — 最小示例
+# 运行: corex run examples/actions/html.select.yaml
+name: action-html-select
+description: "Action: html.select"
+steps:
+  - id: demo
+    action: html.select
+    params:
+      html: |
+        <ul><li class="item" data-id="7">第一项</li><li class="item" data-id="8">第二项</li></ul>
+      selector: "li.item"
+      attr: data-id
+    save_to: result

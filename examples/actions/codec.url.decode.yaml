@@ -1,0 +1,10 @@
+# codec.url.decode — 最小示例
+# 运行: corex run examples/actions/codec.url.decode.yaml
+name: action-codec-url-decode
+description: "Action: codec.url.decode"
+steps:
+  - id: demo
+    action: codec.url.decode
+    params:
+      input: "%E5%88%86%E7%89%87"
+    save_to: result
