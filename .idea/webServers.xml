@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project version="4">
+  <component name="WebServers">
+    <option name="servers">
+      <webServer id="1e0673fb-6499-4df7-9469-d7a48081cb0d" name="8-9001-yz" url="\\172.16.0.8\wwwroot\9001_昆山_new\wwwroot\vue\new">
+        <fileTransfer accessType="LOCAL" port="0" />
+      </webServer>
+    </option>
+  </component>
+</project>

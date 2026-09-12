@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project version="4">
+  <component name="PublishConfigData" serverName="8-9001-yz" remoteFilesAllowedToDisappearOnAutoupload="false">
+    <serverData>
+      <paths name="8-9001-yz">
+        <serverdata>
+          <mappings>
+            <mapping deploy="\\172.16.0.8\wwwroot\9001_昆山_new\wwwroot\vue\new" local="$PROJECT_DIR$" web="/" />
+          </mappings>
+        </serverdata>
+      </paths>
+    </serverData>
+  </component>
+</project>

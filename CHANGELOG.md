@@ -8,6 +8,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 See also [Conventional Commits](https://www.conventionalcommits.org/).
 
 ---
+## [8.1.0](https://github.com/layenbrank/corex/compare/v8.0.0..v8.1.0) - 2026-09-12
+
+### 🚀 Features
+- **(engine)** 步骤顺序块、contains 子集匹配与循环并发度 · ([`73f4a2d`](https://github.com/layenbrank/corex/commit/73f4a2d35a9ded817ae23b9809b31e45d3ffd185)) · layen
+- **(registry)** 取文件的一段并摘要——分片上传缺的四块补齐 · ([`c07056f`](https://github.com/layenbrank/corex/commit/c07056f0e972c70e79002dcc3ef1b3bd85d599b9)) · layen
+- **(registry)** 打通二进制链路——http.send 出 Bytes，file.write 收回 · ([`bbc884e`](https://github.com/layenbrank/corex/commit/bbc884e6838c5203c3e35d49827ceb61a475ed9c)) · layen
+- **(registry)** 新增 html.* / codec.url.* / codec.json.pick，generate 拆开职责 · ([`7acedd9`](https://github.com/layenbrank/corex/commit/7acedd96eb3cfe4127172e201335d2047c54beee)) · layen
+
+
+### 🐛 Bug Fixes
+- **(registry)** 分块拷贝跟着用它的 feature gate · ([`31095b3`](https://github.com/layenbrank/corex/commit/31095b32c05d8370f713e64036b4943825d9debc)) · layen
+
+
+### 📚 Documentation
+- **(examples)** 大文件分片上传指令，对着本机 upload 服务跑通 · ([`fbf69d7`](https://github.com/layenbrank/corex/commit/fbf69d7df4f6b08c50968c0ee8b4df8b3f406675)) · layen
+- 补齐二进制链路、新动作与控制流写法 · ([`a37bbe4`](https://github.com/layenbrank/corex/commit/a37bbe43f7d7821bb189045b53c2c136fa9cb268)) · layen
+
+---
 ## [8.0.0](https://github.com/layenbrank/corex/compare/v7.1.0..v8.0.0) - 2026-09-11
 
 ### 💥 Breaking Changes
@@ -39,6 +57,10 @@ See also [Conventional Commits](https://www.conventionalcommits.org/).
 
 ### 🎨 Style
 - **(registry)** rustfmt 收一下进度提交里的换行 · ([`c349dfa`](https://github.com/layenbrank/corex/commit/c349dfa1be4ea6537643a94fb606a756b31a95fb)) · layen
+
+
+### 📦 Release
+- **(release)** bump version to 8.0.0 · ([`5a5f693`](https://github.com/layenbrank/corex/commit/5a5f693150d2f9036646d67cdd92335a9475e64d)) · layen
 
 ---
 ## [7.1.0](https://github.com/layenbrank/corex/compare/v7.0.1..v7.1.0) - 2026-09-11
@@ -506,6 +528,7 @@ See also [Conventional Commits](https://www.conventionalcommits.org/).
 - fluxor.yml · ([`322cb9c`](https://github.com/layenbrank/corex/commit/322cb9cb8c1e91f0b0a0b47e0014ae4c872fa846)) · layenbrank
 - Remove legacy notification examples and related files to streamline the project structure and focus on the updated notification system. This includes deleting old test files, configuration files, and XML templates that are no longer in use. · ([`fc89b31`](https://github.com/layenbrank/corex/commit/fc89b313725223dd1b0ce38ed5ad6b877f9a16e8)) · 李贺
 
+[8.1.0]: https://github.com/layenbrank/corex/compare/v8.0.0..v8.1.0
 [8.0.0]: https://github.com/layenbrank/corex/compare/v7.1.0..v8.0.0
 [7.1.0]: https://github.com/layenbrank/corex/compare/v7.0.1..v7.1.0
 [7.0.1]: https://github.com/layenbrank/corex/compare/v7.0.0..v7.0.1

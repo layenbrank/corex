@@ -10,6 +10,19 @@
       <sourceFolder url="file://$MODULE_DIR$/corex/src" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/corex/tests" isTestSource="true" />
       <sourceFolder url="file://$MODULE_DIR$/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/bins/cli/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/bins/cli/tests" isTestSource="true" />
+      <sourceFolder url="file://$MODULE_DIR$/bins/daemon/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/bins/daemon/tests" isTestSource="true" />
+      <sourceFolder url="file://$MODULE_DIR$/crates/core/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/crates/engine/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/crates/engine/tests" isTestSource="true" />
+      <sourceFolder url="file://$MODULE_DIR$/crates/ipc/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/crates/ipc/tests" isTestSource="true" />
+      <sourceFolder url="file://$MODULE_DIR$/crates/plugin-sdk/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/crates/registry/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/crates/registry/tests" isTestSource="true" />
+      <sourceFolder url="file://$MODULE_DIR$/crates/updater/src" isTestSource="false" />
       <excludeFolder url="file://$MODULE_DIR$/target" />
     </content>
     <orderEntry type="inheritedJdk" />
