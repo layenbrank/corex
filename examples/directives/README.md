@@ -24,78 +24,79 @@ corex validate examples/actions/<file>.yaml
 
 ## 入门
 
-| 文件 | 说明 | 运行示例 |
-|------|------|----------|
-| [hello.yaml](./hello.yaml) | 最小指令：`inputs` / `variables` / `save_to` / `file.write` | `corex run hello` |
-| [resolver-demo.yaml](./resolver-demo.yaml) | 占位符：`input` / `env` / `variables` / `step.*` | `corex run resolver-demo` |
-| [control-flow.yaml](./control-flow.yaml) | `if` / `else` / `repeat.count` | `corex run control-flow -i mode=prod` |
-| [control-flow-advanced.yaml](./control-flow-advanced.yaml) | `repeat.each` / `parallel` / `when` / `on_error` | `corex run control-flow-advanced` |
+| 文件                                                       | 说明                                                        | 运行示例                              |
+| ---------------------------------------------------------- | ----------------------------------------------------------- | ------------------------------------- |
+| [hello.yaml](./hello.yaml)                                 | 最小指令：`inputs` / `variables` / `save_to` / `file.write` | `corex run hello`                     |
+| [resolver-demo.yaml](./resolver-demo.yaml)                 | 占位符：`input` / `env` / `variables` / `step.*`            | `corex run resolver-demo`             |
+| [control-flow.yaml](./control-flow.yaml)                   | `if` / `else` / `repeat.count`                              | `corex run control-flow -i mode=prod` |
+| [control-flow-advanced.yaml](./control-flow-advanced.yaml) | `repeat.each` / `parallel` / `when` / `on_error`            | `corex run control-flow-advanced`     |
 
 ## HTTP 与数据
 
-| 文件 | 说明 | 运行示例 |
-|------|------|----------|
-| [http-save-body.yaml](./http-save-body.yaml) | GET + query/headers/token → 写文件 | `corex run http-save-body -i url=https://httpbin.org/get -i q=corex` |
-| [http-post-json.yaml](./http-post-json.yaml) | POST JSON → 解析 → 模板输出 | `corex run http-post-json` |
-| [http-extract-patch.yaml](./http-extract-patch.yaml) | POST httpbin → JSON 提取 → `file.write` regex | `corex run http-extract-patch` |
-| [bing-suggest.yaml](./bing-suggest.yaml) | 模板拼 URL + `http.send` + `codec.json.parse` | `corex run bing-suggest -i qry=rust` |
-| [codec-pipeline.yaml](./codec-pipeline.yaml) | Base64 / MD5 / JSON 解析链 | `corex run codec-pipeline` |
+| 文件                                                 | 说明                                                                 | 运行示例                                                             |
+| ---------------------------------------------------- | -------------------------------------------------------------------- | -------------------------------------------------------------------- |
+| [http-save-body.yaml](./http-save-body.yaml)         | GET + query/headers/token → 写文件                                   | `corex run http-save-body -i url=https://httpbin.org/get -i q=corex` |
+| [http-post-json.yaml](./http-post-json.yaml)         | POST JSON → 解析 → 模板输出                                          | `corex run http-post-json`                                           |
+| [http-extract-patch.yaml](./http-extract-patch.yaml) | POST httpbin → JSON 提取 → `file.write` regex                        | `corex run http-extract-patch`                                       |
+| [bing-suggest.yaml](./bing-suggest.yaml)             | 模板拼 URL + `http.send` + `codec.json.parse`                        | `corex run bing-suggest -i qry=rust`                                 |
+| [html-crawl.yaml](./html-crawl.yaml)                 | 抓网页：`http.send` + `html.select`/`links`/`text` + `contains` 条件 | `corex run html-crawl -i url=https://example.com`                    |
+| [codec-pipeline.yaml](./codec-pipeline.yaml)         | Base64 / MD5 / JSON 解析链                                           | `corex run codec-pipeline`                                           |
 
 ## 文件与生成
 
-| 文件 | 说明 | 运行示例 |
-|------|------|----------|
-| [file-write-modes.yaml](./file-write-modes.yaml) | `overwrite` / `splice` / `str_replace` / `json_set` / `regex` / `lines` | `corex run file-write-modes` |
-| [file-ops-demo.yaml](./file-ops-demo.yaml) | `file.copy` + `file.remove` | `corex run file-ops-demo` |
-| [dir-ops-demo.yaml](./dir-ops-demo.yaml) | `dir.write` / `read` / `update` / `remove` | `corex run dir-ops-demo` |
-| [copy-demo.yaml](./copy-demo.yaml) | `copy.run` 目录/文件复制 | `corex run copy-demo` |
-| [compression-demo.yaml](./compression-demo.yaml) | `compression.compress` + `decompress` | `corex run compression-demo` |
-| [generate-path-demo.yaml](./generate-path-demo.yaml) | `generate.path` 路径列表 | `corex run generate-path-demo` |
-| [inject-build-time.yaml](./inject-build-time.yaml) | 时间戳注入 JSON / JS marker | `corex run inject-build-time -i json_path=./package.json` |
-| [generate-demo.yaml](./generate-demo.yaml) | UUID / 时间戳 / CVID | `corex run generate-demo` |
-| [upload-chunked.yaml](./upload-chunked.yaml) | 大文件分片上传：`generate.chunks` 规划 + `http.send` multipart + `repeat` 逐片（含秒传短路） | `corex run upload-chunked -i file=D:/big.bin` |
-| [scrub-demo.yaml](./scrub-demo.yaml) | `scrub.run` 递归删除匹配文件 | `corex run scrub-demo` |
-| [shade-demo.yaml](./shade-demo.yaml) | `shade.convert` PNG→JPEG | `corex run shade-demo` |
-| [morph-demo.yaml](./morph-demo.yaml) | `morph.export` / `merge` / `split`（需 `-i pdf_path=`） | `corex run morph-demo -i pdf_path=...` |
+| 文件                                                 | 说明                                                                                                                               | 运行示例                                                  |
+| ---------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------- |
+| [file-write-modes.yaml](./file-write-modes.yaml)     | `overwrite` / `splice` / `str_replace` / `json_set` / `regex` / `lines`                                                            | `corex run file-write-modes`                              |
+| [file-ops-demo.yaml](./file-ops-demo.yaml)           | `file.copy` + `file.remove`                                                                                                        | `corex run file-ops-demo`                                 |
+| [dir-ops-demo.yaml](./dir-ops-demo.yaml)             | `dir.write` / `read` / `update` / `remove`                                                                                         | `corex run dir-ops-demo`                                  |
+| [copy-demo.yaml](./copy-demo.yaml)                   | `copy.run` 目录/文件复制                                                                                                           | `corex run copy-demo`                                     |
+| [compression-demo.yaml](./compression-demo.yaml)     | `compression.compress` + `decompress`                                                                                              | `corex run compression-demo`                              |
+| [generate-path-demo.yaml](./generate-path-demo.yaml) | `generate.path` 路径列表                                                                                                           | `corex run generate-path-demo`                            |
+| [inject-build-time.yaml](./inject-build-time.yaml)   | 时间戳注入 JSON / JS marker                                                                                                        | `corex run inject-build-time -i json_path=./package.json` |
+| [generate-demo.yaml](./generate-demo.yaml)           | UUID / 时间戳 / CVID                                                                                                               | `corex run generate-demo`                                 |
+| [upload-chunked.yaml](./upload-chunked.yaml)         | 大文件分片上传：`generate.chunks` 切块 + `generate.hash` 算摘要（算完即 PATCH，与上传并行）+ 断点续传 + `http.send` multipart 逐片 | `corex run upload-chunked -i file=D:/big.bin`             |
+| [scrub-demo.yaml](./scrub-demo.yaml)                 | `scrub.run` 递归删除匹配文件                                                                                                       | `corex run scrub-demo`                                    |
+| [shade-demo.yaml](./shade-demo.yaml)                 | `shade.convert` PNG→JPEG                                                                                                           | `corex run shade-demo`                                    |
+| [morph-demo.yaml](./morph-demo.yaml)                 | `morph.export` / `merge` / `split`（需 `-i pdf_path=`）                                                                            | `corex run morph-demo -i pdf_path=...`                    |
 
 ## 系统与桌面
 
-| 文件 | 说明 | 运行示例 |
-|------|------|----------|
-| [exec-run-demo.yaml](./exec-run-demo.yaml) | `exec.run` 脚本文件执行 | `corex run exec-run-demo` |
-| [shell-host-demo.yaml](./shell-host-demo.yaml) | `shell.run`：`host` / `wait` / `allow_nonzero` | `corex run shell-host-demo` |
-| [shell-input-demo.yaml](./shell-input-demo.yaml) | `shell.run`：`input` 自动应答交互式提问 | `corex run shell-input-demo` |
-| [clipboard-notify.yaml](./clipboard-notify.yaml) | 剪贴板读写 + 桌面通知 | `corex run clipboard-notify -i text=你好` |
-| [scan-env-demo.yaml](./scan-env-demo.yaml) | `scan.os` 系统信息摘要 | `corex run scan-env-demo` |
-| [keyring-demo.yaml](./keyring-demo.yaml) | `keyring.set` + `keyring.get` | `corex run keyring-demo` |
-| [bootstrap-demo.yaml](./bootstrap-demo.yaml) | `bootstrap.inspect`（Windows） | `corex run bootstrap-demo` |
+| 文件                                             | 说明                                           | 运行示例                                  |
+| ------------------------------------------------ | ---------------------------------------------- | ----------------------------------------- |
+| [exec-run-demo.yaml](./exec-run-demo.yaml)       | `exec.run` 脚本文件执行                        | `corex run exec-run-demo`                 |
+| [shell-host-demo.yaml](./shell-host-demo.yaml)   | `shell.run`：`host` / `wait` / `allow_nonzero` | `corex run shell-host-demo`               |
+| [shell-input-demo.yaml](./shell-input-demo.yaml) | `shell.run`：`input` 自动应答交互式提问        | `corex run shell-input-demo`              |
+| [clipboard-notify.yaml](./clipboard-notify.yaml) | 剪贴板读写 + 桌面通知                          | `corex run clipboard-notify -i text=你好` |
+| [scan-env-demo.yaml](./scan-env-demo.yaml)       | `scan.os` 系统信息摘要                         | `corex run scan-env-demo`                 |
+| [keyring-demo.yaml](./keyring-demo.yaml)         | `keyring.set` + `keyring.get`                  | `corex run keyring-demo`                  |
+| [bootstrap-demo.yaml](./bootstrap-demo.yaml)     | `bootstrap.inspect`（Windows）                 | `corex run bootstrap-demo`                |
 
 ## UI 自动化（Windows）
 
-| 文件 | 说明 | 运行示例 |
-|------|------|----------|
-| [ui-smoke-notepad.yaml](./ui-smoke-notepad.yaml) | 13 个 `ui.*` 动作冒烟（Win11 记事本） | `corex run ui-smoke-notepad` |
-| [wechat-send-message.yaml](./wechat-send-message.yaml) | 微信发消息（实验性，需授权） | `corex run wechat-send-message -i contact=文件传输助手 -i message=你好` |
-| [capture-demo.yaml](./capture-demo.yaml) | `capture.screenshot` / `crop` / `monitors` | `corex run capture-demo` |
+| 文件                                                   | 说明                                       | 运行示例                                                                |
+| ------------------------------------------------------ | ------------------------------------------ | ----------------------------------------------------------------------- |
+| [ui-smoke-notepad.yaml](./ui-smoke-notepad.yaml)       | 13 个 `ui.*` 动作冒烟（Win11 记事本）      | `corex run ui-smoke-notepad`                                            |
+| [wechat-send-message.yaml](./wechat-send-message.yaml) | 微信发消息（实验性，需授权）               | `corex run wechat-send-message -i contact=文件传输助手 -i message=你好` |
+| [capture-demo.yaml](./capture-demo.yaml)               | `capture.screenshot` / `crop` / `monitors` | `corex run capture-demo`                                                |
 
 ## 声明式与动态触发器
 
-| 文件 | 说明 |
-|------|------|
-| [triggers-declared.yaml](./triggers-declared.yaml) | `triggers.cron` / `triggers.watch` 声明（含 `debounce` / `throttle` 边沿）；配合 `corex cron run` / `corex watch run` |
-| [cron-schedule-demo.yaml](./cron-schedule-demo.yaml) | `cron.schedule` 动态注册（需 `corex cron run`） |
+| 文件                                                 | 说明                                                                                                                  |
+| ---------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------- |
+| [triggers-declared.yaml](./triggers-declared.yaml)   | `triggers.cron` / `triggers.watch` 声明（含 `debounce` / `throttle` 边沿）；配合 `corex cron run` / `corex watch run` |
+| [cron-schedule-demo.yaml](./cron-schedule-demo.yaml) | `cron.schedule` 动态注册（需 `corex cron run`）                                                                       |
 
 手动执行始终用 `corex run <name>`，无需在 YAML 中声明。
 
 ## 常见占位符
 
-| 写法 | 含义 |
-|------|------|
-| `{{input.name}}` | 指令输入 |
-| `{{env.TEMP}}` | 环境变量 |
-| `{{variables.x}}` / `{{x}}` | 顶层 `variables` 或 `save_to` |
-| `{{step.fetch.status}}` | 某步输出字段 |
-| `{{message}}` | 等价于 `variables.message`（`save_to` 写入） |
+| 写法                        | 含义                                         |
+| --------------------------- | -------------------------------------------- |
+| `{{input.name}}`            | 指令输入                                     |
+| `{{env.TEMP}}`              | 环境变量                                     |
+| `{{variables.x}}` / `{{x}}` | 顶层 `variables` 或 `save_to`                |
+| `{{step.fetch.status}}`     | 某步输出字段                                 |
+| `{{message}}`               | 等价于 `variables.message`（`save_to` 写入） |
 
 ## 权限
 

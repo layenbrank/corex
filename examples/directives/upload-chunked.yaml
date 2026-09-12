@@ -1,16 +1,23 @@
-# 大文件分片上传 —— generate.chunks 规划 + http.send(multipart) 逐片上传 + repeat 循环
+# 大文件分片上传 —— generate.hash 摘要 + generate.chunks 切块 + http.send(multipart) 逐片上传
 #
 # 服务端契约（以本机 services/upload 为准）：
 #   POST  /api/v1/auth/signin     {username, password, captchaKey, captchaValue} → data.token
-#   POST  /api/v1/upload/prepare  {name, size, mime, chunk}                      → data.id
-#   PATCH /api/v1/upload/hash     {id, hash}        # 整文件 sha256，尽早绑定（可命中秒传）
+#   POST  /api/v1/upload/prepare  {name, size, mime, chunk}                      → data.id（不带 hash）
+#   PATCH /api/v1/upload/hash     {id, hash}        # 整文件 sha256，算完即绑（可命中秒传）
 #   POST  /api/v1/upload/chunk    multipart: id / index / hash + chunk(这一片的字节)
 #   POST  /api/v1/upload/finalize {id}              # 服务端按序校验整文件 hash
 #
-# 三个要点都落在动作上，指令里没有算术：
-# - `generate.chunks` 一遍读完文件，给出整文件摘要与每片的 index/offset/length/hex；
-#   指令的 `{{ }}` 只做取值，算不出的边界由它算。
-# - 每片是 `http.send` 的 multipart 文件部件，直接带 offset/length —— 不必先落盘切片。
+# 职责划分（一件事一个动作，不互相兼职）：
+# - `generate.chunks` 只切块：给每片的 index/offset/length，不读内容也不算摘要。
+# - `generate.hash` 只算摘要：整文件（不给 offset/length）或某一片（给 offset/length）。
+# - 两条线并行：整文件摘要算完立刻 PATCH，与逐片上传同时进行（对应参考实现的
+#   `Promise.all([bindHashTask, chunksTask])`）。这条并行是真收益：大文件的摘要要算
+#   几十秒，让它搭上传的车。
+# - 分片之间并发：`max_concurrency` 与 `repeat` **同级**（省略 / `1` = 串行，元素共享
+#   一份上下文；`> 1` = 并发，每个元素一份上下文副本）。并发度按在途内存算
+#   （≈ 并发度 × chunk）；若元素之间需要互相看到变量，就用串行。
+# - 断点续传：`prepare` 回的已传分片里，index 相同**且 hash 一致**的片直接跳过；
+#   hash 不一致说明服务端那份不对，照传。
 # - development 下验证码关着，占位填 `captchaKey: dev` / `captchaValue: "0"`。
 #
 # 运行:
@@ -88,49 +95,89 @@ steps:
         size: "{{steps.plan.size}}"
         mime: application/octet-stream
         chunk: "{{steps.plan.chunk}}"
-        hash: "{{steps.plan.hash}}"
 
   - id: session
     action: codec.json.parse
     params:
       text: "{{steps.prepare.body}}"
 
-  - id: bind
-    action: http.send
+  # 服务端已传的分片 `[{index, hash}, …]`。
+  # 字段缺席时 `codec.json.pick` 给的是 Null，`contains` 自然判为「没有」——
+  # 不需要「取不到就给空表」那种兜底。
+  - id: uploaded
+    action: codec.json.pick
     params:
-      url: "{{input.base}}/api/v1/upload/hash"
-      method: PATCH
-      token: "{{steps.auth.data.token}}"
-      json:
-        id: "{{steps.session.data.id}}"
-        hash: "{{steps.plan.hash}}"
+      value: "{{steps.session.data}}"
+      pointer: /uploaded
 
-  - id: parts
-    repeat:
-      each: "{{steps.plan.chunks}}"
-      as: part
-    steps:
-      - id: put
-        action: http.send
-        # 秒传命中（服务端已有同样布局）时一片都不用传；`repeat` 上没有 `when`，
-        # 条件因此挂在这一步上：逐片判断，命中就都跳过。
-        when:
-          ne: ["{{steps.session.data.exists}}", true]
-        params:
-          url: "{{input.base}}/api/v1/upload/chunk"
-          method: POST
-          token: "{{steps.auth.data.token}}"
-          multipart:
-            id: "{{steps.session.data.id}}"
-            index: "{{part.index}}"
-            hash: "{{part.hex}}"
-            chunk:
+  # 两条线并行：上＝流式算整文件摘要，算完立刻 PATCH（不等分片传完）；
+  # 下＝逐片算这一片的摘要并上传。这里的 `max_concurrency` 只管这两条线，
+  # 分片之间自己还有一层并发（见下面 parts）。
+  - id: fanout
+    max_concurrency: 2
+    parallel:
+      - id: bind_hash
+        steps:
+          - id: digest
+            action: generate.hash
+            params:
+              path: "{{input.file}}"
+          - id: patch
+            action: http.send
+            params:
+              url: "{{input.base}}/api/v1/upload/hash"
+              method: PATCH
+              token: "{{steps.auth.data.token}}"
+              json:
+                id: "{{steps.session.data.id}}"
+                hash: "{{steps.digest.hex}}"
+
+      - id: parts
+        # 分片之间并发：`max_concurrency` 与 `repeat` 同级，省略（或写 `1`）就是串行。
+        # 并发时每个元素一份上下文副本，跑完按元素顺序合并回来；在途 ≈ 并发度 × chunk。
+        max_concurrency: 2
+        repeat:
+          each: "{{steps.plan.chunks}}"
+          as: part
+        steps:
+          # 每片的摘要：只读这一片（offset/length），不碰整文件。
+          - id: piece
+            action: generate.hash
+            params:
               path: "{{input.file}}"
               offset: "{{part.offset}}"
               length: "{{part.length}}"
-              filename: "chunk-{{part.index}}.part"
-              content_type: application/octet-stream
-        retry: 2
+
+          - id: put
+            action: http.send
+            # 两个跳过条件都挂在步骤上（`repeat` 上没有 `when`）：
+            #   整文件已秒传 → 一片也不用传；
+            #   这一片服务端已有且 hash 一致 → 只跳过这一片。
+            # `contains` 对对象数组是子集匹配，所以只写我们关心的两个字段，
+            # 服务端多带 `size` / `updatedAt` 之类不影响。
+            when:
+              and:
+                - ne: ["{{steps.session.data.exists}}", true]
+                - not:
+                    contains:
+                      - "{{steps.uploaded}}"
+                      - index: "{{part.index}}"
+                        hash: "{{steps.piece.hex}}"
+            params:
+              url: "{{input.base}}/api/v1/upload/chunk"
+              method: POST
+              token: "{{steps.auth.data.token}}"
+              multipart:
+                id: "{{steps.session.data.id}}"
+                index: "{{part.index}}"
+                hash: "{{steps.piece.hex}}"
+                chunk:
+                  path: "{{input.file}}"
+                  offset: "{{part.offset}}"
+                  length: "{{part.length}}"
+                  filename: "chunk-{{part.index}}.part"
+                  content_type: application/octet-stream
+            retry: 2
 
   - id: finalize
     action: http.send

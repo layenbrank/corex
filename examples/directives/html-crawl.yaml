@@ -1,0 +1,89 @@
+# 抓一个网页并落盘 —— http.send + html.* + contains 条件
+#
+# 爬虫的基础三件套都在这里：
+#   `http.send` 取回响应体（文本），`html.select` / `html.links` / `html.text`
+#   把想要的东西抠出来，`file.write` 落盘。
+#
+# `contains` 是条件而不是动作：它既能在数组里找元素（`links.items` 里有没有下一页），
+# 也能在字符串里找子串（页面里有没有「加载更多」）。这里用的是后者。
+#
+# 运行:
+#   corex run html-crawl -i url=https://example.com
+#   corex run html-crawl -i url=https://example.com -i out=D:/tmp/page.txt
+name: html-crawl
+description: 抓取一个网页：标题、正文、链接清单，写成一个文本文件
+version: "1.0"
+
+permissions:
+  filesystem: true
+  network: true
+
+variables:
+  # 先给个空值：`save` 那段无条件引用它，而 `has_more` 未必跑得到。
+  next_page: ""
+
+inputs:
+  - name: url
+    description: 要抓的页面地址
+    required: true
+  - name: out
+    description: 结果写到哪
+    required: false
+    default: "{{env.TEMP}}/corex-crawl.txt"
+
+steps:
+  - id: get
+    action: http.send
+    params:
+      url: "{{input.url}}"
+      response: text
+    retry: 2
+
+  # 标题：只要第一个匹配；`all: false` 比取完再挑更省。
+  - id: title
+    action: html.select
+    params:
+      html: "{{steps.get.body}}"
+      selector: "title"
+      all: false
+
+  # 正文：去掉标签后的可见文本。
+  - id: text
+    action: html.text
+    params:
+      html: "{{steps.get.body}}"
+      selector: "body"
+
+  # 链接：相对地址会按 base 补成绝对地址，锚点/脚本自动滤掉。
+  - id: links
+    action: html.links
+    params:
+      html: "{{steps.get.body}}"
+      base: "{{steps.get.url}}"
+
+  # 页面里出现「加载更多」就说明还有下一页：顺手把下一页地址捞出来。
+  - id: has_more
+    if:
+      contains: ["{{steps.get.body}}", "加载更多"]
+    then:
+      - id: more
+        action: html.select
+        params:
+          html: "{{steps.get.body}}"
+          selector: "a.next"
+          attr: href
+          all: false
+        save_to: next_page
+
+  - id: save
+    action: file.write
+    params:
+      path: "{{input.out}}"
+      mode: overwrite
+      content: |
+        url: {{input.url}}
+        title: {{steps.title.value}}
+        links: {{steps.links.count}}
+        next: {{next_page}}
+        ---
+        {{steps.text}}

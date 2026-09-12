@@ -59,12 +59,13 @@ inputs:
 
 `steps` 是一组无标签（untagged）节点：
 
-| 类型     | 必填键                  | 说明                                                  |
-| -------- | ----------------------- | ----------------------------------------------------- |
-| Action   | `id`, `action`          | 可选 `params`、`save_to`、`when`、`on_error`、`retry` |
-| If       | `id`, `if`, `then`      | 可选 `else`                                           |
-| Repeat   | `id`, `repeat`, `steps` | `repeat.count` **或** `repeat.each`                   |
-| Parallel | `id`, `parallel`        | 可选 `max_concurrency`                                |
+| 类型     | 必填键                  | 说明                                                                                                  |
+| -------- | ----------------------- | ----------------------------------------------------------------------------------------------------- |
+| Action   | `id`, `action`          | 可选 `params`、`save_to`、`when`、`on_error`、`retry`                                                 |
+| If       | `id`, `if`, `then`      | 可选 `else`                                                                                           |
+| Repeat   | `id`, `repeat`, `steps` | `repeat.count` **或** `repeat.each`；可选 `max_concurrency`（与 `repeat` 同级，见 [Repeat](#repeat)） |
+| Parallel | `id`, `parallel`        | 可选 `max_concurrency`（写死的分支列表）                                                              |
+| Steps    | `steps`                 | 顺序块：把多步收成一个步骤（好放进 `parallel` 的分支）                                                |
 
 ### Action 步骤
 
@@ -125,7 +126,37 @@ repeat:
   index: i
 ```
 
+`repeat` 有两种跑法，由与它**同级**的 `max_concurrency` 决定 —— 一眼看得出这一步是不是
+并发的；两种跑法**语义不同**，不是纯性能开关：
+
+| 跑法         | 写法                             | 语义                                                                       | 适合                                    |
+| ------------ | -------------------------------- | -------------------------------------------------------------------------- | --------------------------------------- |
+| 串行（默认） | 省略 `max_concurrency`，或写 `1` | 元素共享**一份**上下文：前一个元素写下的变量，后一个元素看得见             | 元素之间有依赖（累加、按序推进）        |
+| 并发         | `max_concurrency: N`（`N > 1`）  | 每个元素拿一份**上下文副本**出发，跑完按元素顺序合并回来：元素之间互不可见 | 元素互不依赖的 IO（分片上传、批量请求） |
+
+```yaml
+# 串行（默认）
+- id: loop
+  repeat:
+    each: '{{plan.chunks}}'
+    as: part
+  steps: ...
+
+# 并发：最多 4 个元素同时在跑
+- id: loop
+  max_concurrency: 4
+  repeat:
+    each: '{{plan.chunks}}'
+    as: part
+  steps: ...
+```
+
+`count` 与 `each` 都能并发（`count` 下 `as` / `index` 绑的都是序号）。并发时在途资源
+≈ `max_concurrency × 单元素占用`，按内存 / 带宽 / 服务端限流调。
+
 ### Parallel
+
+`parallel` 是**写死的**一组分支，每支并发跑；`max_concurrency` 与它同级：
 
 ```yaml
 - id: fanout
@@ -139,9 +170,47 @@ repeat:
       params: { template: 'B' }
 ```
 
-并发度 = 若设置了 `max_concurrency` 则用其值，否则用配置中的 `runtime.max_parallel`（默认 8）。当有效最大值 **≤ 1**（或仅有一个子步骤）时，步骤 **顺序** 执行。当 **max > 1** 且有多个子步骤时，引擎 **并发** 执行（`buffer_unordered`）。
+并发度 = 若设置了 `max_concurrency` 则用其值，否则用配置中的 `runtime.max_parallel`（默认 8）。当有效最大值 **≤ 1**（或仅有一个分支）时，步骤 **顺序** 执行。当 **max > 1** 且有多个分支时，引擎 **并发** 执行（`buffer_unordered`）。
+
+分支各拿一份**上下文副本**出发，跑完按序号合并回来：分支之间看不到彼此的改动
+（`save_to` 最终值来自最后一个分支）。要并发跑一个**集合**（分片上传、批量请求），
+用 [`repeat` + `max_concurrency`](#repeat)。
 
 并行分支若有多个错误，引擎 **优先保留权限拒绝**（`is_permission_denied`），再回退到先遇到的其它失败。
+
+### Steps（顺序块）
+
+一个分支只能放**一个**步骤，而真实流程常常需要「先算再提交」这种两步串起来的分支。
+用 `steps` 把几步收成一个步骤即可：
+
+```yaml
+- id: fanout
+  max_concurrency: 2
+  parallel:
+    # 分支一：算完摘要才 PATCH，与分支二的上传同时进行
+    - id: digest_and_bind
+      steps:
+        - id: digest
+          action: generate.hash
+          params: { path: '{{input.file}}' }
+        - id: patch
+          action: http.send
+          params:
+            url: '{{input.base}}/api/v1/upload/hash'
+            method: PATCH
+            json: { id: '{{steps.session.data.id}}', hash: '{{steps.digest.hex}}' }
+    # 分支二：逐片上传
+    - id: parts
+      repeat:
+        each: '{{steps.plan.chunks}}'
+        as: part
+      steps:
+        - id: put
+          action: http.send
+          params: { url: '{{input.base}}/api/v1/upload/chunk' }
+```
+
+顺序块的值是它最后一步的值；里面的 `save_to` / `step.<id>` 与普通步骤一样。
 
 ## 条件（`when` / `if`）
 
@@ -151,9 +220,12 @@ repeat:
 | ------------------------- | --------------------------------- |
 | 表达式字符串              | `"{{variables.enabled}}"`（真值） |
 | `eq` / `ne` / `gt` / `lt` | `eq: [a, b]`                      |
+| `contains`                | `contains: [haystack, needle]`    |
 | `and` / `or` / `not`      | 嵌套列表 / box                    |
 
-操作数经同一套 `{{ }}` 解析器解析。
+操作数经同一套 `{{ }}` 解析器解析。`contains` 在数组里找元素、在字符串里找子串、在 map 里找键；
+元素比较是宽松的（`0` 与 `"0"` 相等）；数组里是对象时 `needle` 按**子集**匹配
+（某一项含有 `needle` 的全部键值就算命中），所以不必把服务端对象的字段抄全。
 
 ## 占位符解析器
 
