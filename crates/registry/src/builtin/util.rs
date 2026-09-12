@@ -181,12 +181,73 @@ pub(crate) fn range_params(
     Ok((offset as u64, length))
 }
 
+/// 值里的字节：`Bytes`，或 JSON 往返后退化成的整数数组。
+///
+/// `Bytes` 序列化成 `[0..=255]`，而反序列化只会得到 `Array`（`Value::from_json`
+/// 也不还原）——经 IPC 一过就不再是 `Bytes`。两条路都认，二进制链才不会被传输层截断。
+#[cfg(any(feature = "act-file", feature = "act-http"))]
+pub(crate) fn as_bytes(value: &Value) -> Option<Vec<u8>> {
+    match value {
+        Value::Bytes(bytes) => Some(bytes.clone()),
+        Value::Array(items) => items
+            .iter()
+            .map(|item| u8::try_from(item.as_i64()?).ok())
+            .collect(),
+        _ => None,
+    }
+}
+
 /// 单个缓冲区允许的字节上限。
 ///
-/// 「一段」是整块读进内存的（分片计划要算摘要、multipart 要原样发出去）：
-/// 这是它们的共同天花板，也是「别把 10 GB 一次读进来」这条规矩的唯一出处。
-#[cfg(any(feature = "act-file", feature = "act-generate", feature = "act-http"))]
+/// 「一段」是整块读进内存的（multipart 部件要原样发出去，`file.read` 的 bytes 模式
+/// 要一次交出去）：这是它们的共同天花板，也是「别把 10 GB 一次读进来」这条规矩的唯一出处。
+#[cfg(any(feature = "act-generate", feature = "act-http"))]
 pub(crate) const MAX_RANGE: u64 = 256 * 1024 * 1024;
+
+/// 文件大小（字节）；不是普通文件就报错。
+#[cfg(any(feature = "act-file", feature = "act-generate", feature = "act-http"))]
+pub(crate) async fn file_size(path: &Path) -> Result<u64, ActionError> {
+    let meta = tokio::fs::metadata(path)
+        .await
+        .map_err(|e| ActionError::execution(format!("读取文件失败 {}: {e}", path.display())))?;
+    if !meta.is_file() {
+        return Err(ActionError::InvalidParams(format!(
+            "不是文件: {}",
+            path.display()
+        )));
+    }
+    Ok(meta.len())
+}
+
+/// 文件里一段的字节数：`[offset, offset + length)` 与 `[0, size)` 取交。
+///
+/// 摘要、分片计划、multipart 部件与 `file.read` 的 bytes 模式都走这一套读法，
+/// 于是「一段」的边界只有这处在解释。
+#[cfg(any(feature = "act-file", feature = "act-generate", feature = "act-http"))]
+pub(crate) fn range_len(size: u64, offset: u64, length: Option<u64>) -> Result<u64, ActionError> {
+    if offset > size {
+        return Err(ActionError::InvalidParams(format!(
+            "offset {offset} 超过文件大小 {size}"
+        )));
+    }
+    Ok(length.map_or(size - offset, |n| n.min(size - offset)))
+}
+
+/// 小写十六进制。
+///
+/// 摘要的输出是输入的两倍长，逐字节 `format!` 等于给每个字节分配一次 `String`
+/// （256 MiB 的文件就是 2.68 亿次），所以查表写：`generate.hash`、`codec.hash.md5`
+/// 与 base64 解码的非 UTF-8 兑底共用这一份。
+#[cfg(any(feature = "act-codec", feature = "act-generate"))]
+pub(crate) fn hex(bytes: &[u8]) -> String {
+    const HEX: &[u8; 16] = b"0123456789abcdef";
+    let mut out = String::with_capacity(bytes.len() * 2);
+    for &b in bytes {
+        out.push(HEX[(b >> 4) as usize] as char);
+        out.push(HEX[(b & 0x0f) as usize] as char);
+    }
+    out
+}
 
 /// 文件里的一段：起点 + 还剩多少字节。
 ///
@@ -205,23 +266,7 @@ impl Slice {
         offset: u64,
         length: Option<u64>,
     ) -> Result<Self, ActionError> {
-        let meta = tokio::fs::metadata(path)
-            .await
-            .map_err(|e| ActionError::execution(format!("读取文件失败 {}: {e}", path.display())))?;
-        if !meta.is_file() {
-            return Err(ActionError::InvalidParams(format!(
-                "不是文件: {}",
-                path.display()
-            )));
-        }
-        let size = meta.len();
-        if offset > size {
-            return Err(ActionError::InvalidParams(format!(
-                "offset {offset} 超过文件大小 {size}"
-            )));
-        }
-        let left = length.map_or(size - offset, |n| n.min(size - offset));
-
+        let left = range_len(file_size(path).await?, offset, length)?;
         let mut file = tokio::fs::File::open(path)
             .await
             .map_err(|e| ActionError::execution(format!("打开文件失败 {}: {e}", path.display())))?;
@@ -258,7 +303,7 @@ impl Slice {
 ///
 /// 适合「一片」这种粒度（multipart 部件、`file.read` 的 bytes 模式）；
 /// 再大就该用 [`Slice`] 边读边处理了。
-#[cfg(any(feature = "act-file", feature = "act-generate", feature = "act-http"))]
+#[cfg(any(feature = "act-file", feature = "act-http"))]
 pub(crate) async fn read_range(
     path: &Path,
     offset: u64,

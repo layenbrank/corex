@@ -380,3 +380,127 @@ async fn update_rename_and_remove() {
         .unwrap();
     assert!(!to.exists());
 }
+
+/// `content` 是 `Bytes` 时原样落盘：下载来的图片过一趟 `String` 就废了。
+///
+/// 这也是 `http.send`（`response: binary`）→ `file.write` 那条链的下半截。
+#[tokio::test]
+async fn write_bytes_content() {
+    let dir = tempdir().unwrap();
+    let path = dir.path().join("blob.bin");
+    // 0x89 0x50 0x4E 0x47 不是合法 UTF-8，文本模式一定会改坏它。
+    let bytes = vec![0x89u8, 0x50, 0x4E, 0x47, 0xFF, 0x00, 0x1A];
+    let text = dir.path().join("blob-copy.bin");
+    let mut ctx = ExecutionContext::default();
+
+    let mut params = BTreeMap::new();
+    params.insert("path".into(), Value::Str(path.display().to_string()));
+    params.insert("content".into(), Value::Bytes(bytes.clone()));
+    let out = FileWrite
+        .execute(Value::Map(params), &mut ctx)
+        .await
+        .unwrap();
+    assert_eq!(
+        out.as_map().unwrap().get("bytes_written"),
+        Some(&Value::Int(bytes.len() as i64))
+    );
+    assert_eq!(tokio::fs::read(&path).await.unwrap(), bytes);
+    // 字节流没有换行风格可说，别让调用方以为被改过。
+    assert_eq!(
+        out.as_map().unwrap().get("newline").unwrap().as_str(),
+        Some("none")
+    );
+
+    // `append` 接着写；`create_dirs` 默认开着，父目录会自动建。
+    let nested = dir.path().join("a").join("b.bin");
+    let mut params = BTreeMap::new();
+    params.insert("path".into(), Value::Str(nested.display().to_string()));
+    params.insert("mode".into(), Value::Str("append".into()));
+    params.insert("content".into(), Value::Bytes(b"hi".to_vec()));
+    FileWrite
+        .execute(Value::Map(params), &mut ctx)
+        .await
+        .unwrap();
+    assert_eq!(tokio::fs::read(&nested).await.unwrap(), b"hi");
+
+    // 文本模式那些花活对字节流没有意义，选错了要直说。
+    let mut params = BTreeMap::new();
+    params.insert("path".into(), Value::Str(text.display().to_string()));
+    params.insert("mode".into(), Value::Str("str_replace".into()));
+    params.insert("old".into(), Value::Str("a".into()));
+    params.insert("new".into(), Value::Str("b".into()));
+    params.insert("content".into(), Value::Bytes(bytes.clone()));
+    let err = FileWrite
+        .execute(Value::Map(params), &mut ctx)
+        .await
+        .unwrap_err();
+    assert!(err.to_string().contains("overwrite"), "{err}");
+    assert!(!text.exists(), "报错之前不该已经落盘");
+}
+
+/// `mode: bytes` 读出来的就是 `Bytes`，能原样交给 `file.write`。
+#[tokio::test]
+async fn read_bytes_roundtrips_through_write() {
+    let dir = tempdir().unwrap();
+    let src = dir.path().join("src.bin");
+    let dst = dir.path().join("dst.bin");
+    let bytes: Vec<u8> = (0..=255u8).collect();
+    tokio::fs::write(&src, &bytes).await.unwrap();
+    let mut ctx = ExecutionContext::default();
+
+    let mut params = BTreeMap::new();
+    params.insert("path".into(), Value::Str(src.display().to_string()));
+    params.insert("mode".into(), Value::Str("bytes".into()));
+    params.insert("offset".into(), Value::Int(10));
+    params.insert("length".into(), Value::Int(5));
+    let chunk = FileRead
+        .execute(Value::Map(params), &mut ctx)
+        .await
+        .unwrap();
+    assert_eq!(chunk, Value::Bytes(bytes[10..15].to_vec()));
+
+    let mut params = BTreeMap::new();
+    params.insert("path".into(), Value::Str(dst.display().to_string()));
+    params.insert("content".into(), chunk);
+    FileWrite
+        .execute(Value::Map(params), &mut ctx)
+        .await
+        .unwrap();
+    assert_eq!(tokio::fs::read(&dst).await.unwrap(), bytes[10..15].to_vec());
+}
+
+/// IPC 把 `Bytes` 序列化成整数数组，反序列化只还原成 `Array`。
+///
+/// 这条退化路径也得能落盘，否则 `http.send(response: binary)` → `file.write`
+/// 一过 daemon 就断。
+#[tokio::test]
+async fn write_accepts_bytes_degraded_to_integers() {
+    let dir = tempdir().unwrap();
+    let path = dir.path().join("from-ipc.bin");
+    let mut ctx = ExecutionContext::default();
+
+    let mut params = BTreeMap::new();
+    params.insert("path".into(), Value::Str(path.display().to_string()));
+    params.insert(
+        "content".into(),
+        Value::Array(vec![Value::Int(0x89), Value::Int(0x50), Value::Int(0xFF)]),
+    );
+    FileWrite
+        .execute(Value::Map(params), &mut ctx)
+        .await
+        .unwrap();
+    assert_eq!(
+        tokio::fs::read(&path).await.unwrap(),
+        vec![0x89u8, 0x50, 0xFF]
+    );
+
+    // 超出 0..=255 的数组不是字节：仍按文本模式报错，不假装写得进去。
+    let mut params = BTreeMap::new();
+    params.insert("path".into(), Value::Str(path.display().to_string()));
+    params.insert("content".into(), Value::Array(vec![Value::Int(300)]));
+    let err = FileWrite
+        .execute(Value::Map(params), &mut ctx)
+        .await
+        .unwrap_err();
+    assert!(err.to_string().contains("content"), "{err}");
+}

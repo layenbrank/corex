@@ -2,8 +2,8 @@
 
 use crate::ActionRegistry;
 use crate::builtin::util::{
-    MAX_RANGE, confine_path, opt_bool, opt_i64, opt_str, range_params, read_range, require_map,
-    require_str,
+    MAX_RANGE, as_bytes, confine_path, opt_bool, opt_i64, opt_str, range_params, read_range,
+    require_map, require_str,
 };
 use async_trait::async_trait;
 use corex_core::{
@@ -62,6 +62,15 @@ impl Action for HttpSend {
             ParamSchema::new("follow_redirects", SchemaType::Bool, false)
                 .with_default(true)
                 .with_description("是否跟随重定向"),
+            ParamSchema::new("response", SchemaType::Str, false)
+                .with_default("text")
+                .with_description("text 返回字符串 | binary 返回 Bytes（下载图片/压缩包等）"),
+            ParamSchema::new("encoding", SchemaType::Str, false).with_description(
+                "响应字符集，如 gbk / gb18030 / big5；不填则按 Content-Type、BOM、<meta> 猜，最后按 UTF-8",
+            ),
+            ParamSchema::new("max_bytes", SchemaType::Int, false)
+                .with_default(256 * 1024 * 1024)
+                .with_description("响应体缓冲上限，超出即报错（避免把 10 GB 读进内存）"),
         ])
     }
 
@@ -79,11 +88,12 @@ impl Action for HttpSend {
         builder = with_headers(builder, map.get("headers"))?;
         builder = with_auth(builder, map)?;
         builder = with_body(builder, map, ctx).await?;
+        let read = BodyRead::from_params(map)?;
         let resp = builder
             .send()
             .await
             .map_err(|e| ActionError::execution(format!("HTTP 请求失败: {e}")))?;
-        response_to_value(resp, ctx).await
+        response_to_value(resp, ctx, &read).await
     }
 }
 
@@ -243,10 +253,10 @@ async fn with_body(
         Some("multipart") => builder = with_multipart(builder, map, ctx).await?,
         Some("body") => {
             if let Some(body) = map.get("body") {
-                builder = match body {
-                    Value::Str(s) => builder.body(s.clone()),
-                    Value::Bytes(b) => builder.body(b.clone()),
-                    other => builder.body(other.to_string()),
+                // `as_bytes` 也认 IPC 往返后退化成的整数数组。
+                builder = match as_bytes(body) {
+                    Some(bytes) => builder.body(bytes),
+                    None => builder.body(body.to_string()),
                 };
             }
         }
@@ -319,6 +329,7 @@ async fn file_part(
 async fn response_to_value(
     mut resp: reqwest::Response,
     ctx: &ExecutionContext,
+    read: &BodyRead,
 ) -> Result<Value, ActionError> {
     let status = resp.status().as_u16() as i64;
     let ok = resp.status().is_success();
@@ -333,25 +344,75 @@ async fn response_to_value(
             )
         })
         .collect();
-    let text = read_body(&mut resp, ctx).await?;
+    let content_type = resp
+        .headers()
+        .get(CONTENT_TYPE)
+        .and_then(|v| v.to_str().ok())
+        .map(str::to_string);
+    let body = read_body(&mut resp, ctx, read, content_type.as_deref()).await?;
     let mut out = BTreeMap::new();
     out.insert("status".into(), Value::Int(status));
     out.insert("ok".into(), Value::Bool(ok));
     out.insert("url".into(), Value::Str(final_url));
     out.insert("headers".into(), Value::Map(headers_map));
-    out.insert("body".into(), Value::Str(text));
+    out.insert("body".into(), body);
     Ok(Value::Map(out))
 }
+
+/// 响应体怎么收：文本还是原始字节、按什么字符集、缓冲上限多少。
+struct BodyRead {
+    binary: bool,
+    /// 显式字符集；`None` 时交给 [`detect_charset`] 猜。
+    charset: Option<String>,
+    max: u64,
+}
+
+impl BodyRead {
+    fn from_params(map: &BTreeMap<String, Value>) -> Result<Self, ActionError> {
+        let binary = match opt_str(map, "response")
+            .unwrap_or_else(|| "text".into())
+            .trim()
+            .to_ascii_lowercase()
+            .as_str()
+        {
+            "" | "text" => false,
+            "binary" | "bytes" => true,
+            other => {
+                return Err(ActionError::InvalidParams(format!(
+                    "不支持的 response: {other}（text | binary）"
+                )));
+            }
+        };
+        let charset = opt_str(map, "encoding").filter(|s| !s.trim().is_empty());
+        // 字节流没有「字符集」可言：与其静默忽略 `encoding`，不如当场说清。
+        if binary && charset.is_some() {
+            return Err(ActionError::InvalidParams(
+                "response: binary 下 encoding 无意义（字节不解码）".into(),
+            ));
+        }
+        Ok(Self {
+            binary,
+            charset,
+            max: opt_i64(map, "max_bytes", MAX_RANGE as i64).max(0) as u64,
+        })
+    }
+}
+
+/// `<meta>` 字符集只扫开头这么多字节。
+const META_SNIFF_BYTES: usize = 4096;
 
 /// 逐块读响应体，顺手把已下载字节报上去。
 ///
 /// 大文件下载是 HTTP 动作里唯一耗得住时间的地方：一次 `text()` 读完，界面上就只剩
 /// 一个不动的 spinner。`Content-Length` 在就有总量（分块传输 / 解压后就没有，只报已读）。
-/// 解码沿用 reqwest 无 `charset` 特性时的行为：UTF-8，非法字节替换。
+///
+/// `response: binary` 时原样返回 [`Value::Bytes`]：图片、压缩包、PDF存不进 `String`。
 async fn read_body(
     resp: &mut reqwest::Response,
     ctx: &ExecutionContext,
-) -> Result<String, ActionError> {
+    read: &BodyRead,
+    content_type: Option<&str>,
+) -> Result<Value, ActionError> {
     let total = resp.content_length().filter(|n| *n > 0);
     let mut body = Vec::new();
     loop {
@@ -363,9 +424,76 @@ async fn read_body(
             break;
         };
         body.extend_from_slice(&chunk);
+        if body.len() as u64 > read.max {
+            return Err(ActionError::InvalidParams(format!(
+                "响应体超过 {} 字节上限（可用 max_bytes 提高）",
+                read.max
+            )));
+        }
         ctx.chunk(body.len() as u64, total, Unit::Bytes);
     }
-    Ok(String::from_utf8_lossy(&body).into_owned())
+    if read.binary {
+        return Ok(Value::Bytes(body));
+    }
+    let charset = detect_charset(read.charset.as_deref(), content_type, &body);
+    decode_text(&body, charset.as_deref()).map(Value::Str)
+}
+
+/// 猜响应体的字符集，按可信度从高到低：显式参数 > HTTP 头 > BOM > `<meta>`。
+///
+/// `<meta>` 那一步是给中文站准备的：`charset=gbk` 往往只写在页面里，头里没有，
+/// 不猜的话整页就是乱码。
+fn detect_charset(
+    explicit: Option<&str>,
+    content_type: Option<&str>,
+    body: &[u8],
+) -> Option<String> {
+    if let Some(name) = explicit {
+        return Some(name.to_string());
+    }
+    if let Some(name) = content_type.and_then(charset_of_content_type) {
+        return Some(name);
+    }
+    if let Some((encoding, _)) = encoding_rs::Encoding::for_bom(body) {
+        return Some(encoding.name().to_string());
+    }
+    charset_from_meta(&body[..body.len().min(META_SNIFF_BYTES)])
+}
+
+/// `text/html; charset=utf-8` → `utf-8`。
+fn charset_of_content_type(content_type: &str) -> Option<String> {
+    let lowered = content_type.to_ascii_lowercase();
+    let at = lowered.find("charset=")? + "charset=".len();
+    let name = take_charset_name(&lowered[at..]);
+    (!name.is_empty()).then_some(name)
+}
+
+/// 从 `<meta charset=gbk>` 或 `<meta content="text/html; charset=gbk">` 里捞字符集。
+fn charset_from_meta(head: &[u8]) -> Option<String> {
+    let lowered = String::from_utf8_lossy(head).to_ascii_lowercase();
+    let at = lowered.find("charset=")? + "charset=".len();
+    let name = take_charset_name(&lowered[at..]);
+    (!name.is_empty()).then_some(name)
+}
+
+/// 吃掉前导空白、引号，以及尾随的 `;` / `/`。
+fn take_charset_name(rest: &str) -> String {
+    rest.trim_start()
+        .trim_start_matches(['"', '\''])
+        .chars()
+        .take_while(|c| c.is_ascii_alphanumeric() || *c == '-' || *c == '_')
+        .collect()
+}
+
+/// 按字符集解码；猜不出来时按 UTF-8（非法字节替换，与 reqwest 默认一致）。
+fn decode_text(bytes: &[u8], charset: Option<&str>) -> Result<String, ActionError> {
+    let Some(name) = charset else {
+        return Ok(String::from_utf8_lossy(bytes).into_owned());
+    };
+    let encoding = encoding_rs::Encoding::for_label(name.as_bytes())
+        .ok_or_else(|| ActionError::InvalidParams(format!("不认识的字符集: {name}")))?;
+    let (text, _, _) = encoding.decode(bytes);
+    Ok(text.into_owned())
 }
 
 fn value_to_string(value: &Value) -> String {
@@ -643,6 +771,144 @@ mod tests {
         assert!(
             marks.windows(2).all(|w| w[0].0 < w[1].0),
             "帧应当单调递增：{marks:?}"
+        );
+    }
+
+    /// 起一个只回答一次的服务端，响应体是**原始字节**、Content-Type 由调用方给。
+    async fn serve_once_raw(content_type: &str, body: Vec<u8>) -> String {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let content_type = content_type.to_string();
+        tokio::spawn(async move {
+            let (mut sock, _) = listener.accept().await.unwrap();
+            let mut buf = vec![0u8; 8192];
+            let _ = sock.read(&mut buf).await.unwrap_or(0);
+            let head = format!(
+                "HTTP/1.1 200 OK\r\nContent-Type: {content_type}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                body.len()
+            );
+            let _ = sock.write_all(head.as_bytes()).await;
+            let _ = sock.write_all(&body).await;
+        });
+        format!("http://{addr}/")
+    }
+
+    async fn get(map: &BTreeMap<String, Value>) -> Result<Value, ActionError> {
+        let mut ctx = ExecutionContext::default();
+        HttpSend.execute(Value::Map(map.clone()), &mut ctx).await
+    }
+
+    /// `response: binary` 原样给出字节：图片、压缩包过一趟 `String` 就废了。
+    #[tokio::test]
+    async fn binary_response_keeps_raw_bytes() {
+        // 0x89 0x50 0x4E 0x47 是 PNG magic，不是合法 UTF-8。
+        let png = vec![0x89u8, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0xFF, 0x00];
+        let url = serve_once_raw("image/png", png.clone()).await;
+        let out = get(&BTreeMap::from([
+            ("url".into(), Value::Str(url)),
+            ("response".into(), Value::Str("binary".into())),
+        ]))
+        .await
+        .expect("binary send");
+        assert_eq!(out.as_map().unwrap().get("body"), Some(&Value::Bytes(png)));
+    }
+
+    /// 默认仍是字符串；GBK 页面按 Content-Type 里的 charset 解码，不是乱码。
+    #[tokio::test]
+    async fn text_response_follows_charset_header() {
+        // 编码过的「分片」：UTF-8 解出来会是替换字符。
+        let (gbk, _, _) = encoding_rs::GBK.encode("分片");
+        let url = serve_once_raw("text/html; charset=gbk", gbk.into_owned()).await;
+        let out = get(&BTreeMap::from([("url".into(), Value::Str(url))]))
+            .await
+            .expect("text send");
+        assert_eq!(
+            out.as_map().unwrap().get("body").unwrap().as_str(),
+            Some("分片")
+        );
+    }
+
+    /// 头里没写 charset 时从前 4 KiB 的 `<meta>` 里捞——中文站常只写在页面里。
+    #[tokio::test]
+    async fn meta_charset_is_sniffed_when_the_header_is_silent() {
+        let (gbk, _, _) = encoding_rs::GBK.encode("<html><meta charset=gbk><p>分片</p></html>");
+        let url = serve_once_raw("text/html", gbk.into_owned()).await;
+        let out = get(&BTreeMap::from([("url".into(), Value::Str(url))]))
+            .await
+            .expect("meta sniff");
+        let body = out.as_map().unwrap().get("body").unwrap().as_str().unwrap();
+        assert!(body.contains("分片"), "{body}");
+    }
+
+    /// 缓冲上限是硬的：超大响应要报错，而不是把内存吃光。
+    #[tokio::test]
+    async fn response_over_max_bytes_is_rejected() {
+        let url = serve_once_raw("application/octet-stream", vec![b'x'; 4096]).await;
+        let err = get(&BTreeMap::from([
+            ("url".into(), Value::Str(url)),
+            ("max_bytes".into(), Value::Int(1024)),
+        ]))
+        .await
+        .expect_err("超出上限");
+        assert!(err.to_string().contains("max_bytes"), "{err}");
+    }
+
+    /// 字符集写错要报参数错，不要悄悄按 UTF-8 糊过去。
+    #[tokio::test]
+    async fn unknown_encoding_is_an_error() {
+        let url = serve_once_raw("text/plain", b"hello".to_vec()).await;
+        let err = get(&BTreeMap::from([
+            ("url".into(), Value::Str(url)),
+            ("encoding".into(), Value::Str("klingon".into())),
+        ]))
+        .await
+        .expect_err("未知字符集");
+        assert!(err.to_string().contains("klingon"), "{err}");
+    }
+
+    /// 字节流没有字符集可言：`response: binary` 下 `encoding` 当场报错。
+    #[tokio::test]
+    async fn binary_response_rejects_encoding() {
+        let url = serve_once_raw("application/octet-stream", vec![0xFF]).await;
+        let err = get(&BTreeMap::from([
+            ("url".into(), Value::Str(url)),
+            ("response".into(), Value::Str("binary".into())),
+            ("encoding".into(), Value::Str("gbk".into())),
+        ]))
+        .await
+        .expect_err("binary + encoding");
+        assert!(err.to_string().contains("encoding"), "{err}");
+    }
+
+    /// `body` 也认 IPC 往返后退化成的整数数组。
+    #[tokio::test]
+    async fn body_accepts_integer_byte_array() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move {
+            let (mut sock, _) = listener.accept().await.unwrap();
+            let mut buf = vec![0u8; 8192];
+            let n = sock.read(&mut buf).await.unwrap_or(0);
+            let _ = sock
+                .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\nok")
+                .await;
+            String::from_utf8_lossy(&buf[..n]).into_owned()
+        });
+
+        let out = get(&BTreeMap::from([
+            ("url".into(), Value::Str(format!("http://{addr}/"))),
+            ("method".into(), Value::Str("POST".into())),
+            (
+                "body".into(),
+                Value::Array(vec![Value::Int(65), Value::Int(66), Value::Int(67)]),
+            ),
+        ]))
+        .await
+        .expect("byte array body");
+        assert_eq!(out.as_map().unwrap().get("ok"), Some(&Value::Bool(true)));
+        assert!(
+            server.await.unwrap().ends_with("ABC"),
+            "体应该是三个原始字节"
         );
     }
 }

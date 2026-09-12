@@ -20,7 +20,9 @@ impl Action for FileWrite {
         )
         .with_params(vec![
             ParamSchema::new("path", SchemaType::File, true),
-            ParamSchema::new("content", SchemaType::Str, false),
+            ParamSchema::new("content", SchemaType::Any, false).with_description(
+                "文本内容；也可接 `file.read` / `http.send` 的 Bytes（含 IPC 往返后的整数数组），此时只支持 overwrite / append",
+            ),
             ParamSchema::new("mode", SchemaType::Str, false)
                 .with_default("overwrite")
                 .with_description(
@@ -70,6 +72,12 @@ impl Action for FileWrite {
             && !parent.as_os_str().is_empty()
         {
             tokio::fs::create_dir_all(parent).await?;
+        }
+
+        // 二进制内容没有行、也没有换行策略可言：`mode` 只能是落盘方式。
+        // （下载图片 / 压缩包就是这条路：`http.send` 的 `response: binary` 直接接进来。）
+        if let Some(bytes) = map.get("content").and_then(as_bytes) {
+            return write_bytes(&path, &bytes, &mode, backup).await;
         }
 
         let existing = if mode == "overwrite" {
@@ -217,4 +225,43 @@ impl Action for FileWrite {
         }
         Ok(write_result(path, changed, bytes.len(), meta))
     }
+}
+
+/// 二进制内容落盘。
+///
+/// 文本模式那些花活（行窗、正则、换行归一）对字节流都无意义，因此这里只留两条：
+/// 覆盖与追加。选错了就直说，不默默当文本处理。
+async fn write_bytes(
+    path: &Path,
+    bytes: &[u8],
+    mode: &str,
+    backup: bool,
+) -> Result<Value, ActionError> {
+    use tokio::io::AsyncWriteExt;
+
+    match mode {
+        "overwrite" => atomic_write(path, bytes, backup).await?,
+        "append" => {
+            let mut file = tokio::fs::OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open(path)
+                .await?;
+            file.write_all(bytes)
+                .await
+                .map_err(|e| ActionError::execution(format!("追加写入失败: {e}")))?;
+        }
+        other => {
+            return Err(ActionError::InvalidParams(format!(
+                "content 是 Bytes 时只支持 mode: overwrite / append，收到 {other}"
+            )));
+        }
+    }
+
+    let meta = WriteMeta {
+        // 字节流没有换行风格可说，显式写 none 以免调用方误以为被改过。
+        newline: Some("none".into()),
+        ..WriteMeta::default()
+    };
+    Ok(write_result(path.to_path_buf(), true, bytes.len(), meta))
 }
