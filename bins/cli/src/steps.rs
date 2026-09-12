@@ -167,6 +167,7 @@ fn rows(steps: &[Step]) -> Vec<Row<'_>> {
                     });
                     walk(&parallel.parallel, depth + 1, out);
                 }
+                Step::Steps(steps) => walk(&steps.steps, depth, out),
             }
         }
     }

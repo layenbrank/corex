@@ -3,7 +3,7 @@
 use crate::audit::{self, AuditEntry, ExecutionAudit};
 use crate::control_flow::evaluate_condition;
 use crate::definition::{
-    ActionStep, Directive, IfStep, OnError, ParallelStep, Permissions, RepeatStep, Step,
+    ActionStep, Directive, IfStep, OnError, ParallelStep, Permissions, RepeatStep, Step, StepsStep,
 };
 use crate::history::{ExecutionHistory, HistoryEntry};
 use crate::inputs::fill_input_defaults;
@@ -56,6 +56,19 @@ impl Pipeline {
         self
     }
 
+    /// 派生一份共享同一套依赖（store / 审计 / 历史 / 上报口）的流水线，只换运行名。
+    ///
+    /// 「同一套依赖、另一个运行名」只有这一条路径：[`Self::execute`] 换的是指令名。
+    fn fork(&self, run_name: Option<String>) -> Self {
+        Self {
+            store: Arc::clone(&self.store),
+            history: self.history.clone(),
+            audit: self.audit.clone(),
+            observer: self.observer.clone(),
+            run_name,
+        }
+    }
+
     /// 执行整条指令。
     pub async fn execute(
         &self,
@@ -63,13 +76,7 @@ impl Pipeline {
         mut ctx: ExecutionContext,
     ) -> Result<Value, EngineError> {
         let started = SystemTime::now();
-        let pipeline = Self {
-            store: Arc::clone(&self.store),
-            history: self.history.clone(),
-            audit: self.audit.clone(),
-            observer: self.observer.clone(),
-            run_name: Some(directive.name.clone()),
-        };
+        let pipeline = self.fork(Some(directive.name.clone()));
         // 上报口从流水线转交给上下文，于是动作不必自己去拿它。
         ctx.observer = pipeline.observer.clone();
 
@@ -184,6 +191,11 @@ impl Pipeline {
             Step::Parallel(s) => {
                 self.run_parallel_step(s, ctx, default_on_error, permissions)
                     .await
+            }
+            // `Box::pin`：顺序块回到 `execute_steps`，与上面的 `execute_step` 互为递归，
+            // 不加间接就是无限大的 future（`parallel` 里同一处也这么写）。
+            Step::Steps(s) => {
+                Box::pin(self.execute_steps(&s.steps, ctx, default_on_error, permissions)).await
             }
         }
     }
@@ -373,35 +385,63 @@ impl Pipeline {
         default_on_error: OnError,
         permissions: &Permissions,
     ) -> Result<Value, EngineError> {
-        let mut last = Value::Null;
-        if let Some(count) = step.repeat.count {
-            let as_var = &step.repeat.as_var;
-            for i in 0..count {
-                ctx.set_variable(as_var, Value::Int(i as i64));
-                last =
-                    Box::pin(self.execute_steps(&step.steps, ctx, default_on_error, permissions))
-                        .await?;
-            }
+        // 先把「第几轮、绑什么值」摊平成一个序列，串行与并发两条路共用。
+        let items: Vec<Value> = if let Some(count) = step.repeat.count {
+            (0..count).map(|i| Value::Int(i as i64)).collect()
         } else if let Some(each) = &step.repeat.each {
-            let resolved = Resolver::resolve_string(each, ctx)?;
-            let items = match resolved {
-                Value::Array(l) => l,
+            match Resolver::resolve_string(each, ctx)? {
+                Value::Array(list) => list,
                 other => {
                     return Err(EngineError::ControlFlow(format!(
                         "repeat.each 必须解析为列表，得到: {other}"
                     )));
                 }
-            };
-            for (i, item) in items.into_iter().enumerate() {
-                ctx.set_variable(&step.repeat.as_var, item);
-                ctx.set_variable(&step.repeat.index_var, Value::Int(i as i64));
+            }
+        } else {
+            return Err(EngineError::ControlFlow("repeat 需要 count 或 each".into()));
+        };
+
+        // `max_concurrency` 与 `repeat` 同级：省略或 `1` 是串行，`> 1` 是并发。
+        let concurrency = step.max_concurrency.unwrap_or(1).max(1);
+        let last = if concurrency > 1 {
+            // 并发：每个元素一份上下文副本，跑完按元素顺序合并回来。
+            let body = Step::Steps(StepsStep {
+                steps: step.steps.clone(),
+            });
+            let values = self
+                .run_fanout(
+                    Fanout {
+                        id: &step.id,
+                        count: items.len(),
+                        max_concurrency: Some(concurrency),
+                    },
+                    |_| &body,
+                    |idx, branch_ctx| {
+                        bind_loop_item(
+                            &step.repeat.as_var,
+                            &step.repeat.index_var,
+                            idx,
+                            items[idx].clone(),
+                            branch_ctx,
+                        );
+                    },
+                    ctx,
+                    default_on_error,
+                    permissions,
+                )
+                .await?;
+            values.into_iter().next_back().unwrap_or(Value::Null)
+        } else {
+            // 串行：元素共享一份上下文，前一个元素写下的变量后一个看得见。
+            let mut last = Value::Null;
+            for (idx, item) in items.into_iter().enumerate() {
+                bind_loop_item(&step.repeat.as_var, &step.repeat.index_var, idx, item, ctx);
                 last =
                     Box::pin(self.execute_steps(&step.steps, ctx, default_on_error, permissions))
                         .await?;
             }
-        } else {
-            return Err(EngineError::ControlFlow("repeat 需要 count 或 each".into()));
-        }
+            last
+        };
         ctx.set_step_output(&step.id, last.clone());
         Ok(last)
     }
@@ -413,63 +453,73 @@ impl Pipeline {
         default_on_error: OnError,
         permissions: &Permissions,
     ) -> Result<Value, EngineError> {
+        let values = self
+            .run_fanout(
+                Fanout {
+                    id: &step.id,
+                    count: step.parallel.len(),
+                    max_concurrency: step.max_concurrency,
+                },
+                |idx| &step.parallel[idx],
+                |_, _| {},
+                ctx,
+                default_on_error,
+                permissions,
+            )
+            .await?;
+        let result = Value::Array(values);
+        ctx.set_step_output(&step.id, result.clone());
+        Ok(result)
+    }
+
+    /// 并发跑 `count` 个分支，按序号把每个分支的上下文合并回来；返回值与序号对齐。
+    ///
+    /// `parallel` 的分支与 `repeat` 的并发元素共用这一段：差别只有「第 i 个分支是谁」
+    /// （`branch_of`）与「进分支前先绑什么变量」（`bind`）。
+    async fn run_fanout<'b>(
+        &self,
+        fanout: Fanout<'_>,
+        branch_of: impl Fn(usize) -> &'b Step + Sync,
+        bind: impl Fn(usize, &mut ExecutionContext) + Sync,
+        ctx: &mut ExecutionContext,
+        default_on_error: OnError,
+        permissions: &Permissions,
+    ) -> Result<Vec<Value>, EngineError> {
         use futures::stream::{self, StreamExt};
 
-        let max = step
-            .max_concurrency
-            .unwrap_or(ctx.config.max_parallel)
-            .max(1);
-        let children = step.parallel.len();
-
-        debug!(id = %step.id, max, children, "执行 parallel（buffer_unordered）");
-        let store = Arc::clone(&self.store);
-        let audit = self.audit.clone();
-        let history = self.history.clone();
-        let observer = self.observer.clone();
-        let run_name = self.run_name.clone();
+        let Fanout {
+            id,
+            count,
+            max_concurrency,
+        } = fanout;
+        let max = max_concurrency.unwrap_or(ctx.config.max_parallel).max(1);
+        debug!(id, max, count, "并发跑分支（buffer_unordered）");
         let base_ctx = ctx.clone();
         let perms = permissions.clone();
 
-        let collected: Vec<Result<(usize, ExecutionContext, Value), EngineError>> = stream::iter(
-            step.parallel
-                .iter()
-                .cloned()
-                .enumerate()
-                .map(|(idx, child)| {
-                    let store = Arc::clone(&store);
-                    let audit = audit.clone();
-                    let history = history.clone();
-                    let observer = observer.clone();
-                    let run_name = run_name.clone();
-                    let mut branch_ctx = base_ctx.clone();
-                    let perms = perms.clone();
-                    async move {
-                        let mut pipeline = Pipeline::new(store);
-                        if let Some(h) = history {
-                            pipeline = pipeline.with_history(h);
-                        }
-                        if let Some(a) = audit {
-                            pipeline = pipeline.with_audit(a);
-                        }
-                        // 分支同样要上报——不然 parallel 里的步骤既没有 spinner 也没有结论行。
-                        if let Some(o) = observer {
-                            pipeline = pipeline.with_observer(o);
-                        }
-                        pipeline.run_name = run_name;
-                        let value = Box::pin(pipeline.execute_step(
-                            &child,
-                            &mut branch_ctx,
-                            default_on_error,
-                            &perms,
-                        ))
-                        .await?;
-                        Ok::<_, EngineError>((idx, branch_ctx, value))
-                    }
-                }),
-        )
-        .buffer_unordered(max)
-        .collect()
-        .await;
+        let collected: Vec<Result<(usize, ExecutionContext, Value), EngineError>> =
+            stream::iter((0..count).map(|idx| {
+                // 借而不是克隆：`repeat.each` 的循环体只有一份，不能按元素各复制一遍。
+                let child = branch_of(idx);
+                let mut branch_ctx = base_ctx.clone();
+                bind(idx, &mut branch_ctx);
+                let perms = perms.clone();
+                async move {
+                    // 分支只读地复用父流水线：store / 审计 / 历史 / 上报口都在它身上，
+                    // 再拼一个新 Pipeline 只会多一遍克隆。
+                    let value = Box::pin(self.execute_step(
+                        child,
+                        &mut branch_ctx,
+                        default_on_error,
+                        &perms,
+                    ))
+                    .await?;
+                    Ok::<_, EngineError>((idx, branch_ctx, value))
+                }
+            }))
+            .buffer_unordered(max)
+            .collect()
+            .await;
 
         let mut successes: Vec<(usize, ExecutionContext, Value)> = Vec::new();
         let mut branch_err: Option<EngineError> = None;
@@ -479,30 +529,27 @@ impl Pipeline {
                 Err(e) => branch_err = Some(prefer_branch_err(branch_err.take(), e)),
             }
         }
+        // 按序号合并：并发跑，合并顺序仍然确定，`save_to` 的「后者覆盖前者」才可预期。
         successes.sort_by_key(|(idx, _, _)| *idx);
 
         if let Some(e) = branch_err {
             if must_abort_step(&e, default_on_error) {
                 return Err(e);
             }
-            warn!(id = %step.id, error = %e, "parallel 部分失败，按 on_error 继续");
+            warn!(id, error = %e, "部分分支失败，按 on_error 继续");
         }
 
-        let mut outputs: Vec<Option<Value>> = vec![None; children];
+        let mut outputs: Vec<Option<Value>> = vec![None; count];
         for (idx, branch_ctx, value) in successes {
             ctx.merge_from_branch(&branch_ctx);
             if idx < outputs.len() {
                 outputs[idx] = Some(value);
             }
         }
-
-        let items: Vec<Value> = outputs
+        Ok(outputs
             .into_iter()
             .map(|o| o.unwrap_or(Value::Null))
-            .collect();
-        let result = Value::Array(items);
-        ctx.set_step_output(&step.id, result.clone());
-        Ok(result)
+            .collect())
     }
 
     pub fn evaluate_condition(
@@ -511,6 +558,27 @@ impl Pipeline {
     ) -> Result<bool, EngineError> {
         evaluate_condition(condition, ctx)
     }
+}
+
+/// 进循环体前绑好 `as` / `index` 两个变量；串行与并发两条路共用，免得两处写法漂移。
+fn bind_loop_item(
+    as_var: &str,
+    index_var: &str,
+    idx: usize,
+    item: Value,
+    ctx: &mut ExecutionContext,
+) {
+    ctx.set_variable(as_var, item);
+    ctx.set_variable(index_var, Value::Int(idx as i64));
+}
+
+/// 一次扇出：谁在扇、扇多少个、最多几个同时在跑。
+///
+/// 捆在一起是为了让 [`Pipeline::run_fanout`] 的签名留得下两个闭包。
+struct Fanout<'a> {
+    id: &'a str,
+    count: usize,
+    max_concurrency: Option<usize>,
 }
 
 /// PermissionDenied 一律中止；其余按 [`OnError`] 处理。

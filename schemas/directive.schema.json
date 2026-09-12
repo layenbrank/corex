@@ -121,6 +121,21 @@
           "type": "object"
         },
         {
+          "description": "`contains: [haystack, needle]`。\n\n数组含元素、字符串含子串、map 含键。元素比较是宽松的：`0` 与 `\"0\"` 相等\n（服务端返回的分片序号是数字还是字符串不由指令决定）。",
+          "properties": {
+            "contains": {
+              "items": true,
+              "maxItems": 2,
+              "minItems": 2,
+              "type": "array"
+            }
+          },
+          "required": [
+            "contains"
+          ],
+          "type": "object"
+        },
+        {
           "properties": {
             "and": {
               "items": {
@@ -230,6 +245,7 @@
         },
         "max_concurrency": {
           "default": null,
+          "description": "同时最多跑几个分支；省略用配置里的 `runtime.max_parallel`（默认 8）。",
           "format": "uint",
           "minimum": 0,
           "type": [
@@ -238,6 +254,7 @@
           ]
         },
         "parallel": {
+          "description": "一组写死的分支；每支拿一份上下文副本并发跑。",
           "items": {
             "$ref": "#/$defs/Step"
           },
@@ -289,10 +306,11 @@
       "type": "object"
     },
     "RepeatSpec": {
-      "description": "循环规格：`count` 与 `each` 必须设其一。",
+      "description": "循环本体：`count` 与 `each` 必须设其一。\n\n跑法是串行还是并发，由外层 [`RepeatStep::max_concurrency`] 决定。",
       "properties": {
         "as": {
           "default": "item",
+          "description": "当前元素绑到哪个变量名；`count` 时绑的是序号。",
           "type": "string"
         },
         "count": {
@@ -314,6 +332,7 @@
         },
         "index": {
           "default": "index",
+          "description": "当前序号绑到哪个变量名。",
           "type": "string"
         }
       },
@@ -324,8 +343,19 @@
         "id": {
           "type": "string"
         },
+        "max_concurrency": {
+          "default": null,
+          "description": "并发度：同一时刻最多跑几个元素 / 几轮；省略或 `1` = 串行。\n\n与 `repeat` **同级**，一眼看得出这一步是不是并发的。两种跑法**语义不同**，\n不是纯性能开关：\n- 串行（默认）：元素共享一份上下文，前一个元素写下的变量后一个看得见，\n  适合元素之间有依赖的循环（累加、按序推进）。\n- 并发（`> 1`）：每个元素一份上下文副本，跑完按元素顺序合并回来，元素之间\n  互不可见，只适合互不依赖的元素。在途资源 ≈ `max_concurrency × 单元素占用`。",
+          "format": "uint",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
         "repeat": {
-          "$ref": "#/$defs/RepeatSpec"
+          "$ref": "#/$defs/RepeatSpec",
+          "description": "循环本体：`count` 或 `each`，以及循环变量名。"
         },
         "steps": {
           "items": {
@@ -358,9 +388,28 @@
         {
           "$ref": "#/$defs/ParallelStep",
           "description": "并行运行子步骤。"
+        },
+        {
+          "$ref": "#/$defs/StepsStep",
+          "description": "顺序块（放最后：它只要求 `steps`，先试它会把 `repeat` / `if` 抢走）。"
         }
       ],
       "description": "单个流水线步骤或控制流节点。"
+    },
+    "StepsStep": {
+      "description": "一组按顺序执行的步骤。\n\n`parallel` 的分支只能放**一个**步骤，而真实流程常常需要「算完摘要再 PATCH」\n这种两步一串的分支；把这组步骤收成一个步骤，语法上就装得下了。",
+      "properties": {
+        "steps": {
+          "items": {
+            "$ref": "#/$defs/Step"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "steps"
+      ],
+      "type": "object"
     },
     "Trigger": {
       "oneOf": [

@@ -32,6 +32,7 @@ fn walk_steps(
             Step::Parallel(p) => {
                 walk_steps(&p.parallel, reg, directive, missing, permission_errors)
             }
+            Step::Steps(s) => walk_steps(&s.steps, reg, directive, missing, permission_errors),
         }
     }
 }

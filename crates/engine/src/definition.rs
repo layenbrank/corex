@@ -70,6 +70,18 @@ pub enum Step {
     Repeat(RepeatStep),
     /// 并行运行子步骤。
     Parallel(ParallelStep),
+    /// 顺序块（放最后：它只要求 `steps`，先试它会把 `repeat` / `if` 抢走）。
+    Steps(StepsStep),
+}
+
+/// 一组按顺序执行的步骤。
+///
+/// `parallel` 的分支只能放**一个**步骤，而真实流程常常需要「算完摘要再 PATCH」
+/// 这种两步一串的分支；把这组步骤收成一个步骤，语法上就装得下了。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+pub struct StepsStep {
+    pub steps: Vec<Step>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -107,11 +119,24 @@ pub struct IfStep {
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct RepeatStep {
     pub id: String,
+    /// 循环本体：`count` 或 `each`，以及循环变量名。
     pub repeat: RepeatSpec,
+    /// 并发度：同一时刻最多跑几个元素 / 几轮；省略或 `1` = 串行。
+    ///
+    /// 与 `repeat` **同级**，一眼看得出这一步是不是并发的。两种跑法**语义不同**，
+    /// 不是纯性能开关：
+    /// - 串行（默认）：元素共享一份上下文，前一个元素写下的变量后一个看得见，
+    ///   适合元素之间有依赖的循环（累加、按序推进）。
+    /// - 并发（`> 1`）：每个元素一份上下文副本，跑完按元素顺序合并回来，元素之间
+    ///   互不可见，只适合互不依赖的元素。在途资源 ≈ `max_concurrency × 单元素占用`。
+    #[serde(default)]
+    pub max_concurrency: Option<usize>,
     pub steps: Vec<Step>,
 }
 
-/// 循环规格：`count` 与 `each` 必须设其一。
+/// 循环本体：`count` 与 `each` 必须设其一。
+///
+/// 跑法是串行还是并发，由外层 [`RepeatStep::max_concurrency`] 决定。
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct RepeatSpec {
@@ -120,8 +145,10 @@ pub struct RepeatSpec {
     /// 能解析成数组的表达式，如 `"{{items}}"`。
     #[serde(default)]
     pub each: Option<String>,
+    /// 当前元素绑到哪个变量名；`count` 时绑的是序号。
     #[serde(default = "init_repeat_item", rename = "as")]
     pub as_var: String,
+    /// 当前序号绑到哪个变量名。
     #[serde(default = "init_repeat_index", rename = "index")]
     pub index_var: String,
 }
@@ -138,7 +165,9 @@ fn init_repeat_item() -> String {
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct ParallelStep {
     pub id: String,
+    /// 一组写死的分支；每支拿一份上下文副本并发跑。
     pub parallel: Vec<Step>,
+    /// 同时最多跑几个分支；省略用配置里的 `runtime.max_parallel`（默认 8）。
     #[serde(default)]
     pub max_concurrency: Option<usize>,
 }
@@ -165,6 +194,14 @@ pub enum Condition {
     Lt {
         #[cfg_attr(feature = "schema", schemars(with = "[serde_json::Value; 2]"))]
         lt: [Value; 2],
+    },
+    /// `contains: [haystack, needle]`。
+    ///
+    /// 数组含元素、字符串含子串、map 含键。元素比较是宽松的：`0` 与 `"0"` 相等
+    /// （服务端返回的分片序号是数字还是字符串不由指令决定）。
+    Contains {
+        #[cfg_attr(feature = "schema", schemars(with = "[serde_json::Value; 2]"))]
+        contains: [Value; 2],
     },
     And {
         and: Vec<Condition>,
@@ -296,6 +333,7 @@ pub fn validate_permissions(
                 }
                 Step::Repeat(r) => walk(&r.steps, perms, store, errs),
                 Step::Parallel(p) => walk(&p.parallel, perms, store, errs),
+                Step::Steps(s) => walk(&s.steps, perms, store, errs),
             }
         }
     }
