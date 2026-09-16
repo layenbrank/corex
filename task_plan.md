@@ -4,7 +4,7 @@
 定位并修复 Windows 上仍出现的中文乱码（尤其是「有些内容」），针对真正根因下手，而不是重复无效的控制台代码页补丁。
 
 ## Next Step
-提交并推送，创建 PR。
+等待 PR 评审 / Windows 实机确认。
 
 ## Current Phase
 Phase 3
@@ -29,8 +29,8 @@ Phase 3
 ### Phase 3: 测试与提交
 - [x] 单元测试：GBK / UTF-8 / partial / code page
 - [x] `cargo test -p corex-registry process_launch`
-- [ ] 提交、推送、开 PR
-- **Status:** in_progress
+- [x] 提交、推送、开 PR（#4）
+- **Status:** complete
 
 ## Decisions Made
 | Decision | Rationale |
