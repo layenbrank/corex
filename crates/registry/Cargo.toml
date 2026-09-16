@@ -54,7 +54,8 @@ winrt-ocr = [
   "windows/Storage_Streams",
 ]
 
-act-shell = ["win32-process"]
+# encoding_rs：Windows 管道子进程常出 OEM/GBK，不能只靠 from_utf8_lossy。
+act-shell = ["win32-process", "dep:encoding_rs"]
 act-http = ["dep:reqwest", "dep:encoding_rs"]
 act-html = ["dep:scraper", "dep:url"]
 act-clipboard = ["dep:arboard", "dep:image"]
@@ -83,7 +84,7 @@ act-generate = [
   "dep:md-5",
   "dep:base64",
 ]
-act-exec = ["win32-process"]
+act-exec = ["win32-process", "dep:encoding_rs"]
 act-bootstrap = []
 act-codec = ["dep:base64", "dep:md-5", "dep:percent-encoding"]
 act-scan = ["dep:sysinfo"]

@@ -94,10 +94,13 @@ pub(crate) async fn run() -> Result<()> {
     report.finish()
 }
 
-/// 控制台编码：中文乱码的根源，而它只存在于 Windows。
+/// 控制台编码：中文乱码的根源之一，而它只存在于 Windows。
 ///
 /// `output::use_utf8_console` 在启动时已经把输出代码页改成 UTF-8，这里报的是它**没生效**
 /// 的那种情况——没有控制台（输出被重定向、由别的程序拉起），或那次调用失败了。
+///
+/// 另：`shell.run` 捕获的子进程输出走管道，解码在 registry 侧按 OEM 回退，
+/// 与本行「控制台编码」不是同一件事。
 #[cfg(windows)]
 fn check_console(report: &mut Report) {
     /// `CP_UTF8`
@@ -110,7 +113,7 @@ fn check_console(report: &mut Report) {
         ),
         None => report.note(
             "控制台编码",
-            "未连接控制台（子进程输出按系统代码页解码）".into(),
+            "未连接控制台（子进程管道输出由 OEM/UTF-8 回退解码）".into(),
         ),
     }
 }

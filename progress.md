@@ -1,14 +1,12 @@
 # Progress Log
 
-## 2026-09-01 — Engineering toolchain (template-style)
+## 2026-09-16 — Windows 中文乱码根因
 
 ### Done
-- 新增：`.pre-commit-config.yaml`、`deny.toml`、`_typos.toml`、`cliff.toml`
-- 安装：`cargo-deny` 0.20.2、`typos` 1.50.0、`git-cliff` 2.13.1、`pre-commit` 4.6.2（uv tool）
-- `pre-commit install` → `.git/hooks/pre-commit`
-- 验证：`cargo deny check` ✅；`typos` ✅；`git-cliff -l` ✅；hooks typos/deny ✅
-- 未改：业务代码、CI workflow、README（无开发环境章节）
+- 历史：`6453571` SetConsoleOutputCP、`4534a72` doctor —— 只修 CLI 直连控制台
+- 根因：`process_launch::pump_process_stream` 对管道 OEM/GBK 用 `from_utf8_lossy`，且实时回显写原始字节
+- 修复：UTF-8→OEM/GBK 回退解码；回显写 UTF-8；cmd `chcp 65001`；PS OutputEncoding；CLI 同时 SetConsoleCP
+- 单测：`process_launch` 13 通过；文档已补
 
-### Known
-- `pre-commit run cargo-fmt` 当前因仓库既有格式漂移失败；需单独 `cargo fmt` 后再启用严格门禁
-- `chacha20@0.10.1` yanked：warn only
+### Next
+- 提交、推送、开 PR

@@ -720,10 +720,14 @@ IPC: `{"type":"invoke","action":"capture.screenshot","params":{"to":"C:/Temp/sho
 | 取值         | 行为                                                                               |
 | ------------ | ---------------------------------------------------------------------------------- |
 | `none`       | 直接 `Command::new(program)` + args                                                |
-| `cmd`        | Windows `cmd /C` …；Unix `sh -c` / 脚本路径                                        |
-| `powershell` | Windows PowerShell 5.x `-File` / `-Command`                                        |
-| `pwsh`       | PowerShell 7+                                                                      |
+| `cmd`        | Windows `cmd /C`（先 `chcp 65001`）；Unix `sh -c` / 脚本路径                        |
+| `powershell` | Windows PowerShell 5.x（`-Command`，启动时把 OutputEncoding 设为 UTF-8）           |
+| `pwsh`       | PowerShell 7+（同上）                                                              |
 | `auto`       | 命令 → `none`；脚本按扩展名（`.ps1`→pwsh/powershell，`.bat`/`.cmd`→cmd，`.sh`→sh） |
+
+**输出编码（Windows）**：子进程 stdout/stderr 走管道时，老程序常按 OEM（中文 CP936/GBK）
+写字节。内核先按 UTF-8 解，失败再回退 OEM/GBK，实时回显也转成 UTF-8——这与 CLI 的
+`SetConsoleOutputCP` 是两层问题。
 
 **GUI / 单实例**（可选）：
 

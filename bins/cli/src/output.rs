@@ -182,19 +182,23 @@ pub(crate) fn symbols() -> Symbols {
     })
 }
 
-/// 把控制台输出代码页设成 UTF-8。
+/// 把控制台输出/输入代码页设成 UTF-8。
 ///
 /// 只管**直连的控制台**：中文与 `✓` 经由 console 时按当前代码页解码，cp936 下会乱码。
 /// 输出被重定向（或经 PowerShell cmdlet 管道）时解码由读方决定，这里帮不上忙——
 /// 那种情况下的乱码要在读方设 `[Console]::OutputEncoding`，调用失败就忽略。
+///
+/// 注意：`shell.run` / `exec.run` 捕获的是**管道**字节，与这里无关；
+/// 管道侧的 OEM/GBK 解码在 `process_launch` 里处理。
 #[cfg(windows)]
 pub(crate) fn use_utf8_console() {
-    use windows::Win32::System::Console::SetConsoleOutputCP;
+    use windows::Win32::System::Console::{SetConsoleCP, SetConsoleOutputCP};
     /// `CP_UTF8`
     const UTF8_CODE_PAGE: u32 = 65001;
     // 失败只意味着“没有 console 可设”，不是错误。
     unsafe {
         let _ = SetConsoleOutputCP(UTF8_CODE_PAGE);
+        let _ = SetConsoleCP(UTF8_CODE_PAGE);
     }
 }
 
