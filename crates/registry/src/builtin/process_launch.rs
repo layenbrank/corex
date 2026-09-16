@@ -1,6 +1,7 @@
 //! `shell.run` 与 `exec.run` 共用的进程启动内核。
 
 use corex_core::{ActionError, Value};
+use encoding_rs::Encoding;
 use std::collections::BTreeMap;
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -201,20 +202,25 @@ fn build_command(spec: &LaunchSpec, host: Host) -> Result<Command, ActionError> 
             #[cfg(windows)]
             {
                 let mut c = Command::new("cmd");
+                // 管道里默认是 OEM（中文 Windows 常见 CP936）。先切 UTF-8，
+                // 听劝的程序会少乱码；不听的仍靠 [`decode_process_output`] 回退。
+                let mut line = String::from("chcp 65001>NUL & ");
                 if spec.kind == TargetKind::Script {
-                    c.arg("/C").arg(program.as_os_str());
-                    for a in &spec.args {
-                        c.arg(a);
-                    }
-                } else {
-                    // 单条命令行：把 program 与 args 拼起来交给 /C
-                    let mut line = prog_str.to_string();
+                    line.push('"');
+                    line.push_str(&prog_str);
+                    line.push('"');
                     for a in &spec.args {
                         line.push(' ');
                         line.push_str(a);
                     }
-                    c.arg("/C").arg(line);
+                } else {
+                    line.push_str(&prog_str);
+                    for a in &spec.args {
+                        line.push(' ');
+                        line.push_str(a);
+                    }
                 }
+                c.arg("/C").arg(line);
                 c
             }
             #[cfg(not(windows))]
@@ -244,13 +250,20 @@ fn build_command(spec: &LaunchSpec, host: Host) -> Result<Command, ActionError> 
             };
             let mut c = Command::new(exe);
             c.args(["-NoProfile", "-ExecutionPolicy", "Bypass"]);
+            // 管道读方按字节解码；不设的话 Windows PowerShell 5 常按 OEM 吐中文。
+            const UTF8_PREAMBLE: &str = "[Console]::OutputEncoding = [System.Text.Encoding]::UTF8; $OutputEncoding = [Console]::OutputEncoding; ";
             if spec.kind == TargetKind::Script {
-                c.arg("-File").arg(program.as_os_str());
+                let mut line = format!(
+                    "{UTF8_PREAMBLE}& '{}'",
+                    prog_str.replace('\'', "''")
+                );
                 for a in &spec.args {
-                    c.arg(a);
+                    line.push(' ');
+                    line.push_str(&powershell_single_quote(a));
                 }
+                c.arg("-Command").arg(line);
             } else {
-                let mut line = prog_str.to_string();
+                let mut line = format!("{UTF8_PREAMBLE}{prog_str}");
                 for a in &spec.args {
                     line.push(' ');
                     line.push_str(a);
@@ -393,6 +406,9 @@ enum ProcessStream {
 }
 
 /// 分块读取进程输出，回显到终端，并收集起来作为动作结果。
+///
+/// Windows 上管道字节经常是 OEM（中文 CP936/GBK），不能当 UTF-8 硬解，
+/// 也不能把原始字节直接 `write_all` 进控制台（Rust 走 `WriteConsoleW`，要合法 UTF-8）。
 async fn pump_process_stream<R>(reader: Option<R>, stream: ProcessStream) -> String
 where
     R: AsyncRead + Unpin,
@@ -401,6 +417,7 @@ where
         return String::new();
     };
     let mut collected = Vec::new();
+    let mut echoed = 0usize;
     let mut buf = [0u8; 8192];
     loop {
         let n = match reader.read(&mut buf).await {
@@ -408,22 +425,128 @@ where
             Ok(n) => n,
             Err(_) => break,
         };
-        let chunk = &buf[..n];
-        collected.extend_from_slice(chunk);
-        match stream {
-            ProcessStream::Stdout => {
-                let mut out = std::io::stdout().lock();
-                let _ = out.write_all(chunk);
-                let _ = out.flush();
+        collected.extend_from_slice(&buf[..n]);
+        let text = decode_process_output_partial(&collected);
+        if text.len() > echoed {
+            // `echoed` 始终是上一段解码结果的 UTF-8 字节长，落在字符边界上。
+            let chunk = &text[echoed..];
+            match stream {
+                ProcessStream::Stdout => {
+                    let mut out = std::io::stdout().lock();
+                    let _ = out.write_all(chunk.as_bytes());
+                    let _ = out.flush();
+                }
+                ProcessStream::Stderr => {
+                    let mut err = std::io::stderr().lock();
+                    let _ = err.write_all(chunk.as_bytes());
+                    let _ = err.flush();
+                }
             }
-            ProcessStream::Stderr => {
-                let mut err = std::io::stderr().lock();
-                let _ = err.write_all(chunk);
-                let _ = err.flush();
-            }
+            echoed = text.len();
+        } else if text.len() < echoed {
+            // 中途从 UTF-8 切到 OEM 时前缀偶发变短：别再按旧下标切片。
+            echoed = text.len();
         }
     }
-    String::from_utf8_lossy(&collected).into_owned()
+    decode_process_output(&collected)
+}
+
+/// PowerShell `-Command` 里的单引号字面量：`'` → `''`。
+fn powershell_single_quote(s: &str) -> String {
+    format!("'{}'", s.replace('\'', "''"))
+}
+
+/// 子进程管道字节 → 文本。
+///
+/// 先严格按 UTF-8；失败时在 Windows 上按 OEM 代码页（中文常见 GBK）回退。
+/// 这是「有些内容仍乱码」的主修点：CLI 自己的 `SetConsoleOutputCP` 管不到管道。
+fn decode_process_output(bytes: &[u8]) -> String {
+    if bytes.is_empty() {
+        return String::new();
+    }
+    if let Ok(text) = std::str::from_utf8(bytes) {
+        return text.to_owned();
+    }
+    #[cfg(windows)]
+    {
+        let oem = windows_pipe_encoding();
+        let (cow, _, had_errors) = oem.decode(bytes);
+        if !had_errors {
+            return cow.into_owned();
+        }
+        // 系统开了「Beta: UTF-8」时 OEM 已是 65001，但老程序仍吐 GBK。
+        if oem != encoding_rs::GBK {
+            let (gbk, _, _) = encoding_rs::GBK.decode(bytes);
+            return gbk.into_owned();
+        }
+        cow.into_owned()
+    }
+    #[cfg(not(windows))]
+    {
+        String::from_utf8_lossy(bytes).into_owned()
+    }
+}
+
+/// 流式回显用：缓冲区末尾可能卡着半个多字节字符，先解「完整前缀」。
+fn decode_process_output_partial(bytes: &[u8]) -> String {
+    if bytes.is_empty() {
+        return String::new();
+    }
+    match std::str::from_utf8(bytes) {
+        Ok(text) => text.to_owned(),
+        Err(err) => {
+            let valid = err.valid_up_to();
+            // 仅末尾不完整：先把已完整的 UTF-8 吐出去，等下一截。
+            if err.error_len().is_none() && valid > 0 {
+                return std::str::from_utf8(&bytes[..valid])
+                    .expect("valid_up_to prefix")
+                    .to_owned();
+            }
+            // 中间就非法 → 不是 UTF-8，整段按管道编码解。
+            decode_process_output(bytes)
+        }
+    }
+}
+
+/// Windows 管道侧默认代码页：控制台程序重定向后走 OEM，不是父进程的 Console CP。
+/// （父进程可能已 `SetConsoleOutputCP(65001)`，用 GetConsoleOutputCP 会解错。）
+#[cfg(windows)]
+fn windows_pipe_encoding() -> &'static Encoding {
+    encoding_for_code_page(unsafe { GetOEMCP() })
+        .or_else(|| encoding_for_code_page(unsafe { GetACP() }))
+        .unwrap_or(encoding_rs::GBK)
+}
+
+#[cfg(windows)]
+unsafe extern "system" {
+    fn GetOEMCP() -> u32;
+    fn GetACP() -> u32;
+}
+
+/// 常见 Windows 代码页 → encoding_rs；未知则 `None`。
+#[cfg_attr(not(windows), allow(dead_code))]
+fn encoding_for_code_page(cp: u32) -> Option<&'static Encoding> {
+    Some(match cp {
+        65001 => encoding_rs::UTF_8,
+        936 => encoding_rs::GBK,
+        54936 => encoding_rs::GB18030,
+        950 => encoding_rs::BIG5,
+        932 => encoding_rs::SHIFT_JIS,
+        949 => encoding_rs::EUC_KR,
+        1250 => encoding_rs::WINDOWS_1250,
+        1251 => encoding_rs::WINDOWS_1251,
+        1252 => encoding_rs::WINDOWS_1252,
+        1253 => encoding_rs::WINDOWS_1253,
+        1254 => encoding_rs::WINDOWS_1254,
+        1255 => encoding_rs::WINDOWS_1255,
+        1256 => encoding_rs::WINDOWS_1256,
+        1257 => encoding_rs::WINDOWS_1257,
+        1258 => encoding_rs::WINDOWS_1258,
+        874 => encoding_rs::WINDOWS_874,
+        20866 => encoding_rs::KOI8_R,
+        21866 => encoding_rs::KOI8_U,
+        _ => return None,
+    })
 }
 
 fn should_skip_launch(spec: &LaunchSpec) -> Result<Option<String>, ActionError> {
@@ -810,5 +933,48 @@ mod tests {
         {
             (PathBuf::from("cat"), Vec::new())
         }
+    }
+
+    /// GBK「你好」不能当 UTF-8 解；回退解码后应是中文。
+    #[test]
+    fn decode_falls_back_from_gbk_bytes() {
+        let (gbk, _, _) = encoding_rs::GBK.encode("你好");
+        assert!(std::str::from_utf8(&gbk).is_err());
+        let text = decode_process_output(&gbk);
+        #[cfg(windows)]
+        assert_eq!(text, "你好");
+        #[cfg(not(windows))]
+        {
+            // 非 Windows 无 OEM 回退，至少不能 panic；保留 lossy 行为。
+            assert!(!text.is_empty());
+        }
+    }
+
+    /// 合法 UTF-8 不能被误判成 GBK。
+    #[test]
+    fn decode_keeps_utf8_chinese() {
+        assert_eq!(decode_process_output("你好".as_bytes()), "你好");
+    }
+
+    #[test]
+    fn decode_partial_holds_incomplete_utf8_tail() {
+        let mut bytes = "你好".as_bytes().to_vec();
+        // 砍掉最后一字节，留下半个 UTF-8 序列。
+        bytes.pop();
+        let partial = decode_process_output_partial(&bytes);
+        assert_eq!(partial, "你");
+    }
+
+    #[test]
+    fn code_page_936_maps_to_gbk() {
+        assert_eq!(
+            encoding_for_code_page(936).map(|e| e.name()),
+            Some("GBK")
+        );
+    }
+
+    #[test]
+    fn powershell_quotes_embed_single_quotes() {
+        assert_eq!(powershell_single_quote("a'b"), "'a''b'");
     }
 }

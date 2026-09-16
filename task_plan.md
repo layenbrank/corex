@@ -1,53 +1,47 @@
-# Task Plan: corex 工程化落地（template 风格）
+# Task Plan: Windows 中文输出乱码根因修复
 
 ## Goal
-引入 tyr-rust-bootcamp/template 风格工具链：pre-commit、cargo-deny、typos、git-cliff；按 corex workspace 适配，不改业务逻辑。
+定位并修复 Windows 上仍出现的中文乱码（尤其是「有些内容」），针对真正根因下手，而不是重复无效的控制台代码页补丁。
 
 ## Next Step
-中文汇报交付。
+提交并推送，创建 PR。
 
 ## Current Phase
-Phase 4
+Phase 3
 
 ## Phases
 
-### Phase 1: 调研现有 CI/hooks
+### Phase 1: 历史与根因调研
+- [x] 检索乱码/UTF-8/编码相关提交
+- [x] 对照 `use_utf8_console` / doctor / 文档
+- [x] 定位 `shell.run`/`exec.run` 的 `from_utf8_lossy` 管道解码
+- [x] 对照业界做法（lime-rs UTF-8→GBK、long-shell GetConsoleOutputCP）
 - **Status:** complete
 
-### Phase 2: 拉取模板并适配配置
-- [x] `.pre-commit-config.yaml`
-- [x] `deny.toml`
-- [x] `_typos.toml`
-- [x] `cliff.toml`
-- [x] README 无「开发环境」→ 不扩写
+### Phase 2: 实现针对性修复
+- [x] `process_launch`：UTF-8 优先，失败回退 OEM/ACP/GBK
+- [x] 实时回显改为解码后的 UTF-8
+- [x] `act-shell`/`act-exec` 拉上 `encoding_rs`
+- [x] cmd/powershell 宿主尽量发出 UTF-8
+- [x] 文档补充「子进程管道」场景
 - **Status:** complete
 
-### Phase 3: 安装工具并验证
-- [x] cargo-deny / typos / git-cliff / pre-commit 已装
-- [x] `cargo deny check` 通过
-- [x] typos / cliff 通过
-- [x] pre-commit install；typos+deny hooks 通过；fmt 既有失败保留
-- **Status:** complete
-
-### Phase 4: 中文汇报
-- [x] 文件清单、启用方式、验证结果
-- **Status:** complete
+### Phase 3: 测试与提交
+- [x] 单元测试：GBK / UTF-8 / partial / code page
+- [x] `cargo test -p corex-registry process_launch`
+- [ ] 提交、推送、开 PR
+- **Status:** in_progress
 
 ## Decisions Made
 | Decision | Rationale |
 |----------|-----------|
-| 不加 black | 非 Python |
-| system language hooks | Windows 无 bash |
-| deny 仅 Windows target | 避开 Linux-only quick-xml CVE 噪音 |
-| ignore serde_yml advisory | 迁栈非本任务 |
-| 不批量 cargo fmt | 避免无关大 diff |
-| 不改 CI / README | 任务范围 |
+| 不重做 SetConsoleOutputCP 为主修 | 6453571 已做；「有些内容」仍乱来自管道子进程 |
+| 修 process_launch 解码 | 中文 Windows OEM(CP936/GBK) + `from_utf8_lossy` |
+| UTF-8 优先再回退 OEM/GBK | 兼容已 UTF-8 的 pwsh / 系统 Beta UTF-8 |
+| 用 GetOEMCP 而非 GetConsoleOutputCP | 父进程已 65001 时 Console CP 会误导管道解码 |
+| 不引 codepage crate | 手写常见 CP→encoding_rs 映射 |
 
 ## Errors Encountered
 | Error | Attempt | Resolution |
 |-------|---------|------------|
-| pip externally-managed | 1 | `uv tool install pre-commit` |
-| BSL-1.0 / display-info | 1 | allow + clarify |
-| quick-xml advisories | 1 | graph 限 Windows |
-| BOM in `.cursor/hooks` | 1 | exclude `.cursor/` |
-| cargo fmt drift | 1 | 保留 hook，不强制重排 |
+| cargo 1.83 不支持 edition2024 | 1 | rustup install / default 1.95.0 |
