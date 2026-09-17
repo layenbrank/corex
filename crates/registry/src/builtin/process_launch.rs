@@ -202,25 +202,24 @@ fn build_command(spec: &LaunchSpec, host: Host) -> Result<Command, ActionError> 
             #[cfg(windows)]
             {
                 let mut c = Command::new("cmd");
-                // 管道里默认是 OEM（中文 Windows 常见 CP936）。先切 UTF-8，
-                // 听劝的程序会少乱码；不听的仍靠 [`decode_process_output`] 回退。
-                let mut line = String::from("chcp 65001>NUL & ");
                 if spec.kind == TargetKind::Script {
-                    line.push('"');
-                    line.push_str(&prog_str);
-                    line.push('"');
+                    // 脚本必须走 CreateProcess 的多 argv 形式：把路径塞进单个 `/C`
+                    // 字符串再包一层引号时，Windows 会二次转义成 `\"...\t.bat\"`，cmd 认不出。
+                    // 编码靠管道侧 OEM/GBK 回退，不必在这里 chcp。
+                    c.arg("/C").arg(program.as_os_str());
                     for a in &spec.args {
-                        line.push(' ');
-                        line.push_str(a);
+                        c.arg(a);
                     }
                 } else {
+                    // 单行命令：先切 UTF-8；听劝的少乱码，不听的仍靠 decode 回退。
+                    let mut line = String::from("chcp 65001>NUL & ");
                     line.push_str(&prog_str);
                     for a in &spec.args {
                         line.push(' ');
                         line.push_str(a);
                     }
+                    c.arg("/C").arg(line);
                 }
-                c.arg("/C").arg(line);
                 c
             }
             #[cfg(not(windows))]
@@ -253,10 +252,7 @@ fn build_command(spec: &LaunchSpec, host: Host) -> Result<Command, ActionError> 
             // 管道读方按字节解码；不设的话 Windows PowerShell 5 常按 OEM 吐中文。
             const UTF8_PREAMBLE: &str = "[Console]::OutputEncoding = [System.Text.Encoding]::UTF8; $OutputEncoding = [Console]::OutputEncoding; ";
             if spec.kind == TargetKind::Script {
-                let mut line = format!(
-                    "{UTF8_PREAMBLE}& '{}'",
-                    prog_str.replace('\'', "''")
-                );
+                let mut line = format!("{UTF8_PREAMBLE}& '{}'", prog_str.replace('\'', "''"));
                 for a in &spec.args {
                     line.push(' ');
                     line.push_str(&powershell_single_quote(a));
@@ -470,16 +466,14 @@ fn decode_process_output(bytes: &[u8]) -> String {
     #[cfg(windows)]
     {
         let oem = windows_pipe_encoding();
-        let (cow, _, had_errors) = oem.decode(bytes);
-        if !had_errors {
-            return cow.into_owned();
+        // 中日韩 OEM：直接信它。
+        if is_cjk_legacy(oem) {
+            return oem.decode(bytes).0.into_owned();
         }
-        // 系统开了「Beta: UTF-8」时 OEM 已是 65001，但老程序仍吐 GBK。
-        if oem != encoding_rs::GBK {
-            let (gbk, _, _) = encoding_rs::GBK.decode(bytes);
-            return gbk.into_owned();
-        }
-        cow.into_owned()
+        // 系统 Beta UTF-8、或 en-US 的 CP1252 等单字节页：对 GBK 字节会
+        // 「无错误地」解成拉丁乱码（CI 上就是 `ÄãºÃ`），必须再试 GBK。
+        let (gbk, _, _) = encoding_rs::GBK.decode(bytes);
+        gbk.into_owned()
     }
     #[cfg(not(windows))]
     {
@@ -521,6 +515,16 @@ fn windows_pipe_encoding() -> &'static Encoding {
 unsafe extern "system" {
     fn GetOEMCP() -> u32;
     fn GetACP() -> u32;
+}
+
+/// 中日韩遗留多字节页：对这些 locale 的管道输出应优先按 OEM 解，而不是一律 GBK。
+#[cfg(windows)]
+fn is_cjk_legacy(enc: &'static Encoding) -> bool {
+    enc == encoding_rs::GBK
+        || enc == encoding_rs::GB18030
+        || enc == encoding_rs::BIG5
+        || enc == encoding_rs::SHIFT_JIS
+        || enc == encoding_rs::EUC_KR
 }
 
 /// 常见 Windows 代码页 → encoding_rs；未知则 `None`。
@@ -967,10 +971,7 @@ mod tests {
 
     #[test]
     fn code_page_936_maps_to_gbk() {
-        assert_eq!(
-            encoding_for_code_page(936).map(|e| e.name()),
-            Some("GBK")
-        );
+        assert_eq!(encoding_for_code_page(936).map(|e| e.name()), Some("GBK"));
     }
 
     #[test]
