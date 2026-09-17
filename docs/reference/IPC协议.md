@@ -1,4 +1,4 @@
-# Corex IPC 协议（v7）
+# Corex IPC 协议（v9）
 
 > **接入指南（推荐）：** [integration/IPC接入指南.md](../integration/IPC接入指南.md)
 
@@ -32,6 +32,67 @@ Windows 上的端点只能是命名管道：给一个 Unix 风格的文件路径
 
 二进制名为 **`corex-daemon`**（不是 `corex-serve`）。
 
+### 端点发现文件
+
+daemon 在开始服务**之前**把「它到底监听在哪」写成 **`<data-dir>/endpoint.json`**，退出时删掉。
+连接方读到的是事实而不是约定——不必再复刻一遍平台目录规则，也不必猜配置里改没改端点。
+
+```json
+{
+  "version": 1,
+  "pid": 37692,
+  "endpoint": "\\\\.\\pipe\\corex-disc-test",
+  "kind": "pipe",
+  "token_file": "C:\\Users\\Alice\\AppData\\Roaming\\corex\\data\\token"
+}
+```
+
+| 字段         | 说明                                                                                           |
+| ------------ | ---------------------------------------------------------------------------------------------- |
+| `version`    | 格式版本；读方不认识就**忽略整份文件**（退回平台默认，而不是按旧字段猜）                       |
+| `pid`        | 监听方进程号，仅供排错；**不做存活性判断**（pid 会被复用）                                      |
+| `endpoint`   | 实际监听的端点                                                                                   |
+| `kind`       | `pipe` 或 `socket`；连接方据此挑连接 API，不必自己判平台                                          |
+| `token_file` | token **文件**的位置；**仅当** token 来自文件时才有（见下）                                      |
+
+`token_file` 在 token 来自 `COREX_TOKEN` 或配置 `[daemon].token` 时**不出现**：那两处的值属于调用方，
+不该被复制进一个默认权限的文件。此时连接方得自己去拿 token。
+
+**谁读、谁不读：**
+
+| 角色             | 顺序                                                    |
+| ---------------- | -------------------------------------------------------- |
+| 连接方（CLI / 宿主 / SDK） | 显式配置（`socket_path` / `--socket`）→ **本文件** → 平台默认 |
+| 监听方（daemon） | 显式配置 → 平台默认；**从不读本文件**                     |
+
+监听方不读是有意的：崩溃残留的记录会把新起的 daemon 带到上一个进程的端点上。
+连接方看到的是「运行中 daemon 的事实」，所以发现排在平台默认之前——但**排在显式配置之后**，
+命令行与配置里写死的东西必须赢过发现。
+
+⚠️ 记录可能是**残留**的：daemon 被强杀时来不及删。「有记录」不等于「daemon 在跑」，
+那件事的问法是去发一条 `ping`。
+
+## 并发模型
+
+连接与执行是两件事，规则不同——宿主据此决定要不要开多条连接：
+
+| 事项     | 行为                                                                     |
+| -------- | ------------------------------------------------------------------------ |
+| 建立连接 | **总是并发**：每条连接一个任务。一条慢请求不会让别的客户端连不上            |
+| 执行请求 | `run_directive` / `invoke` 受 **`[daemon] max_jobs`** 限制，超出的在队列里等 |
+| 控制请求 | `ping` / `shutdown` / `list_directives` / `list_actions` **不排队**，随时可答 |
+
+`max_jobs`：`1`（默认）串行 / `> 1` 最多同时这么多 / `0` 不限。默认取 `1` 是为了保住
+「两条指令不会同时驱鼠标键盘」这条 UI 自动化的前提——**并行是显式选择**，见
+[运行时配置](../guide/运行时配置.md)。
+
+对请求本身的两条推论：
+
+- **一条连接上可以同时有多个请求在飞**：每条带自己的 `id`，回话按 `id` 归位。
+  帧（`event`）也带 `id`，所以并发时不会串到别的请求上。
+- 排队的请求**不消耗连接**：它只是还没开始执行，客户端不要用连接是否建立来判断「有没有开始跑」。
+  想知道进度就置 `stream: true`，第一个 `step_start` 才算真的开始了。
+
 ## 鉴权
 
 每个请求可带 `auth_token`（schema 上可选；daemon 配置了 token 时**实际必填**）。
@@ -55,9 +116,53 @@ CLI 客户端加载 `COREX_TOKEN` 或 `<data-dir>/token`，经 `Request::with_au
 | `ping`            | `id`，`auth_token`                                       | 探活                                           |
 | `shutdown`        | `id`，`auth_token`                                       | 优雅退出 daemon                                |
 | `list_directives` | `id`，`auth_token`，`dir?`                               | 列出指令名（可选子目录；**路径沙箱**）         |
-| `list_actions`    | `id`，`auth_token`                                       | 列出已注册 Action ID                           |
+| `list_actions`    | `id`，`auth_token`                                       | 列出已注册 Action（含参数表、权限与 `inputSchema`） |
 | `run_directive`   | `id`，`auth_token`，`name`，`input?`，`path?`，`stream?` | 按名运行指令，或路径（限制在 directives 根下） |
 | `invoke`          | `id`，`auth_token`，`action`，`params?`，`stream?`       | 按 ID 调用单个 Action                          |
+
+### `list_actions` 的动作目录
+
+`list_actions` 回的是一个数组，每个元素是一个动作的**完整描述**——不是只有 id。
+宿主与 agent 需要知道「怎么调」：参数类型、默认值与要声明的权限。形状与
+`corex actions --json` 里 `actions` 数组的元素完全一致，两边由
+`corex_registry::catalog` 同一份实现产出。
+
+```json
+{
+  "type": "ok",
+  "id": 2,
+  "data": [
+    {
+      "id": "file.copy",
+      "name": "文件复制",
+      "description": "复制文件（单文件，可上报分块进度）",
+      "bucket": "data",
+      "params": [
+        { "name": "from", "ty": "file", "required": true },
+        { "name": "to", "ty": "file", "required": true }
+      ],
+      "tags": [],
+      "permissions": ["filesystem"],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "from": { "type": "string", "format": "path" },
+          "to": { "type": "string", "format": "path" }
+        },
+        "required": ["from", "to"]
+      }
+    }
+  ]
+}
+```
+
+| 字段 | 说明 |
+| ---- | ---- |
+| `params[].ty` | Corex 自己的类型标签（`str` / `file` / `map` / `any` …）；`description` 与 `default` 为 `None` 时**不出现** |
+| `input_schema` | 同一批事实派生出的 JSON Schema，可直接当 MCP 工具的 `inputSchema` 用 |
+| `permissions` | 取自动作自己的声明（`Action::permissions`），不是另抄的一张表 |
+
+只认 `id` 的老客户端不受影响：新增的都是**额外字段**，数组本身没变。
 
 ### 进度帧（`stream: true`）
 

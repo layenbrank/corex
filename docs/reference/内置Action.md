@@ -1,4 +1,4 @@
-# 内置 Action（v7）
+# 内置 Action（v9）
 
 > **文档导航：** [文档中心](../README.md) · [指令与输入配置](../guide/指令与输入配置.md)
 
@@ -15,6 +15,10 @@
 工作区中 `windows` 为 `optional` + `default-features = false`；仅已启用的门控会编译对应 API。
 
 通过 Directive YAML（`action: <id>`）或 IPC `{"type":"invoke","action":"<id>","params":{...}}` 调用。
+
+参数类型、默认值与要声明的权限以**机器可读目录**为准：`corex actions --json`，宿主侧走 IPC
+`list_actions`（两者由 `corex_registry::catalog` 同一份实现产出）。本表是给人读的散文版，
+同族动作会合并成一行，不要拿它当调用契约。
 
 ## 目录
 

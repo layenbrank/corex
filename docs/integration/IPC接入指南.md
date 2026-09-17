@@ -35,6 +35,33 @@ corex daemon stop
 - CLI：`corex-daemon --socket <path>`
 - 配置：`[daemon] socket_path = "..."`
 
+### 端点发现（宿主推荐）
+
+daemon 会把「它到底监听在哪」写成 **`<数据目录>/endpoint.json`**，退出时删掉。
+连接方按这个顺序找端点：
+
+1. 显式配置（`socket_path` / `--socket`）
+2. `<数据目录>/endpoint.json`——有 daemon 在跑时
+3. 平台默认（上表）
+
+```json
+{
+  "version": 1,
+  "pid": 37692,
+  "endpoint": "\\\\.\\pipe\\corex-disc-test",
+  "kind": "pipe",
+  "token_file": "C:\\Users\\Alice\\AppData\\Roaming\\corex\\data\\token"
+}
+```
+
+`token_file` 只在 token 来自文件时出现；来自 `COREX_TOKEN` 或配置时**不写进记录**，连接方得自己去拿。
+字段表与「谁读谁不读」见 [IPC 协议 § 端点发现文件](../reference/IPC协议.md#端点发现文件)。
+
+CLI 自己也走这条链路（`corex daemon status`、`corex run --remote`、`corex doctor` 的「IPC 端点」一行），
+所以宿主不必在 JS / Python 里再复刻一遍 Windows `%APPDATA%` 与 XDG 的差异。
+用 `COREX_DATA_DIR` 钉住数据目录时（随应用分发 corex 的常规做法），
+双方看到的是同一个目录与同一份记录，见 [运行时配置 § 数据目录](../guide/运行时配置.md)。
+
 ---
 
 ## 3. 鉴权（必做）
@@ -144,11 +171,30 @@ Token 不匹配 → 响应 `error`，code **401**。
 - Crate：**`corex-ipc`**（`Transport`、`Request`、`Response`）
 - 参考：`examples/tauri/corex_ipc.rs`
 
-### Node / Python / 其他
+### Node / Electron
 
-1. 连接命名管道或 Unix socket
-2. 按行读写 JSON
-3. 每条请求附带 `auth_token`
+用现成的客户端包：**[`packages/corex-client`](../../packages/corex-client/README.md)**（零依赖、无构建）。
+它已经把「找端点、拿 token、进度帧不能当回答」这三件事做掉了：
+
+```js
+import { connect } from 'corex-client';
+
+const corex = await connect({ spawn: true }); // 连不上就先拉起一个 daemon
+const result = await corex.invoke(
+  'file.copy',
+  { from: 'a.bin', to: 'b.bin' },
+  { onProgress: (frame) => console.log(frame.kind, frame.step) },
+);
+await corex.close();
+```
+
+### Python / 其他语言
+
+1. 按上面的发现规则拿到端点（读 `endpoint.json`，或自己复刻平台默认）
+2. 连接命名管道或 Unix socket
+3. 按行读写 JSON
+4. 每条请求附带 `auth_token`
+5. **逐行读时跳过 `event` 帧**，直到拿到终帧
 
 Windows 命名管道示例（概念）：
 
