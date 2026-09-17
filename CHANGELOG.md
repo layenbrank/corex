@@ -8,6 +8,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 See also [Conventional Commits](https://www.conventionalcommits.org/).
 
 ---
+## [9.0.0](https://github.com/layenbrank/corex/compare/v8.1.0..v9.0.0) - 2026-09-17
+
+### 💥 Breaking Changes
+
+- **(ipc)** 端点发现、数据目录覆盖与受控并发执行
+> BREAKING CHANGE:每次执行请求占用一个 `max_jobs` 名额，默认 1 即串行；
+> `serve_ipc` 的 handler 必须 `Clone + Send + 'static`。 · ([`a16fc1e`](https://github.com/layenbrank/corex/commit/a16fc1e2c7a3b86631cfd0e001f030a269d9c060)) · lh
+
+
+### 🚀 Features
+- **(client)** 零依赖 JS 客户端与 Electron 示例 · ([`67e85dc`](https://github.com/layenbrank/corex/commit/67e85dcf46417ea8d9c6d437f4eb0071ce001235)) · lh
+- 💥 **(ipc)** 端点发现、数据目录覆盖与受控并发执行 — **breaking** · ([`a16fc1e`](https://github.com/layenbrank/corex/commit/a16fc1e2c7a3b86631cfd0e001f030a269d9c060)) · lh
+- **(registry)** 动作目录，让注册表有机器可读的对外形态 · ([`154aa7d`](https://github.com/layenbrank/corex/commit/154aa7de379556574665b92bc8d5a0810137dcbf)) · lh
+
+
+### 🐛 Bug Fixes
+- **(registry)** Windows 管道子进程按 OEM/GBK 解码，修中文乱码 · ([`9bc1cec`](https://github.com/layenbrank/corex/commit/9bc1cec0391249ae70c5121224d798bd1aa57805)) · Cursor Agent
+- **(registry)** 修复 Windows CI——bat 引号与 GBK 在 CP1252 上回退 · ([`da4c7f3`](https://github.com/layenbrank/corex/commit/da4c7f3cb3d10f6ac58bffdbfc12bf6205e59ff9)) · Cursor Agent
+
+
+### 📚 Documentation
+- 同步 v9 的协议、接入、配置与破坏性变更 · ([`0b039a1`](https://github.com/layenbrank/corex/commit/0b039a1e920306484e8eedf7f936e1b009691857)) · lh
+- 更新内置 Action 和指令 YAML 文档，修正描述与并行处理逻辑 · ([`9a3a92d`](https://github.com/layenbrank/corex/commit/9a3a92d904ff34db935d49ad4e469856e057deb0)) · layen
+
+
+### 📦 Release
+- **(release)** bump version to 9.0.0 · ([`a684b34`](https://github.com/layenbrank/corex/commit/a684b34390cafffd7794826be1377cf7ac897c3a)) · lh
+
+
+### 🔧 Miscellaneous
+- **(typos)** 登记测试里故意拼错的词 · ([`8c49803`](https://github.com/layenbrank/corex/commit/8c498038fccd76a2c7a80cf25b7fab075dbd754d)) · lh
+
+---
 ## [8.1.0](https://github.com/layenbrank/corex/compare/v8.0.0..v8.1.0) - 2026-09-12
 
 ### 🚀 Features
@@ -24,6 +57,10 @@ See also [Conventional Commits](https://www.conventionalcommits.org/).
 ### 📚 Documentation
 - **(examples)** 大文件分片上传指令，对着本机 upload 服务跑通 · ([`fbf69d7`](https://github.com/layenbrank/corex/commit/fbf69d7df4f6b08c50968c0ee8b4df8b3f406675)) · layen
 - 补齐二进制链路、新动作与控制流写法 · ([`a37bbe4`](https://github.com/layenbrank/corex/commit/a37bbe43f7d7821bb189045b53c2c136fa9cb268)) · layen
+
+
+### 📦 Release
+- **(release)** bump version to 8.1.0 · ([`cc4c074`](https://github.com/layenbrank/corex/commit/cc4c07453a6587cec2df4add1fef6c86c32be1c1)) · layen
 
 ---
 ## [8.0.0](https://github.com/layenbrank/corex/compare/v7.1.0..v8.0.0) - 2026-09-11
@@ -528,6 +565,7 @@ See also [Conventional Commits](https://www.conventionalcommits.org/).
 - fluxor.yml · ([`322cb9c`](https://github.com/layenbrank/corex/commit/322cb9cb8c1e91f0b0a0b47e0014ae4c872fa846)) · layenbrank
 - Remove legacy notification examples and related files to streamline the project structure and focus on the updated notification system. This includes deleting old test files, configuration files, and XML templates that are no longer in use. · ([`fc89b31`](https://github.com/layenbrank/corex/commit/fc89b313725223dd1b0ce38ed5ad6b877f9a16e8)) · 李贺
 
+[9.0.0]: https://github.com/layenbrank/corex/compare/v8.1.0..v9.0.0
 [8.1.0]: https://github.com/layenbrank/corex/compare/v8.0.0..v8.1.0
 [8.0.0]: https://github.com/layenbrank/corex/compare/v7.1.0..v8.0.0
 [7.1.0]: https://github.com/layenbrank/corex/compare/v7.0.1..v7.1.0
