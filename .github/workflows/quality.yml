@@ -65,6 +65,13 @@ jobs:
       - name: cargo clippy (schema feature)
         run: cargo clippy -p corex-engine --features schema --all-targets --locked -- -Dwarnings
 
+      # JS 客户端（`packages/corex-client`）零依赖、无构建步骤，所以只要 runner 自带的 node。
+      # 跑的是假 daemon 上的「读法」：帧顺序、错误码、端点发现优先级。
+      # 对着**真 daemon** 的冒烟测试默认跳过，需要 `COREX_DAEMON` 指向二进制才跑。
+      - name: node --test (JS client)
+        working-directory: packages/corex-client
+        run: node --test
+
   features:
     name: feature matrix
     runs-on: windows-latest

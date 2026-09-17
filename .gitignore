@@ -3,4 +3,6 @@
 /assets/pdfium/**/*.dll
 NUL
 NUL.*
+# JS 客户端本身零依赖，但宿主在它旁边跑 npm 时别把 node_modules 提上来。
+node_modules/
 # examples/

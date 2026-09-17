@@ -1,0 +1,19 @@
+{
+  "name": "corex-electron-example",
+  "version": "9.0.0",
+  "private": true,
+  "description": "Electron × corex 集成示例：sidecar corex-daemon + NDJSON IPC",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "check": "node scripts/check.mjs"
+  },
+  "dependencies": {
+    "corex-client": "file:../../packages/corex-client"
+  },
+  "devDependencies": {
+    "electron": "*"
+  },
+  "author": "layen",
+  "license": "MIT"
+}
