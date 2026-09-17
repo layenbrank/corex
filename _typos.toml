@@ -17,6 +17,10 @@ wparam = "wparam"
 permissons = "permissons"
 # 集成测试里故意拼错的动作 id：它断言 `corex actions` 会给出最接近的名字。
 coppy = "coppy"
+# 故意的错键夹具与哈希常量的前缀（`ba7816bf…`）会撞上手写词典，
+# 它们不是拼写错误，登记掉而不要去改测试。
+woh = "woh"
+ba  = "ba"
 
 [files]
 extend-exclude = [
