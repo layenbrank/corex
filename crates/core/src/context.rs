@@ -74,7 +74,7 @@ impl Default for HistoryConfig {
 }
 
 /// 配置里 `[daemon]` 的 IPC / 锁设置。
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct DaemonConfig {
     /// Unix socket 路径（相对数据目录）或 Windows 命名管道路径。
@@ -86,6 +86,32 @@ pub struct DaemonConfig {
     /// IPC 的共享密钥。为空 / 未设 → 自动生成到数据目录的 `token`。
     #[serde(default)]
     pub token: Option<String>,
+    /// 同时**执行**的请求数上限：`run_directive` 与 `invoke` 排这个队。
+    ///
+    /// - `1`（默认）= 串行。一条指令跑着的时候，别的执行请求在队列里等。这与旧版
+    ///   行为一致，也是 UI 自动化想要的——两条指令同时驱鼠标键盘必然互相踩。
+    /// - `> 1` = 最多同时跑这么多。
+    /// - `0` = 不限。
+    ///
+    /// 控制类请求（`ping` / `shutdown` / `list_*`）**不排这个队**：它们是宿主判断
+    /// “daemon 还活着吗”的手段，被一条几分钟的指令堵住才是最糟的。
+    #[serde(default = "init_max_jobs")]
+    pub max_jobs: usize,
+}
+
+fn init_max_jobs() -> usize {
+    1
+}
+
+impl Default for DaemonConfig {
+    fn default() -> Self {
+        Self {
+            socket_path: None,
+            lock_path: None,
+            token: None,
+            max_jobs: init_max_jobs(),
+        }
+    }
 }
 
 /// 配置里 `[logging]` 的日志设置。

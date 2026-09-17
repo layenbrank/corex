@@ -1,8 +1,11 @@
-//! `corex actions` 与 `corex actions <id>`：把注册表里的事实摊开给人看。
+//! `corex actions` 与 `corex actions <id>`：把注册表里的事实摊开。
 //!
 //! 光有 id 列表是不够的——写指令的人真正需要知道的是「这个动作要哪些参数、什么类型、
 //! 要不要声明权限」。这些本来就躺在 `ActionMeta` 里，只是以前没有人把它打出来，
 //! 于是作者只能去翻 `docs/reference/内置Action.md`。
+//!
+//! `--json` 换的是**同一份事实**的机器可读形态（`corex_registry::catalog`），
+//! 供 agent 与宿主消费；给人看的排版仍走原来的路径。
 
 use crate::build_registry;
 use crate::fuzzy;
@@ -10,17 +13,31 @@ use crate::output::outln;
 use anyhow::Result;
 use corex_core::{ActionMeta, Bucket, EngineError, ParamSchema, SchemaType};
 use corex_registry::ActionRegistry;
+use corex_registry::catalog;
 
 /// 列出已注册动作（按 bucket 分组）；给了 id 就展开它的参数表、权限与一段可粘贴的步骤片段。
-pub(crate) fn run(id: Option<&str>, bucket: Option<&str>) -> Result<()> {
+///
+/// `json` 为真时打机器可读的目录，而不是给人看的排版。
+pub(crate) fn run(id: Option<&str>, bucket: Option<&str>, json: bool) -> Result<()> {
     let registry = build_registry();
     let Some(id) = id else {
-        return list(&registry, bucket);
+        let only = match bucket {
+            Some(name) => Some(find_bucket(name)?),
+            None => None,
+        };
+        return if json {
+            emit(&catalog::document(&registry, only))
+        } else {
+            list(&registry, only)
+        };
     };
 
     let Some(meta) = registry.actions().into_iter().find(|m| m.id == id) else {
         return Err(unknown(id, &registry));
     };
+    if json {
+        return emit(&catalog::action(&registry, &meta));
+    }
     outln!("{} — {}", meta.id, meta.name);
     outln!("{}", meta.description);
     outln!("bucket {}   权限 {}", meta.bucket, granted(&registry, id));
@@ -40,12 +57,8 @@ pub(crate) fn run(id: Option<&str>, bucket: Option<&str>) -> Result<()> {
     Ok(())
 }
 
-/// 按 bucket 分组列出；`wanted` 给了就只列那一组。
-fn list(registry: &ActionRegistry, wanted: Option<&str>) -> Result<()> {
-    let only = match wanted {
-        Some(name) => Some(find_bucket(name)?),
-        None => None,
-    };
+/// 按 bucket 分组列出；`only` 给了就只列那一组。
+fn list(registry: &ActionRegistry, only: Option<Bucket>) -> Result<()> {
     for bucket in Bucket::ALL {
         if only.is_some_and(|only| only != bucket) {
             continue;
@@ -75,18 +88,21 @@ fn find_bucket(name: &str) -> Result<Bucket> {
 }
 
 /// 动作运行前必须声明的权限类别。
+///
+/// 遍历只有 `catalog` 那一处，这里只负责排版——JSON 目录要用同一批名字。
 fn granted(registry: &ActionRegistry, id: &str) -> String {
-    match registry.get(id) {
-        Some(action) => {
-            let kinds: Vec<&str> = action.permissions().iter().map(|k| k.name()).collect();
-            if kinds.is_empty() {
-                "无".to_string()
-            } else {
-                kinds.join("、")
-            }
-        }
-        None => "无".to_string(),
+    let kinds = catalog::permission_names(registry, id);
+    if kinds.is_empty() {
+        "无".to_string()
+    } else {
+        kinds.join("、")
     }
+}
+
+/// 打一份目录 JSON。本模块里只有它知道存在机器可读的形态。
+fn emit(payload: &serde_json::Value) -> Result<()> {
+    outln!("{}", serde_json::to_string_pretty(payload)?);
+    Ok(())
 }
 
 /// 一行参数说明：`  from  file  必填`，带上默认值与描述。

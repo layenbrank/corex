@@ -436,6 +436,67 @@ fn actions_are_grouped_by_bucket() {
     );
 }
 
+/// `--json` 给的是目录而不是排版结果：宿主与 agent 靠它知道「怎么调一个动作」，
+/// 而不是只知道它叫什么。
+#[test]
+fn actions_json_is_a_catalog() {
+    let out = run(&["actions", "--json"]);
+    assert!(out.status.success());
+    let doc: serde_json::Value =
+        serde_json::from_slice(&out.stdout).expect("stdout 应当是一份 JSON 文档");
+    let count = doc["count"].as_u64().expect("有 count");
+    let actions = doc["actions"].as_array().expect("actions 是数组");
+    assert_eq!(actions.len() as u64, count);
+    assert!(count > 0, "目录不该是空的");
+
+    let copy = actions
+        .iter()
+        .find(|item| item["id"].as_str() == Some("file.copy"))
+        .expect("file.copy 在目录里");
+    assert_eq!(copy["permissions"], serde_json::json!(["filesystem"]));
+    assert_eq!(copy["input_schema"]["type"].as_str(), Some("object"));
+    assert_eq!(
+        copy["input_schema"]["properties"]["from"]["format"].as_str(),
+        Some("path"),
+        "file 类参数要告诉读方那是路径"
+    );
+}
+
+/// 给 id 就只要那一个；`--bucket` 则收窄目录。两种都仍然拒绝拼错的 bucket。
+#[test]
+fn actions_json_narrows_to_one_action_or_bucket() {
+    let one = run(&["actions", "file.copy", "--json"]);
+    assert!(one.status.success());
+    let doc: serde_json::Value =
+        serde_json::from_slice(&one.stdout).expect("stdout 应当是一份 JSON 文档");
+    assert_eq!(doc["id"].as_str(), Some("file.copy"));
+    assert!(
+        doc["input_schema"]["required"].as_array().is_some(),
+        "必填参数要列出来"
+    );
+
+    let ui = run(&["actions", "--bucket", "ui", "--json"]);
+    assert!(ui.status.success());
+    let doc: serde_json::Value =
+        serde_json::from_slice(&ui.stdout).expect("stdout 应当是一份 JSON 文档");
+    assert_eq!(doc["bucket"].as_str(), Some("ui"));
+    assert!(
+        doc["actions"]
+            .as_array()
+            .expect("actions 是数组")
+            .iter()
+            .all(|item| item["bucket"].as_str() == Some("ui"))
+    );
+
+    let unknown = run(&["actions", "--bucket", "nope", "--json"]);
+    assert_eq!(
+        unknown.status.code(),
+        Some(2),
+        "stderr: {}",
+        String::from_utf8_lossy(&unknown.stderr)
+    );
+}
+
 /// 终端/字体跟不上 Unicode 时，`COREX_ASCII=1` 换一套纯 ASCII 符号。
 #[test]
 fn ascii_symbols_are_opt_in() {
@@ -624,6 +685,49 @@ fn doctor_reports_the_data_directory() {
     );
     let stdout = String::from_utf8_lossy(&out.stdout);
     assert!(stdout.contains("corex"), "stdout: {stdout}");
+}
+
+/// 端点发现：daemon 写下的 `endpoint.json` 要盖过平台默认端点。
+///
+/// 用 `doctor` 的「IPC 端点」一行来断言——它是唯一把解析结果打出来的命令，因此不必真起
+/// 一个 daemon。给一份空配置是为了避开仓库根的 `config/corex.toml`：那里若写了
+/// `socket_path`，显式配置本来就该赢过发现，这条用例就不在测发现了。
+#[test]
+fn a_daemon_record_decides_the_endpoint() {
+    let dir = tempfile::tempdir().expect("临时目录");
+    let endpoint = if cfg!(windows) {
+        r"\\.\pipe\corex-from-record"
+    } else {
+        "/tmp/corex-from-record.sock"
+    };
+    let record = serde_json::json!({
+        "version": 1,
+        "pid": 4242,
+        "endpoint": endpoint,
+        "kind": if cfg!(windows) { "pipe" } else { "socket" },
+    });
+    std::fs::write(
+        dir.path().join("endpoint.json"),
+        serde_json::to_vec(&record).expect("序列化记录"),
+    )
+    .expect("写入端点记录");
+    let config = dir.path().join("empty.toml");
+    std::fs::write(&config, "[daemon]\n").expect("写空配置");
+
+    let out = Command::new(COREX)
+        .args([
+            "--config",
+            config.to_str().expect("utf-8 配置路径"),
+            "doctor",
+        ])
+        .env("COREX_DATA_DIR", dir.path())
+        .output()
+        .expect("corex runs");
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(
+        stdout.contains("corex-from-record"),
+        "doctor 该报出记录里的端点，stdout: {stdout}"
+    );
 }
 
 /// 补全脚本是**回调式**的：脚本只把 shell 挂回 `corex`，候选由本进程现算。

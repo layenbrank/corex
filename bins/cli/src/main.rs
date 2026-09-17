@@ -127,7 +127,9 @@ pub(crate) async fn dispatch(cli: Cli) -> Result<()> {
             run::directive(target.as_deref(), &options, cli.dir.as_deref()).await
         }
         Commands::Schedule { dir } => schedule(dir.or(cli.dir).as_deref()),
-        Commands::Actions { id, bucket } => actions::run(id.as_deref(), bucket.as_deref()),
+        Commands::Actions { id, bucket, json } => {
+            actions::run(id.as_deref(), bucket.as_deref(), json)
+        }
         Commands::Create {
             name,
             template,
@@ -201,14 +203,16 @@ fn init_tracing(verbose: u8) {
         .try_init();
 }
 
-/// 本次运行实际使用的 IPC 端点：配置里没写 `socket_path` 时就是平台默认端点。
+/// 本次运行实际使用的 IPC 端点：配置里没写 `socket_path` 时先用 daemon 写下的
+/// `endpoint.json`，没有那份记录才是平台默认端点。
 ///
-/// 端点无效属于配置问题，所以走 `EngineError::Config`（退出码 2），
+/// 走发现而不是只看自己的配置，是因为两者可能不是同一份：宿主自带 `--config`、用户用
+/// `--socket` 手工起过 daemon。端点无效属于配置问题，所以走 `EngineError::Config`（退出码 2），
 /// 与「配置损坏」保持一致，而不是退成通用失败。
 pub(crate) fn resolve_endpoint() -> Result<PathBuf> {
     let data = data_dir()?;
     let configured = settings::effective().daemon.socket_path.clone();
-    corex_ipc::resolve_endpoint(&data, configured.as_deref())
+    corex_ipc::find_endpoint(&data, configured.as_deref())
         .map_err(|e| anyhow::Error::new(corex_core::EngineError::Config(e.to_string())))
 }
 

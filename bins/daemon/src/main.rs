@@ -12,7 +12,6 @@ use corex_ipc::{FrameSink, Outlet, ProgressEvent, config_paths, data_dir, serve_
 use corex_registry::ActionRegistry;
 use fs2::FileExt;
 use rand::RngExt;
-use std::collections::BTreeMap;
 use std::fs::File;
 #[cfg(unix)]
 use std::io::Write;
@@ -20,6 +19,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::time::Duration;
+use tokio::sync::Semaphore;
 #[cfg(unix)]
 use tracing::error;
 use tracing::{info, warn};
@@ -48,6 +48,8 @@ struct DaemonState {
     audit: Option<ExecutionAudit>,
     auth_token: String,
     shutdown: AtomicBool,
+    /// 同时执行的请求数上限；见 `[daemon].max_jobs`。
+    jobs: Arc<Semaphore>,
 }
 
 #[tokio::main]
@@ -76,7 +78,7 @@ async fn main() -> Result<()> {
     let directives_dir = args.directives.unwrap_or_else(|| data.join("directives"));
     std::fs::create_dir_all(&directives_dir)?;
 
-    let auth_token = resolve_auth_token(&data, &config.daemon)?;
+    let auth = resolve_auth_token(&data, &config.daemon)?;
 
     let _lock = acquire_singleton(&lock_path)?;
 
@@ -100,14 +102,21 @@ async fn main() -> Result<()> {
     let history = open_history(&data, &config)?;
     let audit = ExecutionAudit::under_data_dir(&data).ok();
 
+    // `max_jobs = 0` 表示不限：拿信号量的最大许可数当“无限”。
+    let jobs = Arc::new(Semaphore::new(match config.daemon.max_jobs {
+        0 => Semaphore::MAX_PERMITS,
+        n => n,
+    }));
+
     let state = Arc::new(DaemonState {
         registry: Arc::new(registry),
         config,
         directives_dir,
         history,
         audit,
-        auth_token,
+        auth_token: auth.token,
         shutdown: AtomicBool::new(false),
+        jobs,
     });
 
     // 信号处理
@@ -120,6 +129,9 @@ async fn main() -> Result<()> {
     });
 
     info!(endpoint = %endpoint.display(), "corex-daemon 启动");
+
+    // 记录要在开始服务**之前**写下：连接方读到它才有端点可连。
+    let _record = PublishedRecord::publish(&data, &endpoint, auth.file);
 
     let state_serve = Arc::clone(&state);
     let result = serve_ipc(&endpoint, move |req, outlet| {
@@ -135,6 +147,34 @@ async fn main() -> Result<()> {
     info!("corex-daemon 已退出");
     result.context("IPC 服务异常")?;
     Ok(())
+}
+
+/// 端点记录的守卫：`Drop` 时把它删掉。
+///
+/// 用守卫而不是在末尾补一行 `retract`：服务异常退出、将来有人在中间加个 `?`，都不该
+/// 留下一份指向死端点的记录让下一个连接方白跑一趟。
+struct PublishedRecord {
+    data: PathBuf,
+}
+
+impl PublishedRecord {
+    /// 写下记录。写不进去只警告：发现文件是便利设施，缺了连接方仍能退回平台默认端点，
+    /// 而因为一个杂项文件写不下就拒绝启动，是把便利设施当成了必需品。
+    fn publish(data: &Path, endpoint: &Path, token_file: Option<PathBuf>) -> Self {
+        let record = corex_ipc::endpoint::Record::new(endpoint, token_file);
+        if let Err(e) = corex_ipc::endpoint::publish(data, &record) {
+            warn!(error = %e, "端点记录写不下，连接方得自己解析端点");
+        }
+        Self {
+            data: data.to_path_buf(),
+        }
+    }
+}
+
+impl Drop for PublishedRecord {
+    fn drop(&mut self) {
+        corex_ipc::endpoint::retract(&self.data);
+    }
 }
 
 /// 把流水线进度推给正在等这条请求的连接。
@@ -194,6 +234,17 @@ async fn handle_request(state: &DaemonState, req: Request, outlet: Outlet) -> Re
         return Response::Bye { id };
     }
 
+    // **执行类**请求排这个队；控制类（探活、状态、列目录）不排——它们是宿主判断
+    // “daemon 还活着吗”的手段，被一条几分钟的指令堵住才是最糟的。
+    // 信号量在本进程里从不关闭（`Arc` 与 daemon 同寿），所以错误分支只是形式上的。
+    let _permit = match req {
+        Request::RunDirective { .. } | Request::Invoke { .. } => match state.jobs.acquire().await {
+            Ok(permit) => Some(permit),
+            Err(_) => return Response::error(id, RpcError::internal("执行队列已关闭")),
+        },
+        _ => None,
+    };
+
     // 只有显式置了 `stream` 的请求才建上报口：其余请求连一次额外写入也不会有。
     let observer = req
         .wants_stream()
@@ -206,17 +257,11 @@ async fn handle_request(state: &DaemonState, req: Request, outlet: Outlet) -> Re
             Response::Bye { id }
         }
         Request::ListActions { id, .. } => {
-            let actions: Vec<Value> = state
-                .registry
-                .actions()
+            // 整个目录而不是一串 id：宿主与 agent 需要知道「怎么调」——参数类型、
+            // 默认值与要声明的权限都在里面。元素形状与 `corex actions --json` 一致。
+            let actions: Vec<Value> = corex_registry::catalog::actions(&state.registry, None)
                 .into_iter()
-                .map(|m| {
-                    let mut map = BTreeMap::new();
-                    map.insert("id".into(), Value::Str(m.id));
-                    map.insert("name".into(), Value::Str(m.name));
-                    map.insert("description".into(), Value::Str(m.description));
-                    Value::Map(map)
-                })
+                .map(Value::from_json)
                 .collect();
             Response::ok(id, Value::Array(actions))
         }
@@ -454,18 +499,37 @@ fn resolve_lock_path(daemon: &DaemonConfig, data: &Path) -> PathBuf {
     }
 }
 
-fn resolve_auth_token(data: &Path, daemon: &DaemonConfig) -> Result<String> {
+/// 本次运行实际使用的 token，连同它的出处。
+struct Auth {
+    token: String,
+    /// token 来自哪个文件。只有这种情况才值得写给连接方看；`COREX_TOKEN` 与配置里的值
+    /// 属于调用方，不该被复制进一个默认权限的文件。
+    file: Option<PathBuf>,
+}
+
+fn resolve_auth_token(data: &Path, daemon: &DaemonConfig) -> Result<Auth> {
     if let Ok(t) = std::env::var("COREX_TOKEN")
         && !t.is_empty()
     {
-        return Ok(t);
+        return Ok(Auth {
+            token: t,
+            file: None,
+        });
     }
     if let Some(t) = &daemon.token
         && !t.is_empty()
     {
-        return Ok(t.clone());
+        return Ok(Auth {
+            token: t.clone(),
+            file: None,
+        });
     }
-    read_or_create_token_file(&data.join("token"))
+    let path = data.join("token");
+    let token = read_or_create_token_file(&path)?;
+    Ok(Auth {
+        token,
+        file: Some(path),
+    })
 }
 
 fn read_or_create_token_file(path: &Path) -> Result<String> {

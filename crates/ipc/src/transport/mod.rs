@@ -90,8 +90,16 @@ fn try_exe_dir() -> Option<PathBuf> {
 
 /// 指令 / token / 历史 / 配置的数据根目录。
 ///
-/// 顺序：可写的 exe 目录 → 操作系统的项目数据目录 → `.corex`。
+/// 顺序：**`COREX_DATA_DIR`** → 可写的 exe 目录 → 操作系统的项目数据目录 → `.corex`。
+///
+/// 第一个来源是给宿主与测试用的：随应用分发 corex 时，“数据到底落在哪”不该由 exe 在不在
+/// 可写目录这类事实决定；测试也需要一个钉得住的目录，否则用例会写到构建产物旁边去。
 pub fn data_dir() -> std::io::Result<PathBuf> {
+    if let Some(dir) = std::env::var_os("COREX_DATA_DIR").filter(|v| !v.is_empty()) {
+        let dir = PathBuf::from(dir);
+        std::fs::create_dir_all(&dir)?;
+        return Ok(dir);
+    }
     if let Some(dir) = try_exe_dir() {
         return Ok(dir);
     }
@@ -150,6 +158,10 @@ pub fn resolve_data_relative(data: &Path, path: &Path) -> PathBuf {
 
 /// 从配置解析出实际使用的 IPC 端点；`configured` 为空时就是平台默认端点。
 ///
+/// 这是**监听方**的判定：只认配置与平台默认。它刻意不读 `endpoint.json`——崩溃残留的
+/// 记录会把新起的 daemon 带到上一个进程的端点上，而 daemon 该在哪监听只由它自己的
+/// 配置决定。连接方要找的是另一个问题，见 [`find_endpoint`]。
+///
 /// Windows 上端点**只能是命名管道**。配置里写成 Unix 风格的 `corex.sock` 时，
 /// 底层的 `CreateNamedPipe` 会报「文件名、目录名或卷标语法不正确」（os error 123）——
 /// 那句话完全指不出真正的原因，所以在这里先拦下。这类配置在 Unix 上完全正确，
@@ -172,6 +184,23 @@ pub fn resolve_endpoint(data: &Path, configured: Option<&Path>) -> Result<PathBu
     Ok(endpoint)
 }
 
+/// 连接方要找的端点：显式配置 → daemon 写下的记录 → 平台默认。
+///
+/// 与 [`resolve_endpoint`] 的区别只有一个：这里**读** `endpoint.json`。连接方与 daemon
+/// 可能拿着不同的配置（宿主自己带了 `--config`、用户手工 `corex daemon start` 过），
+/// 此时只有 daemon 自己写下的那份记录说的是事实。
+///
+/// 显式配置仍然排在最前面：命令行与配置里写死的东西必须赢过发现，否则“我明明指定了”
+/// 会变成最难查的那类问题。
+pub fn find_endpoint(data: &Path, configured: Option<&Path>) -> Result<PathBuf, TransportError> {
+    if configured.is_none()
+        && let Some(record) = crate::endpoint::discover(data)
+    {
+        return Ok(record.endpoint);
+    }
+    resolve_endpoint(data, configured)
+}
+
 /// Windows 命名管道名字（`\\.\pipe\...` / `//./pipe/...`）。
 #[cfg(windows)]
 fn is_pipe_name(path: &Path) -> bool {
@@ -188,12 +217,43 @@ pub fn ipc_connect(endpoint: impl Into<PathBuf>) -> PlatformTransport {
 ///
 /// `handler` 除请求外还会收到一个 [`Outlet`]：只有当请求置了 `stream` 时 daemon
 /// 才拿它推帧；不推的请求一行多余输出也不会有。
+///
+/// **每条连接跑在自己的任务里**，所以 `handler` 必须可克隆、可跨任务移动
+/// （用 `Arc` 捕获共享状态即可）。串行地一条条服务会把慢请求变成对所有人的阻塞：
+/// 一条几分钟的指令期间，另一个客户端连 `ping` 都发不出去——而探活正是宿主判断
+/// “它还活着吗”的手段。要不要把**执行**也串起来是上层的事（见 daemon 的 `max_jobs`）。
+///
+/// 收到 `bye` 的那条连接会让整个服务返回（见 [`Connection`]）。
 pub async fn serve_ipc<F, Fut>(endpoint: &Path, handler: F) -> Result<(), TransportError>
 where
-    F: FnMut(Request, Outlet) -> Fut + Send,
-    Fut: std::future::Future<Output = Response> + Send,
+    F: Fn(Request, Outlet) -> Fut + Clone + Send + 'static,
+    Fut: std::future::Future<Output = Response> + Send + 'static,
 {
     PlatformTransport::serve(endpoint, handler).await
+}
+
+/// 一条连接的结局。
+///
+/// 服务方必须把「对端断开」与「收到 `bye`」分开：前者只是这次连接结束，后者意味着整个
+/// 服务该退了（`shutdown` 请求的回答）。分不开的话 `corex daemon stop` 只会让 daemon
+/// 停止干活，进程却一直挂在 `accept` 上——于是它写下的端点记录永远等不到清理。
+pub(crate) enum Connection {
+    /// 对端断开，或输入读完。
+    Closed,
+    /// 收到 `bye`：服务方该返回了。
+    Bye,
+}
+
+/// 「有一条连接收到 `bye`」的信号。
+///
+/// 每连接一个任务之后，accept 循环看不到 [`Connection::Bye`] 的返回值了，所以用一个
+/// 容量 1 的通道把它送回来。容量 1 就够——整个服务只需要被通知一次，
+/// 后来的通知会被 `try_send` 静默丢掉。
+pub(crate) fn stop_channel() -> (
+    tokio::sync::mpsc::Sender<()>,
+    tokio::sync::mpsc::Receiver<()>,
+) {
+    tokio::sync::mpsc::channel(1)
 }
 
 /// 一条连接的读写循环：逐行读请求，允许 handler 推中间帧，最后写回终帧。
@@ -204,15 +264,17 @@ where
 ///
 /// handler 结束时它的局部变量（连同 [`Outlet`]）一起 drop，发送端随即关闭；
 /// 那时把残留的帧排干净再写终帧，顺序就不会错。
+///
+/// `handler` 按值传：调用方（平台传输）把克隆出来的一份移进本连接所在的任务。
 pub(crate) async fn serve_connection<R, W, F, Fut>(
     reader: R,
     mut writer: W,
-    mut handler: F,
-) -> Result<(), TransportError>
+    handler: F,
+) -> Result<Connection, TransportError>
 where
     R: AsyncRead + Unpin,
     W: AsyncWrite + Unpin,
-    F: FnMut(Request, Outlet) -> Fut,
+    F: Fn(Request, Outlet) -> Fut,
     Fut: std::future::Future<Output = Response>,
 {
     let mut lines = BufReader::new(reader).lines();
@@ -253,10 +315,10 @@ where
         write_response(&mut writer, &response).await?;
 
         if matches!(response, Response::Bye { .. }) {
-            return Ok(());
+            return Ok(Connection::Bye);
         }
     }
-    Ok(())
+    Ok(Connection::Closed)
 }
 
 /// 写一条 NDJSON 帧。
@@ -361,6 +423,74 @@ mod tests {
         assert_eq!(
             resolve_endpoint(Path::new("base"), Some(absolute)).expect("绝对路径"),
             absolute
+        );
+    }
+
+    /// 一个与平台默认**明确不同**的合法端点，用来区分「读到了记录」与「退回默认」。
+    fn other_endpoint(data: &Path) -> PathBuf {
+        #[cfg(windows)]
+        {
+            let _ = data;
+            PathBuf::from(r"\\.\pipe\corex-test-other")
+        }
+        #[cfg(unix)]
+        {
+            data.join("other.sock")
+        }
+    }
+
+    #[test]
+    fn a_published_record_beats_the_platform_default() {
+        let dir = tempfile::tempdir().expect("临时目录");
+        let published = other_endpoint(dir.path());
+        crate::endpoint::publish(
+            dir.path(),
+            &crate::endpoint::Record::new(published.clone(), None),
+        )
+        .expect("写入记录");
+
+        assert_eq!(find_endpoint(dir.path(), None).expect("读记录"), published);
+    }
+
+    #[test]
+    fn without_a_record_it_falls_back_to_the_platform_default() {
+        let dir = tempfile::tempdir().expect("临时目录");
+        assert_eq!(
+            find_endpoint(dir.path(), None).expect("平台默认"),
+            ipc_endpoint(dir.path())
+        );
+    }
+
+    /// 显式配置必须赢过发现：命令行与配置里写死的东西被一份记录盖掉，是最难查的那类问题。
+    #[test]
+    fn an_explicit_endpoint_beats_the_record() {
+        let dir = tempfile::tempdir().expect("临时目录");
+        crate::endpoint::publish(
+            dir.path(),
+            &crate::endpoint::Record::new(other_endpoint(dir.path()), None),
+        )
+        .expect("写入记录");
+
+        let wanted = ipc_endpoint(dir.path());
+        assert_eq!(
+            find_endpoint(dir.path(), Some(&wanted)).expect("显式端点"),
+            wanted
+        );
+    }
+
+    /// 监听方**不读**记录：崩溃残留会让新 daemon 去监听上一个进程的端点。
+    #[test]
+    fn the_listener_ignores_the_record() {
+        let dir = tempfile::tempdir().expect("临时目录");
+        crate::endpoint::publish(
+            dir.path(),
+            &crate::endpoint::Record::new(other_endpoint(dir.path()), None),
+        )
+        .expect("写入记录");
+
+        assert_eq!(
+            resolve_endpoint(dir.path(), None).expect("平台默认"),
+            ipc_endpoint(dir.path())
         );
     }
 }

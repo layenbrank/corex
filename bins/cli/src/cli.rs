@@ -73,6 +73,9 @@ pub(crate) enum Commands {
         /// 只看某个 bucket：system / network / data / ui / logic / plugin
         #[arg(long)]
         bucket: Option<String>,
+        /// 输出机器可读的目录 JSON（参数表、权限与 inputSchema）
+        #[arg(long)]
+        json: bool,
     },
     /// 生成新的指令骨架（交互向导，或 -t 选模板）
     Create {
