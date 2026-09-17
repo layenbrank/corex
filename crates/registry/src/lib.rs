@@ -1,6 +1,8 @@
 //! 动作注册表与内置动作。
 
 pub mod builtin;
+/// 动作目录：注册表的机器可读形态，CLI / daemon / MCP 共用。
+pub mod catalog;
 
 #[cfg(feature = "act-ui")]
 pub mod ui_probe;
