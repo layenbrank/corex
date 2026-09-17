@@ -57,7 +57,7 @@ _No conventional commits in this range._
     {{ commit.message | split(pat="\n") | first | trim }}\
     {% for footer in commit.footers -%}
       {%- if footer.breaking -%}
-        \n    > {{ footer.token }}{{ footer.separator }}{{ footer.value }}
+        {{ "\n    > " }}{{ footer.token }}{{ footer.separator }}{{ footer.value | replace(from="\n", to="\n    > ") }}
       {%- endif -%}
     {% endfor %} \
     · ([`{{ commit.id | truncate(length=7, end="") }}`](https://github.com/{{ remote.github.owner }}/{{ remote.github.repo }}/commit/{{ commit.id }}))\
