@@ -2,7 +2,7 @@
 
 可组合的**指令（Directive）/ Action** 运行时：用 YAML 定义流水线，CLI 与 `corex-daemon` 共用同一引擎。
 
-**当前版本：v8.0.0**（workspace `8.0.0`）
+**当前版本：v9.0.0**（workspace `9.0.0`）
 
 ## 快速开始
 
@@ -28,7 +28,7 @@ corex actions file.copy        # 某个动作的参数表 + 可直接粘的步�
 | `corex history`                         | 最近的执行记录（`-n` 条数、`--failed` 只看失败、可跟指令名）          |
 | `corex schedule`                        | 列出指令                                                              |
 | `corex watch …` / `corex cron …`        | 文件监听 / 定时守护                                                   |
-| `corex actions [id]`                    | 按 bucket 分组列出 Action（`--bucket ui` 过滤）；给 id 则打印参数表、权限与步骤片段 |
+| `corex actions [id]`                    | 按 bucket 分组列出 Action（`--bucket ui` 过滤）；给 id 则打印参数表、权限与步骤片段；`--json` 给机器可读目录 |
 | `corex validate <path>`                 | 校验 YAML；`--watch` 存一次盘重校一次                                 |
 | `corex create [名称]`                   | 指令脚手架（交互向导，或 `-t hello\|http\|file\|shell\|cron\|watch`） |
 | `corex edit <名称>` / `corex repl`      | 用编辑器打开 / 交互式 REPL                                            |
@@ -50,7 +50,7 @@ corex actions file.copy        # 某个动作的参数表 + 可直接粘的步�
 | 接入 | [接入总览](docs/integration/接入总览.md) · [IPC](docs/integration/IPC接入指南.md) · [Tauri](docs/integration/Tauri接入指南.md)                                                           |
 | 示例 | [directives](examples/directives/README.md) · [actions](examples/actions/README.md)                                                                                                      |
 | 运维 | [企业部署](docs/ops/企业部署.md) · [发布与 Changelog](docs/ops/发布与Changelog.md) · [合规](docs/ops/合规说明.md)                                                                        |
-| 变更 | [v8](docs/changelog/破坏性变更-v8.md) · [v7](docs/changelog/破坏性变更-v7.md) · [v6](docs/changelog/破坏性变更-v6.md) · [v5](docs/changelog/破坏性变更-v5.md) · [v4](docs/changelog/破坏性变更-v4.md) · [archive](docs/archive/) |
+| 变更 | [v9](docs/changelog/破坏性变更-v9.md) · [v8](docs/changelog/破坏性变更-v8.md) · [v7](docs/changelog/破坏性变更-v7.md) · [v6](docs/changelog/破坏性变更-v6.md) · [v5](docs/changelog/破坏性变更-v5.md) · [v4](docs/changelog/破坏性变更-v4.md) · [archive](docs/archive/) |
 
 ## Workspace
 

@@ -1,6 +1,6 @@
 # Corex 文档
 
-可组合的**指令（Directive）/ Action** 运行时。当前版本：**v8.0.0**。
+可组合的**指令（Directive）/ Action** 运行时。当前版本：**v9.0.0**。
 
 按用途选文档即可；找不到时先回本页。
 
@@ -22,7 +22,7 @@
 | 企业锁定 / 合规 | [ops/企业部署.md](./ops/企业部署.md) |
 | 发版 / 写 CHANGELOG | [ops/发布与Changelog.md](./ops/发布与Changelog.md) |
 | 体积 / 冷启动基线 | [ops/性能基线.md](./ops/性能基线.md) |
-| 升级迁移 | [changelog/破坏性变更-v8.md](./changelog/破坏性变更-v8.md) |
+| 升级迁移 | [changelog/破坏性变更-v9.md](./changelog/破坏性变更-v9.md) |
 
 ---
 
