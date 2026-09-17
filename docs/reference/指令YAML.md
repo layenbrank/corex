@@ -187,7 +187,7 @@ repeat:
 - id: fanout
   max_concurrency: 2
   parallel:
-    # 分支一：算完摘要才 PATCH，与分支二的上传同时进行
+    # 分支一：算完摘要就 PATCH
     - id: digest_and_bind
       steps:
         - id: digest

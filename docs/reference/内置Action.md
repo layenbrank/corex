@@ -225,6 +225,10 @@ IPC: `{"type":"invoke","action":"cron.schedule","params":{"expr":"0 0 12 * * *",
   最后回退 UTF-8；中文站的 GBK 页面因此不会整页乱码，猜错就用 `encoding: gbk` 显式指定。
 - 缓冲上限 `max_bytes`（默认 256 MiB）：超出即报错，避免把 10 GB 一次读进内存。
   （这是 v8 以来的新上限：以前文本响应不封顶。）
+- **状态码不会让步骤失败**：4xx / 5xx 也照样返回，结论都在 `status`（数字）与 `ok`（布尔）
+  里；只有连不上、超时、超 `max_bytes` 这类才真报错。所以收到响应要判 `{{resp.ok}}`——
+  否则「请求被服务端拒了」会静默地跑到后面某一步才以别的错冒出来
+  （分片上传的 `PATCH /upload/hash` 就是这样：400，流水线却继续到 finalize 才报「未绑定哈希」）。
 
 > **二进制过 IPC 会变形**：`Bytes` 序列化成整数数组后，反序列化只能还原成数组。
 > 两个动作都认这两种形态，所以 `http.send(response: binary)` → `file.write` 跨 daemon

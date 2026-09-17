@@ -10,14 +10,19 @@
 # 职责划分（一件事一个动作，不互相兼职）：
 # - `generate.chunks` 只切块：给每片的 index/offset/length，不读内容也不算摘要。
 # - `generate.hash` 只算摘要：整文件（不给 offset/length）或某一片（给 offset/length）。
-# - 两条线并行：整文件摘要算完立刻 PATCH，与逐片上传同时进行（对应参考实现的
-#   `Promise.all([bindHashTask, chunksTask])`）。这条并行是真收益：大文件的摘要要算
-#   几十秒，让它搭上传的车。
-# - 分片之间并发：`max_concurrency` 与 `repeat` **同级**（省略 / `1` = 串行，元素共享
-#   一份上下文；`> 1` = 并发，每个元素一份上下文副本）。并发度按在途内存算
-#   （≈ 并发度 × chunk）；若元素之间需要互相看到变量，就用串行。
-# - 断点续传：`prepare` 回的已传分片里，index 相同**且 hash 一致**的片直接跳过；
-#   hash 不一致说明服务端那份不对，照传。
+# - 两条线并行：整文件摘要算完**立刻** PATCH（不等分片传完），与逐片上传同时进行
+#   （对应参考实现的 `Promise.all([bindHashTask, chunksTask])`）。大文件的摘要要算几十秒，
+#   让它搭上传的车。
+#   代价：分片那条线在并行时读不到 PATCH 的结果，所以「命中秒传」时仍会把分片白传一遍
+#   （服务端按 hash 复用，不会变成两份文件）；想一片都不白传，只能等 PATCH 完再上传。
+# - 分片之间并发：`max_concurrency` 与 `repeat` 同级（省略 / `1` = 串行，元素共享一份
+#   上下文）；并发度按在途内存算（≈ 并发度 × chunk）。
+# - 断点续传：跳过依据是 prepare 那一刻的已传分片表——index 相同**且 hash 一致**的片
+#   直接跳过；hash 不一致说明服务端那份不对，照传。
+# - PATCH 命中秒传时会把 id 换成已存在的那份 asset，所以 finalize 用它返回的 id
+#   （`target`），而不是 prepare 的会话 id——否则就会得到「分片都传完了却说没绑定哈希」。
+# - 别被 `put` 全绿骗了：`http.send` 不把 4xx / 业务失败当错误（结果都在 `status` / `ok`
+#   里），所以 PATCH 被服务端拒了也会一路跑到 finalize，才由服务端回那句话。
 # - development 下验证码关着，占位填 `captchaKey: dev` / `captchaValue: "0"`。
 #
 # 运行:
@@ -83,7 +88,7 @@ steps:
     params:
       text: "{{steps.signin.body}}"
 
-  # 秒传：prepare 带上整文件 hash，服务端已有同样布局就直接复用，一片都不用传。
+  # 建会话：服务端给这次上传一个 id。
   - id: prepare
     action: http.send
     params:
@@ -101,7 +106,8 @@ steps:
     params:
       text: "{{steps.prepare.body}}"
 
-  # 服务端已传的分片 `[{index, hash}, …]`。
+  # 服务端在 prepare 那一刻已传的分片 `[{index, hash}, …]`。
+  # 分片那条线与 PATCH 并行，读不到 PATCH 里的最新一份，所以跳过依据只有这个快照。
   # 字段缺席时 `codec.json.pick` 给的是 Null，`contains` 自然判为「没有」——
   # 不需要「取不到就给空表」那种兜底。
   - id: uploaded
@@ -110,18 +116,19 @@ steps:
       value: "{{steps.session.data}}"
       pointer: /uploaded
 
-  # 两条线并行：上＝流式算整文件摘要，算完立刻 PATCH（不等分片传完）；
-  # 下＝逐片算这一片的摘要并上传。这里的 `max_concurrency` 只管这两条线，
-  # 分片之间自己还有一层并发（见下面 parts）。
+  # 两条线并行：上＝算整文件摘要，算完立刻 PATCH（不等分片传完）；
+  # 下＝逐片算这一片的摘要并上传。这里的 `max_concurrency` 只管这两条线。
   - id: fanout
     max_concurrency: 2
     parallel:
       - id: bind_hash
         steps:
+          # 整文件 sha256：绑定哈希要用它；不给 offset/length 就是整个文件。
           - id: digest
             action: generate.hash
             params:
               path: "{{input.file}}"
+          # 算完即绑：不等分片传完。命中秒传时服务端会把会话换成已存在的那份 asset。
           - id: patch
             action: http.send
             params:
@@ -150,19 +157,15 @@ steps:
 
           - id: put
             action: http.send
-            # 两个跳过条件都挂在步骤上（`repeat` 上没有 `when`）：
-            #   整文件已秒传 → 一片也不用传；
-            #   这一片服务端已有且 hash 一致 → 只跳过这一片。
+            # 服务端已有且 hash 一致的片跳过。
             # `contains` 对对象数组是子集匹配，所以只写我们关心的两个字段，
             # 服务端多带 `size` / `updatedAt` 之类不影响。
             when:
-              and:
-                - ne: ["{{steps.session.data.exists}}", true]
-                - not:
-                    contains:
-                      - "{{steps.uploaded}}"
-                      - index: "{{part.index}}"
-                        hash: "{{steps.piece.hex}}"
+              not:
+                contains:
+                  - "{{steps.uploaded}}"
+                  - index: "{{part.index}}"
+                    hash: "{{steps.piece.hex}}"
             params:
               url: "{{input.base}}/api/v1/upload/chunk"
               method: POST
@@ -179,6 +182,20 @@ steps:
                   content_type: application/octet-stream
             retry: 2
 
+  # PATCH 的响应到两条线汇合后才解析：命中秒传时它把 id 换成了已存在的那份 asset，
+  # 分片那条线在并行时看不到，所以 finalize 必须用这里回的 id。
+  - id: bound
+    action: codec.json.parse
+    params:
+      text: "{{steps.patch.body}}"
+
+  - id: target
+    action: codec.json.pick
+    params:
+      value: "{{steps.bound.data}}"
+      pointer: /id
+
+  # 秒传命中时服务端已经是完整的，再 finalize 也安全（服务端幂等），所以不加 `when`。
   - id: finalize
     action: http.send
     params:
@@ -186,7 +203,7 @@ steps:
       method: POST
       token: "{{steps.auth.data.token}}"
       json:
-        id: "{{steps.session.data.id}}"
+        id: "{{steps.target}}"
 
   - id: done
     action: codec.json.parse
