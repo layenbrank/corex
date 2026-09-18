@@ -34,10 +34,15 @@ repos:
         types: [rust]
         pass_filenames: false
 
+      # `--offline`（**全局**开关，必须写在子命令前）别去掉：cargo-deny 每次都会先去
+      # github.com 拉一次 RustSec 公告库，拉失败就直接退出、不回退到缓存；而这条链路在
+      # 本机既慢（20 s+）又不稳（连接被重置，或没有低速率超时挂上几分钟）。
+      # 缓存库（`~/.cargo/advisory-dbs/`）已经够用，公告库的新鲜度交给 CI 的联网检查；
+      # 想手动刷新，联网时跑一次 `cargo deny check`。
       - id: cargo-deny
         name: cargo deny check
-        description: 检查依赖的许可证、安全公告、禁用项与来源。
-        entry: cargo deny check
+        description: 检查依赖的许可证、安全公告、禁用项与来源（离线，用本地缓存库）。
+        entry: cargo deny --offline check
         language: system
         files: ^(Cargo\.(toml|lock)|deny\.toml|crates/|bins/|pdfium/)
         pass_filenames: false
