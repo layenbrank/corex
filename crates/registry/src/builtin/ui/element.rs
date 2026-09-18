@@ -14,7 +14,7 @@ pub struct UiElementClick;
 pub struct UiElementWait;
 pub struct UiElementExists;
 pub struct UiElementPoint;
-pub struct UiElementPick;
+pub struct UiElementInspect;
 pub struct UiElementGet;
 pub struct UiElementSet;
 
@@ -167,16 +167,16 @@ impl Action for UiElementPoint {
 }
 
 #[async_trait]
-impl Action for UiElementPick {
+impl Action for UiElementInspect {
     fn permissions(&self) -> PermissionSet {
         PermissionSet::UI
     }
 
     fn meta(&self) -> ActionMeta {
         ActionMeta::new(
-            "ui.element.pick",
+            "ui.element.inspect",
             "选择元素",
-            "交互式点选 UI 元素（需桌面会话）",
+            "交互式 Inspect：点选 UI 元素并给出 selector（需桌面会话）",
             Bucket::Ui,
         )
         .with_params(vec![ParamSchema::new("scope_hwnd", SchemaType::Int, false)])
@@ -186,7 +186,7 @@ impl Action for UiElementPick {
         params: Value,
         _ctx: &mut ExecutionContext,
     ) -> Result<Value, ActionError> {
-        ui_element_pick_impl(params).await
+        ui_element_inspect_impl(params).await
     }
 }
 
@@ -199,7 +199,7 @@ pub fn register(registry: &mut ActionRegistry) {
     registry.register(Arc::new(UiElementGet));
     registry.register(Arc::new(UiElementSet));
     registry.register(Arc::new(UiElementPoint));
-    registry.register(Arc::new(UiElementPick));
+    registry.register(Arc::new(UiElementInspect));
 }
 
 #[cfg(windows)]
@@ -229,11 +229,11 @@ async fn ui_element_point_impl(params: Value) -> Result<Value, ActionError> {
 }
 
 #[cfg(windows)]
-async fn ui_element_pick_impl(params: Value) -> Result<Value, ActionError> {
+async fn ui_element_inspect_impl(params: Value) -> Result<Value, ActionError> {
     use crate::builtin::util::require_map;
     let map = require_map(&params)?;
     let scope = map.get("scope_hwnd").and_then(|v| v.as_i64());
-    crate::ui_pick::probe_pick(scope).await
+    crate::ui_inspect::probe_inspect(scope).await
 }
 
 #[cfg(not(windows))]

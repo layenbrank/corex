@@ -55,7 +55,7 @@
     <header>
       <strong>Corex UI Inspector</strong>
       <button id="btn-refresh">刷新窗口</button>
-      <button id="btn-pick">Pick 模式</button>
+      <button id="btn-inspect">Inspect 模式</button>
       <span id="status"></span>
     </header>
     <panel id="windows"
@@ -117,8 +117,8 @@
         status.textContent = ''
       }
 
-      document.getElementById('btn-pick').onclick = () => {
-        status.textContent = 'Pick：请使用 corex ui element pick 或后续 IPC 集成'
+      document.getElementById('btn-inspect').onclick = () => {
+        status.textContent = 'Inspect：请使用 corex ui element inspect 或后续 IPC 集成'
       }
     </script>
   </body>

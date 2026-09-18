@@ -175,7 +175,7 @@ mod tests {
             ..Default::default()
         };
         assert!(check_probe_allowed(&cfg, &store(), "ui.window.desktop").is_err());
-        assert!(check_probe_allowed(&cfg, &store(), "ui.element.pick").is_err());
+        assert!(check_probe_allowed(&cfg, &store(), "ui.element.inspect").is_err());
     }
 
     #[test]

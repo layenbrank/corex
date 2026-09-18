@@ -1,4 +1,4 @@
-//! 浏览器风格的元素拾取器：悬停高亮 + 点击采集 selector YAML。
+//! 浏览器风格的 Inspect：悬停高亮 + 点击采集 selector YAML。
 
 use corex_core::{ActionError, Value};
 use std::collections::BTreeMap;
@@ -20,27 +20,27 @@ use windows::Win32::UI::WindowsAndMessaging::{
     WS_POPUP,
 };
 
-const BORDER_CLASS: &str = "CorexUiPickBorder";
-const MSG_CLASS: &str = "CorexUiPickMsg";
-const TOOLTIP_CLASS: &str = "CorexUiPickTooltip";
+const BORDER_CLASS: &str = "CorexUiInspectBorder";
+const MSG_CLASS: &str = "CorexUiInspectMsg";
+const TOOLTIP_CLASS: &str = "CorexUiInspectTooltip";
 const BORDER_SIZE: i32 = 3;
-const PICK_TIMER_ID: usize = 1;
+const INSPECT_TIMER_ID: usize = 1;
 const POLL_MS: u32 = 16;
 
-struct PickClasses {
+struct InspectClasses {
     border: Vec<u16>,
     msg: Vec<u16>,
     tooltip: Vec<u16>,
 }
 
-static PICK_CLASSES: OnceLock<PickClasses> = OnceLock::new();
+static INSPECT_CLASSES: OnceLock<InspectClasses> = OnceLock::new();
 
 fn wide(s: &str) -> Vec<u16> {
     OsStr::new(s).encode_wide().chain(Some(0)).collect()
 }
 
-fn init_pick_classes(instance: HINSTANCE) -> Result<(), ActionError> {
-    PICK_CLASSES.get_or_init(|| PickClasses {
+fn init_inspect_classes(instance: HINSTANCE) -> Result<(), ActionError> {
+    INSPECT_CLASSES.get_or_init(|| InspectClasses {
         border: wide(BORDER_CLASS),
         msg: wide(MSG_CLASS),
         tooltip: wide(TOOLTIP_CLASS),
@@ -50,7 +50,7 @@ fn init_pick_classes(instance: HINSTANCE) -> Result<(), ActionError> {
         let cursor = LoadCursorW(None, windows::Win32::UI::WindowsAndMessaging::IDC_ARROW)
             .map_err(|e| ActionError::execution(format!("LoadCursorW: {e}")))?;
         let brush = CreateSolidBrush(COLORREF(0x0000_00FF));
-        let classes = PICK_CLASSES.get().expect("PICK_CLASSES");
+        let classes = INSPECT_CLASSES.get().expect("INSPECT_CLASSES");
 
         let register = |name: &[u16], proc: WNDPROC| {
             let wc = WNDCLASSW {
@@ -80,13 +80,13 @@ unsafe extern "system" fn static_wnd_proc(
     unsafe { DefWindowProcW(hwnd, msg, wparam, lparam) }
 }
 
-struct PickUi {
+struct InspectUi {
     borders: [HWND; 4],
     tooltip: HWND,
     msg_hwnd: HWND,
 }
 
-impl PickUi {
+impl InspectUi {
     fn new() -> Self {
         Self {
             borders: [HWND::default(); 4],
@@ -99,9 +99,9 @@ impl PickUi {
         unsafe {
             let instance = GetModuleHandleW(None)
                 .map_err(|e| ActionError::execution(format!("GetModuleHandleW: {e}")))?;
-            init_pick_classes(HINSTANCE(instance.0))?;
+            init_inspect_classes(HINSTANCE(instance.0))?;
 
-            let classes = PICK_CLASSES.get().expect("PICK_CLASSES");
+            let classes = INSPECT_CLASSES.get().expect("INSPECT_CLASSES");
             let ex = WS_EX_TOPMOST | WS_EX_NOACTIVATE | WS_EX_TOOLWINDOW;
             let style = WS_POPUP;
 
@@ -247,8 +247,8 @@ impl PickUi {
     }
 }
 
-struct PickSession {
-    ui: PickUi,
+struct InspectSession {
+    ui: InspectUi,
     scope_hwnd: Option<i64>,
     done: bool,
     cancelled: bool,
@@ -256,7 +256,7 @@ struct PickSession {
     result: Option<BTreeMap<String, Value>>,
 }
 
-impl PickSession {
+impl InspectSession {
     fn label_for_map(m: &BTreeMap<String, Value>) -> String {
         let name = m.get("name").and_then(|v| v.as_str()).unwrap_or("");
         let aid = m
@@ -306,7 +306,7 @@ impl PickSession {
                 },
                 Err(e) => {
                     eprintln!(
-                        "corex ui element pick: 未选中（{e}）— 请在目标窗口内点击，或按 Esc 取消"
+                        "corex ui element inspect: 未选中（{e}）— 请在目标窗口内点击，或按 Esc 取消"
                     );
                 }
             }
@@ -353,8 +353,8 @@ unsafe extern "system" fn msg_wnd_proc(
 ) -> LRESULT {
     use windows::Win32::UI::WindowsAndMessaging::GetWindowLongPtrW;
 
-    let session_ptr = unsafe { GetWindowLongPtrW(hwnd, GWLP_USERDATA) as *mut PickSession };
-    if msg == WM_TIMER && wparam.0 == PICK_TIMER_ID && !session_ptr.is_null() {
+    let session_ptr = unsafe { GetWindowLongPtrW(hwnd, GWLP_USERDATA) as *mut InspectSession };
+    if msg == WM_TIMER && wparam.0 == INSPECT_TIMER_ID && !session_ptr.is_null() {
         let _ = unsafe { (*session_ptr).on_tick() };
     }
     if msg == WM_DESTROY {
@@ -380,11 +380,11 @@ fn push_console_to_back() {
     }
 }
 
-fn run_pick_blocking(scope_hwnd: Option<i64>) -> Result<BTreeMap<String, Value>, ActionError> {
+fn run_inspect_blocking(scope_hwnd: Option<i64>) -> Result<BTreeMap<String, Value>, ActionError> {
     push_console_to_back();
-    let mut ui = PickUi::new();
+    let mut ui = InspectUi::new();
     ui.create()?;
-    let mut session = PickSession {
+    let mut session = InspectSession {
         ui,
         scope_hwnd,
         done: false,
@@ -393,7 +393,7 @@ fn run_pick_blocking(scope_hwnd: Option<i64>) -> Result<BTreeMap<String, Value>,
         result: None,
     };
 
-    // USERDATA 只在定时器生命周期内持有 PickSession；销毁前会清空。
+    // USERDATA 只在定时器生命周期内持有 InspectSession；销毁前会清空。
     unsafe {
         SetWindowLongPtrW(
             session.ui.msg_hwnd,
@@ -402,14 +402,14 @@ fn run_pick_blocking(scope_hwnd: Option<i64>) -> Result<BTreeMap<String, Value>,
         );
         let _ = windows::Win32::UI::WindowsAndMessaging::SetTimer(
             Some(session.ui.msg_hwnd),
-            PICK_TIMER_ID,
+            INSPECT_TIMER_ID,
             POLL_MS,
             None,
         );
     }
     session.on_tick()?;
 
-    eprintln!("corex ui element pick: 移动鼠标高亮元素，左键选中，Esc 取消");
+    eprintln!("corex ui element inspect: 移动鼠标高亮元素，左键选中，Esc 取消");
 
     let mut msg = MSG::default();
     loop {
@@ -424,7 +424,7 @@ fn run_pick_blocking(scope_hwnd: Option<i64>) -> Result<BTreeMap<String, Value>,
     }
 
     unsafe {
-        let _ = KillTimer(Some(session.ui.msg_hwnd), PICK_TIMER_ID);
+        let _ = KillTimer(Some(session.ui.msg_hwnd), INSPECT_TIMER_ID);
         SetWindowLongPtrW(session.ui.msg_hwnd, GWLP_USERDATA, 0);
     }
     session.ui.hide_highlight();
@@ -439,12 +439,12 @@ fn run_pick_blocking(scope_hwnd: Option<i64>) -> Result<BTreeMap<String, Value>,
         .ok_or_else(|| ActionError::execution("未选中元素"))
 }
 
-/// 交互式拾取：悬停高亮，点击采集 selector YAML。
-pub async fn probe_pick(scope_hwnd: Option<i64>) -> Result<Value, ActionError> {
+/// 交互式 Inspect：悬停高亮，点击采集 selector YAML。
+pub async fn probe_inspect(scope_hwnd: Option<i64>) -> Result<Value, ActionError> {
     tokio::task::spawn_blocking(move || {
-        let map = run_pick_blocking(scope_hwnd)?;
+        let map = run_inspect_blocking(scope_hwnd)?;
         Ok(Value::Map(map))
     })
     .await
-    .map_err(|e| ActionError::execution(format!("ui pick 失败: {e}")))?
+    .map_err(|e| ActionError::execution(format!("ui inspect 失败: {e}")))?
 }

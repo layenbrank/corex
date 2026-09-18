@@ -85,8 +85,8 @@ pub enum ElementCmd {
         #[arg(long)]
         redact: bool,
     },
-    /// 交互式拾取：悬停高亮 + 点击采集 selector
-    Pick {
+    /// 交互式 Inspect：悬停高亮 + 点击采集 selector
+    Inspect {
         #[arg(long, help = "把拾取范围限制在该顶层 HWND")]
         scope_hwnd: Option<i64>,
         #[arg(long, help = "把 selectors_yaml 复制到剪贴板（Windows clip.exe）")]
@@ -289,15 +289,15 @@ pub async fn run(command: UiCommands, data_dir: &Path) -> Result<()> {
                 .await?;
                 print_value(&v, redact)?;
             }
-            ElementCmd::Pick {
+            ElementCmd::Inspect {
                 scope_hwnd,
                 copy_yaml,
                 redact,
             } => {
                 #[cfg(windows)]
                 {
-                    let v = run_probe(data_dir, &config, "ui.element.pick", async {
-                        corex_registry::ui_pick::probe_pick(scope_hwnd).await
+                    let v = run_probe(data_dir, &config, "ui.element.inspect", async {
+                        corex_registry::ui_inspect::probe_inspect(scope_hwnd).await
                     })
                     .await?;
                     if copy_yaml
@@ -311,7 +311,7 @@ pub async fn run(command: UiCommands, data_dir: &Path) -> Result<()> {
                 #[cfg(not(windows))]
                 {
                     let _ = (scope_hwnd, copy_yaml, redact);
-                    bail!("ui element pick 需要 Windows");
+                    bail!("ui element inspect 需要 Windows");
                 }
             }
         },

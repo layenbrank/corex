@@ -35,7 +35,7 @@ mod element;
 mod input;
 mod window;
 
-// 各个门面（`ui::window` / `ui::element` / `ui::input`）、`ui_probe` 与 `ui_pick` 都以
+// 各个门面（`ui::window` / `ui::element` / `ui::input`）、`ui_probe` 与 `ui_inspect` 都以
 // `ui::win::<name>` 的形式访问这些；拆文件时不能把它们的路径改掉。
 pub(crate) use desktop::ui_desktop_icons_impl;
 pub(crate) use element::{

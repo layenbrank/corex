@@ -11,18 +11,18 @@
 
 ## Auto.js / AutoX 对照
 
-| Auto.js | corex 指令 | `corex ui` CLI |
-|---------|------------|----------------|
-| `selector().findOne(timeout)` | `ui.element.find` | `corex ui element get --name "…"` |
-| `exists()` | `ui.element.exists` | （`element get` + 查 JSON） |
-| `waitFor()` | `ui.element.wait` `state: present` | — |
-| `clickable()` + click | `ui.element.click` `safe: true` | JSON 字段 `clickable` |
-| `bounds()` | — | JSON 字段 `bounds: {x,y,width,height}` |
-| `id()` / `className()` | `automation_id` / `class` | `element get` / `element pick` 输出 |
-| 布局分析 / 控件树 | `ui.element.list` | `corex ui element tree` |
-| 桌面图标 | — | `corex ui window desktop` |
-| 点击选控件（Inspect） | — | `corex ui element pick`（CLI 应急）；Tauri Inspector 为主 UX |
-| `sleep()` | **避免** — 用 `ui.element.wait`；兜底 `ui.wait` | — |
+| Auto.js                       | corex 指令                                      | `corex ui` CLI                                                  |
+| ----------------------------- | ----------------------------------------------- | --------------------------------------------------------------- |
+| `selector().findOne(timeout)` | `ui.element.find`                               | `corex ui element get --name "…"`                               |
+| `exists()`                    | `ui.element.exists`                             | （`element get` + 查 JSON）                                     |
+| `waitFor()`                   | `ui.element.wait` `state: present`              | —                                                               |
+| `clickable()` + click         | `ui.element.click` `safe: true`                 | JSON 字段 `clickable`                                           |
+| `bounds()`                    | —                                               | JSON 字段 `bounds: {x,y,width,height}`                          |
+| `id()` / `className()`        | `automation_id` / `class`                       | `element get` / `element inspect` 输出                          |
+| 布局分析 / 控件树             | `ui.element.list`                               | `corex ui element tree`                                         |
+| 桌面图标                      | —                                               | `corex ui window desktop`                                       |
+| 点击选控件（Inspect）         | —                                               | `corex ui element inspect`（CLI 应急）；Tauri Inspector 为主 UX |
+| `sleep()`                     | **避免** — 用 `ui.element.wait`；兜底 `ui.wait` | —                                                               |
 
 ## 交互探测（`corex ui`）
 
@@ -36,28 +36,28 @@ corex ui element tree --title "无标题 - Notepad" --format tree
 corex ui element get --title "无标题 - Notepad" --control-type document
 corex ui element get --title "记事本" --class Edit
 corex ui element point --x 640 --y 480
-corex ui element pick --copy-yaml
+corex ui element inspect --copy-yaml
 ```
 
 - `element tree` / `element get` **必须** `--hwnd` 或 `--title`（否则 `ui_scope_required`）
-- `element pick` 用全局左键确认（FlaUI 四边框高亮 + `GetAsyncKeyState`），不依赖 overlay 焦点；scope 外点击会 stderr 提示
+- `element inspect` 用全局左键确认（FlaUI 四边框高亮 + `GetAsyncKeyState`），不依赖 overlay 焦点；scope 外点击会 stderr 提示
 - 输出含 `ancestors[]`、`selectors_yaml`；可选 `--redact` 打码 `name` / `automation_id`（含 ancestors）
 - 企业门禁与 daemon 对齐：`plugins.disabled`、`disabled_actions`、`[runtime].strict_permissions`；probe 写入 `audit.jsonl`（`ui.probe`）
-- 审计 / 门禁 action id：`ui.window.list` / `ui.window.desktop` / `ui.element.list` / `ui.element.find` / `ui.element.point` / `ui.element.pick`
+- 审计 / 门禁 action id：`ui.window.list` / `ui.window.desktop` / `ui.element.list` / `ui.element.find` / `ui.element.point` / `ui.element.inspect`
 
 推荐流程：window list → element tree/get → 粘贴 YAML → `corex run ui-smoke-notepad` 验证。
 
 ## 结构化错误
 
-| Code | 含义 |
-|------|------|
-| `ui_selector_not_found` | 选择器链未匹配到元素 |
-| `ui_not_clickable` | 找到元素但禁用/不可见 |
-| `ui_wrong_window` | 作用域窗口缺失 |
-| `ui_login_pending` | 登录 UI 仍在（手机未确认） |
-| `ui_sync_timeout` | 元素/窗口等待超时 |
-| `ui_scope_required` | Probe 缺少 `--hwnd` / `--title` |
-| `ui_desktop_not_found` | 桌面 Shell 窗口未找到 |
+| Code                    | 含义                            |
+| ----------------------- | ------------------------------- |
+| `ui_selector_not_found` | 选择器链未匹配到元素            |
+| `ui_not_clickable`      | 找到元素但禁用/不可见           |
+| `ui_wrong_window`       | 作用域窗口缺失                  |
+| `ui_login_pending`      | 登录 UI 仍在（手机未确认）      |
+| `ui_sync_timeout`       | 元素/窗口等待超时               |
+| `ui_scope_required`     | Probe 缺少 `--hwnd` / `--title` |
+| `ui_desktop_not_found`  | 桌面 Shell 窗口未找到           |
 
 适用时，`audit.jsonl` 会包含 `ui_phase`、`error_code`，以及脱敏后的 `selector_hint`；权限拒绝步骤另有 `denied: true` 与 `error_kind`。
 
@@ -71,7 +71,7 @@ params:
   wait: detach
   if_running: skip
   if_running_window:
-    title_contains: "MyApp"
+    title_contains: 'MyApp'
     prefer_largest: true
 ```
 
@@ -110,11 +110,11 @@ ui_profile = "patient"          # baseline | fast | patient
 # ui_settle_limit = 0          # 限制累计 ui.wait ms（fast 预设 = 2000）
 ```
 
-| Profile | `ui_selector_depth` | `ui_settle_limit` |
-|---------|---------------------|-------------------|
-| `baseline` | 8 | 0（不限制） |
-| `fast` | 5 | 2000 |
-| `patient` | 12 | 0 |
+| Profile    | `ui_selector_depth` | `ui_settle_limit` |
+| ---------- | ------------------- | ----------------- |
+| `baseline` | 8                   | 0（不限制）       |
+| `fast`     | 5                   | 2000              |
+| `patient`  | 12                  | 0                 |
 
 旧值 `ui_profile = "default"` 视为 `baseline` 别名。
 

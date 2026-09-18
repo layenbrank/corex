@@ -6,7 +6,7 @@
 strict_permissions = true
 # 把 file/copy/codec/exec 脚本/cwd 等路径 I/O 限制在这些根目录下（部署时用绝对路径）
 filesystem_roots = ["C:/ProgramData/corex/data"]
-ui_settle_limit = 500
+ui_settle_limit  = 500
 
 [plugins]
 # 也可以直接禁用整个 UI 插件：disabled = ["ui"]
@@ -21,7 +21,7 @@ disabled_actions = [
   "ui.element.list",
   "ui.element.find",
   "ui.element.point",
-  "ui.element.pick",
+  "ui.element.inspect",
   "ui.element.click",
   "ui.element.wait",
   "ui.element.exists",

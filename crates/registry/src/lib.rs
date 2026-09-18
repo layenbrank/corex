@@ -8,7 +8,7 @@ pub mod catalog;
 pub mod ui_probe;
 
 #[cfg(all(feature = "act-ui", windows))]
-pub mod ui_pick;
+pub mod ui_inspect;
 
 #[cfg(feature = "wasm")]
 pub mod discovery;

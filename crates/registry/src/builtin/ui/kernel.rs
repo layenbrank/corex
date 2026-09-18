@@ -510,10 +510,10 @@ mod tests {
         assert!(probe_plugin_disabled(&plugins, "ui.element.list"));
         assert!(probe_plugin_disabled(&plugins, "ui.window.desktop"));
         let plugins2 = corex_core::PluginConfig {
-            disabled: vec!["ui.element.pick".into()],
+            disabled: vec!["ui.element.inspect".into()],
             ..Default::default()
         };
-        assert!(probe_plugin_disabled(&plugins2, "ui.element.pick"));
+        assert!(probe_plugin_disabled(&plugins2, "ui.element.inspect"));
         assert!(!probe_plugin_disabled(&plugins2, "ui.element.point"));
     }
 }
