@@ -8,6 +8,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 See also [Conventional Commits](https://www.conventionalcommits.org/).
 
 ---
+## [10.0.0](https://github.com/layenbrank/corex/compare/v9.0.0..v10.0.0) - 2026-09-18
+
+### 💥 Breaking Changes
+
+- **(daemon)** list_actions 回整份动作目录（带版本号）
+> BREAKING CHANGE:`list_actions` 的 `data` 多了一层——`data[].id` 变成 `data.actions[].id`，
+> 并新增 `version` / `count` / `bucket` 三个字段。迁移说明与取舍见 `docs/changelog/破坏性变更-v10.md`。 · ([`511cf2a`](https://github.com/layenbrank/corex/commit/511cf2ad2c5cff025c4cd1603809c8c8aa65fb92)) · lh
+
+
+### 🚀 Features
+- **(client)** 目录文档与 token 规则跟上 daemon · ([`528ae46`](https://github.com/layenbrank/corex/commit/528ae4630f63eb2049b1dbf3373bec69e52351ec)) · lh
+- 💥 **(daemon)** list_actions 回整份动作目录（带版本号） — **breaking** · ([`511cf2a`](https://github.com/layenbrank/corex/commit/511cf2ad2c5cff025c4cd1603809c8c8aa65fb92)) · lh
+- **(ipc)** 连接侧找 token 只有一处规则 · ([`3149d05`](https://github.com/layenbrank/corex/commit/3149d05088912fbc55b16cd78c99244415ff4c25)) · lh
+
+
+### 🐛 Bug Fixes
+- **(client)** 一帧被读块切开时不要损坏多字节字符 · ([`c2a58c8`](https://github.com/layenbrank/corex/commit/c2a58c8bbd28d13f6f87a223c000c21407b0755e)) · lh
+- **(daemon,ipc)** 错误码按错误类型给，端点记录在 bind 之后写 · ([`3e8eaa5`](https://github.com/layenbrank/corex/commit/3e8eaa5e9ac30b7112f830a435efd39973085e0f)) · lh
+- **(ipc)** 同一条连接上多条请求各自推进 · ([`cf0f655`](https://github.com/layenbrank/corex/commit/cf0f655bcf0d46ef8a7b42dba56213ecf98b0306)) · lh
+- **(registry)** 管道回显改成按流增量解码 · ([`538378b`](https://github.com/layenbrank/corex/commit/538378bf94e120e659abcc3851dffc65048c2b77)) · lh
+
+
+### 🎨 Style
+- **(client)** 统一 JS 客户端与测试的代码格式 · ([`0e9bdf5`](https://github.com/layenbrank/corex/commit/0e9bdf5b72652144cbc1bb312136ddfcf4bd2c47)) · lh
+- **(examples)** 统一 Electron 示例的代码格式 · ([`a29f91c`](https://github.com/layenbrank/corex/commit/a29f91cb78de9bf738036cbaf8bbeda92ecbbc5c)) · lh
+
+---
 ## [9.0.0](https://github.com/layenbrank/corex/compare/v8.1.0..v9.0.0) - 2026-09-17
 
 ### 💥 Breaking Changes
@@ -24,6 +51,7 @@ See also [Conventional Commits](https://www.conventionalcommits.org/).
 
 
 ### 🐛 Bug Fixes
+- **(cliff)** 破坏性变更脚注另起一行，不再黏在描述末尾 · ([`7fb3dfd`](https://github.com/layenbrank/corex/commit/7fb3dfda6ad18ba87544d9a63e06b0f53e30e24b)) · layen
 - **(registry)** Windows 管道子进程按 OEM/GBK 解码，修中文乱码 · ([`9bc1cec`](https://github.com/layenbrank/corex/commit/9bc1cec0391249ae70c5121224d798bd1aa57805)) · Cursor Agent
 - **(registry)** 修复 Windows CI——bat 引号与 GBK 在 CP1252 上回退 · ([`da4c7f3`](https://github.com/layenbrank/corex/commit/da4c7f3cb3d10f6ac58bffdbfc12bf6205e59ff9)) · Cursor Agent
 
@@ -35,6 +63,7 @@ See also [Conventional Commits](https://www.conventionalcommits.org/).
 
 ### 📦 Release
 - **(release)** bump version to 9.0.0 · ([`a684b34`](https://github.com/layenbrank/corex/commit/a684b34390cafffd7794826be1377cf7ac897c3a)) · lh
+- **(release)** 生成 9.0.0 的 CHANGELOG · ([`af6789b`](https://github.com/layenbrank/corex/commit/af6789b09bd6cdc24618fe00d5d682b7a0092aaa)) · layen
 
 
 ### 🔧 Miscellaneous
@@ -494,10 +523,6 @@ See also [Conventional Commits](https://www.conventionalcommits.org/).
 - **(corex)** 重构核心库并优化命令行架构 · ([`752380f`](https://github.com/layenbrank/corex/commit/752380f612a72bc6aa6d0448f7d8c8abd5d204c9)) · lh
 - **(schedule)** 重构任务调度器支持流水线及步骤执行 · ([`95171c3`](https://github.com/layenbrank/corex/commit/95171c360f2c86b57f9033d9e37b467eec5a06f6)) · lh
 
-
-### 🔧 Miscellaneous
-- 删除 Visual Studio 相关配置文件和索引，清理项目目录 · ([`874929d`](https://github.com/layenbrank/corex/commit/874929dcd79563d3e8bdc12beded4a5fa80b6227)) · lh
-
 ---
 ## [0.2.9](https://github.com/layenbrank/corex/compare/v0.2.8..v0.2.9) - 2026-05-14
 
@@ -514,6 +539,10 @@ See also [Conventional Commits](https://www.conventionalcommits.org/).
 - 添加支持命令行界面 (CLI) 的压缩模块 · ([`e199374`](https://github.com/layenbrank/corex/commit/e19937442e08aff120fcfa49b0b8aa5f648f9416)) · lh
 - 添加时间戳功能并生成版本文件，更新依赖项 · ([`641c63d`](https://github.com/layenbrank/corex/commit/641c63d782770a6806d77977bdaa08bc0e2529c6)) · lh
 - 更新 README.md，添加压缩打包功能说明及示例 · ([`e0a737a`](https://github.com/layenbrank/corex/commit/e0a737a04b00fc94aba0af6a24017032154bb68f)) · lh
+
+
+### 🔧 Miscellaneous
+- 删除 Visual Studio 相关配置文件和索引，清理项目目录 · ([`874929d`](https://github.com/layenbrank/corex/commit/874929dcd79563d3e8bdc12beded4a5fa80b6227)) · lh
 
 ---
 ## [0.2.7](https://github.com/layenbrank/corex/compare/v0.2.6..v0.2.7) - 2026-01-08
@@ -540,15 +569,10 @@ See also [Conventional Commits](https://www.conventionalcommits.org/).
 - feat：重构项目结构并添加清理功能 · ([`8c8e6da`](https://github.com/layenbrank/corex/commit/8c8e6da5952dc9ef2d87ac0ff9a892a25ffc6cbe)) · lh
 
 ---
-## [0.2.5](https://github.com/layenbrank/corex/compare/v0.2.4..v0.2.5) - 2025-10-19
-
-### 🚀 Features
-- feat：初始化 corex 项目结构和配置 · ([`7aa7d25`](https://github.com/layenbrank/corex/commit/7aa7d2511a3f5d0c6c565746f541c79e1d27e0c8)) · lh
-
----
 ## [0.2.4](https://github.com/layenbrank/corex/compare/v0.2.3..v0.2.4) - 2025-08-20
 
 ### 🚀 Features
+- feat：初始化 corex 项目结构和配置 · ([`7aa7d25`](https://github.com/layenbrank/corex/commit/7aa7d2511a3f5d0c6c565746f541c79e1d27e0c8)) · lh
 - 更新发布工作流，添加提交信息获取和通知功能；重构文件处理和进度显示模块 · ([`b52c35e`](https://github.com/layenbrank/corex/commit/b52c35ec713e9f8431da734672a46e138e63b7fe)) · 李贺
 
 
@@ -565,6 +589,7 @@ See also [Conventional Commits](https://www.conventionalcommits.org/).
 - fluxor.yml · ([`322cb9c`](https://github.com/layenbrank/corex/commit/322cb9cb8c1e91f0b0a0b47e0014ae4c872fa846)) · layenbrank
 - Remove legacy notification examples and related files to streamline the project structure and focus on the updated notification system. This includes deleting old test files, configuration files, and XML templates that are no longer in use. · ([`fc89b31`](https://github.com/layenbrank/corex/commit/fc89b313725223dd1b0ce38ed5ad6b877f9a16e8)) · 李贺
 
+[10.0.0]: https://github.com/layenbrank/corex/compare/v9.0.0..v10.0.0
 [9.0.0]: https://github.com/layenbrank/corex/compare/v8.1.0..v9.0.0
 [8.1.0]: https://github.com/layenbrank/corex/compare/v8.0.0..v8.1.0
 [8.0.0]: https://github.com/layenbrank/corex/compare/v7.1.0..v8.0.0
@@ -597,7 +622,6 @@ See also [Conventional Commits](https://www.conventionalcommits.org/).
 [0.2.8]: https://github.com/layenbrank/corex/compare/v0.2.7..v0.2.8
 [0.2.7]: https://github.com/layenbrank/corex/compare/v0.2.6..v0.2.7
 [0.2.6]: https://github.com/layenbrank/corex/compare/v0.2.5..v0.2.6
-[0.2.5]: https://github.com/layenbrank/corex/compare/v0.2.4..v0.2.5
 [0.2.4]: https://github.com/layenbrank/corex/compare/v0.2.3..v0.2.4
 [0.1.1]: https://github.com/layenbrank/corex/releases/tag/v0.1.1
 

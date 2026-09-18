@@ -1,6 +1,6 @@
 {
   "name": "corex-electron-example",
-  "version": "9.0.0",
+  "version": "10.0.0",
   "private": true,
   "description": "Electron × corex 集成示例：sidecar corex-daemon + NDJSON IPC",
   "main": "main.js",
