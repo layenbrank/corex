@@ -103,7 +103,17 @@ Daemon 端 token 解析顺序：
 2. 配置 `[daemon].token`（非空）
 3. 文件 **`<data-dir>/token`** — 已有则读取，否则创建随机 32 字节 hex（Unix 模式 `0600`）
 
-CLI 客户端加载 `COREX_TOKEN` 或 `<data-dir>/token`，经 `Request::with_auth_token` 附带。不匹配 → `Response::Error`，code **401**。
+CLI / 宿主 / SDK 侧的 token 解析顺序（一处实现：`corex_ipc::find_token`）：
+
+1. 显式选项（CLI：`COREX_TOKEN`；SDK：`connect({ token })`）
+2. 配置 `[daemon].token`
+3. 端点记录里的 `token_file`——daemon 自己说“它的 token 在哪个文件”
+4. `<data-dir>/token`（只在**没有**端点记录时才看：daemon 还没起过）
+
+拿到的 token 经 `Request::with_auth_token` 附带。不匹配 → `Response::Error`，code **401**。
+
+⚠️ 记录在、但里面没有 `token_file` 时**不读** `<data-dir>/token`：那说明 daemon 的 token
+来自第 1 / 2 档（值属于调用方，不会被复制进记录），而那个文件只属于**上一个** daemon。
 
 见 [`config/corex.toml`](../../config/corex.toml) 中 `[daemon]` 注释。
 
@@ -116,53 +126,61 @@ CLI 客户端加载 `COREX_TOKEN` 或 `<data-dir>/token`，经 `Request::with_au
 | `ping`            | `id`，`auth_token`                                       | 探活                                           |
 | `shutdown`        | `id`，`auth_token`                                       | 优雅退出 daemon                                |
 | `list_directives` | `id`，`auth_token`，`dir?`                               | 列出指令名（可选子目录；**路径沙箱**）         |
-| `list_actions`    | `id`，`auth_token`                                       | 列出已注册 Action（含参数表、权限与 `inputSchema`） |
+| `list_actions`    | `id`，`auth_token`                                       | 动作目录文档（参数表、权限与 `inputSchema`）   |
 | `run_directive`   | `id`，`auth_token`，`name`，`input?`，`path?`，`stream?` | 按名运行指令，或路径（限制在 directives 根下） |
 | `invoke`          | `id`，`auth_token`，`action`，`params?`，`stream?`       | 按 ID 调用单个 Action                          |
 
 ### `list_actions` 的动作目录
 
-`list_actions` 回的是一个数组，每个元素是一个动作的**完整描述**——不是只有 id。
-宿主与 agent 需要知道「怎么调」：参数类型、默认值与要声明的权限。形状与
-`corex actions --json` 里 `actions` 数组的元素完全一致，两边由
-`corex_registry::catalog` 同一份实现产出。
+`list_actions` 回的是**整份目录文档**（`corex actions --json` 的那一份），每个动作是**完整描述**
+——不是只有 id。宿主与 agent 需要知道「怎么调」：参数类型、默认值与要声明的权限。
+两边的形状完全一致（同一个 `corex_registry::catalog::document`）。
 
 ```json
 {
   "type": "ok",
   "id": 2,
-  "data": [
-    {
-      "id": "file.copy",
-      "name": "文件复制",
-      "description": "复制文件（单文件，可上报分块进度）",
-      "bucket": "data",
-      "params": [
-        { "name": "from", "ty": "file", "required": true },
-        { "name": "to", "ty": "file", "required": true }
-      ],
-      "tags": [],
-      "permissions": ["filesystem"],
-      "input_schema": {
-        "type": "object",
-        "properties": {
-          "from": { "type": "string", "format": "path" },
-          "to": { "type": "string", "format": "path" }
-        },
-        "required": ["from", "to"]
+  "data": {
+    "version": "9.0.0",
+    "count": 80,
+    "bucket": null,
+    "actions": [
+      {
+        "id": "file.copy",
+        "name": "文件复制",
+        "description": "复制文件（单文件，可上报分块进度）",
+        "bucket": "data",
+        "params": [
+          { "name": "from", "ty": "file", "required": true },
+          { "name": "to", "ty": "file", "required": true }
+        ],
+        "tags": [],
+        "permissions": ["filesystem"],
+        "input_schema": {
+          "type": "object",
+          "properties": {
+            "from": { "type": "string", "format": "path" },
+            "to": { "type": "string", "format": "path" }
+          },
+          "required": ["from", "to"]
+        }
       }
-    }
-  ]
+    ]
+  }
 }
 ```
 
 | 字段 | 说明 |
 | ---- | ---- |
+| `version` | 产出这份目录的 corex 版本；宿主据此判断手里的参数表要不要重拉 |
+| `bucket` | 筛选条件原样回报；daemon 不筛选，所以恒为 `null` |
 | `params[].ty` | Corex 自己的类型标签（`str` / `file` / `map` / `any` …）；`description` 与 `default` 为 `None` 时**不出现** |
 | `input_schema` | 同一批事实派生出的 JSON Schema，可直接当 MCP 工具的 `inputSchema` 用 |
 | `permissions` | 取自动作自己的声明（`Action::permissions`），不是另抄的一张表 |
 
-只认 `id` 的老客户端不受影响：新增的都是**额外字段**，数组本身没变。
+⚠️ **v9.0.0 → 下一版有一处破坏性变更**：`data` 从「动作数组」变成「目录文档」（多了一层
+`actions`）。只要 id 的客户端从 `data[].id` 改成 `data.actions[].id` 即可；
+[`packages/corex-client`](../../packages/corex-client/README.md) 的 `actions()` 已经替你拆好了。
 
 ### 进度帧（`stream: true`）
 

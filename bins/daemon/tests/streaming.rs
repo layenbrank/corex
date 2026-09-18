@@ -238,7 +238,8 @@ fn strings(value: &Value, path: &str) -> Vec<String> {
 }
 
 /// `list_actions` 回的不是一串 id，而是完整目录：宿主与 agent 靠它知道「怎么调」——
-/// 参数类型、默认值与要声明的权限都在里面。形状与 `corex actions --json` 一致。
+/// 参数类型、默认值与要声明的权限都在里面。形状与 `corex actions --json` **完全一致**，
+/// 连 `version` 都在（宿主据此判断参数表要不要重拉）。
 #[tokio::test]
 async fn list_actions_carries_the_action_catalog() {
     let (_dir, _daemon, endpoint) = start("actions").await;
@@ -252,9 +253,15 @@ async fn list_actions_carries_the_action_catalog() {
     let Response::Ok { data, .. } = response else {
         panic!("list_actions 失败: {response:?}");
     };
-    let Value::Array(actions) = data else {
-        panic!("list_actions 应当回一个数组: {data:?}");
-    };
+    assert_eq!(
+        data.find_path("version").and_then(|v| v.as_str()),
+        Some(env!("CARGO_PKG_VERSION")),
+        "目录该带上 corex 版本: {data:?}"
+    );
+    let actions = data
+        .find_path("actions")
+        .and_then(|v| v.as_array())
+        .expect("目录文档该带 actions 数组");
     let copy = actions
         .iter()
         .find(|item| item.find_path("id").and_then(|v| v.as_str()) == Some("file.copy"))

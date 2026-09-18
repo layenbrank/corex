@@ -258,12 +258,12 @@ async fn handle_request(state: &DaemonState, req: Request, outlet: Outlet) -> Re
         }
         Request::ListActions { id, .. } => {
             // 整个目录而不是一串 id：宿主与 agent 需要知道「怎么调」——参数类型、
-            // 默认值与要声明的权限都在里面。元素形状与 `corex actions --json` 一致。
-            let actions: Vec<Value> = corex_registry::catalog::actions(&state.registry, None)
-                .into_iter()
-                .map(Value::from_json)
-                .collect();
-            Response::ok(id, Value::Array(actions))
+            // 默认值与要声明的权限都在里面。形状就是 `corex actions --json` 那一份
+            // `catalog::document`（含 `version`，宿主据此判断参数表要不要重拉）。
+            Response::ok(
+                id,
+                Value::from_json(corex_registry::catalog::document(&state.registry, None)),
+            )
         }
         Request::ListDirectives { id, dir, .. } => {
             match resolve_dir(&state.directives_dir, dir.as_deref()) {
