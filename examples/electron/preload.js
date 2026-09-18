@@ -1,4 +1,4 @@
-'use strict';
+'use strict'
 
 /**
  * 渲染进程与主进程之间唯一的桥。
@@ -7,7 +7,7 @@
  * 渲染进程因此拿不到「随便往主进程发消息」的能力，注入脚本也少了落脚点。
  */
 
-const { contextBridge, ipcRenderer } = require('electron');
+const { contextBridge, ipcRenderer } = require('electron')
 
 contextBridge.exposeInMainWorld('corex', {
   status: () => ipcRenderer.invoke('corex:status'),
@@ -23,8 +23,8 @@ contextBridge.exposeInMainWorld('corex', {
    * 返回退订函数，界面重开时不会累积监听。
    */
   onProgress: (handler) => {
-    const listener = (_event, frame) => handler(frame);
-    ipcRenderer.on('corex:progress', listener);
-    return () => ipcRenderer.off('corex:progress', listener);
-  },
-});
+    const listener = (_event, frame) => handler(frame)
+    ipcRenderer.on('corex:progress', listener)
+    return () => ipcRenderer.off('corex:progress', listener)
+  }
+})

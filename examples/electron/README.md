@@ -9,13 +9,13 @@
 
 ## 文件清单
 
-| 文件                 | 作用                                                       |
-| -------------------- | ---------------------------------------------------------- |
-| `src/corex-host.js`  | **与 Electron 无关的那一半**：把客户端包成宿主可用的一组操作 |
-| `main.js`            | 建窗口 + 把渲染进程的名字接到 host 上 + 退出时收掉 daemon    |
-| `preload.js`         | `contextBridge` 暴露的那组能力（只有函数，没有 channel 名） |
+| 文件                         | 作用                                                          |
+| ---------------------------- | ------------------------------------------------------------- |
+| `src/corex-host.js`          | **与 Electron 无关的那一半**：把客户端包成宿主可用的一组操作  |
+| `main.js`                    | 建窗口 + 把渲染进程的名字接到 host 上 + 退出时收掉 daemon     |
+| `preload.js`                 | `contextBridge` 暴露的那组能力（只有函数，没有 channel 名）   |
 | `index.html` / `renderer.js` | 能真跑的面板：选 Action、按 `input_schema` 预填参数、看进度帧 |
-| `scripts/check.mjs`  | **不开 Electron** 也能验证宿主侧逻辑（见下）                |
+| `scripts/check.mjs`          | **不开 Electron** 也能验证宿主侧逻辑（见下）                  |
 
 把 `src/corex-host.js` 单独拆出来不是洁癖：它让「能不能连上、能不能跑指令、退出有没有收掉
 daemon」这些**最容易写错**的部分可以在没有 Electron 的环境里验证。

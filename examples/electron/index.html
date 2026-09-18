@@ -14,7 +14,7 @@
     <style>
       :root {
         color-scheme: light dark;
-        font-family: system-ui, "Segoe UI", sans-serif;
+        font-family: system-ui, 'Segoe UI', sans-serif;
       }
       body {
         margin: 0 auto;
@@ -89,7 +89,12 @@
   </head>
   <body>
     <h1>Corex × Electron</h1>
-    <p id="status" class="status">正在连接…</p>
+    <p
+      id="status"
+      class="status"
+    >
+      正在连接…
+    </p>
     <div class="row">
       <button id="start">启动</button>
       <button id="stop">停止</button>
@@ -101,9 +106,16 @@
         <label for="action">Action</label>
         <select id="action"></select>
       </div>
-      <p id="action-meta" class="muted"></p>
+      <p
+        id="action-meta"
+        class="muted"
+      ></p>
       <label for="params">params（JSON，已按目录里的 input_schema 预填）</label>
-      <textarea id="params" rows="7" spellcheck="false"></textarea>
+      <textarea
+        id="params"
+        rows="7"
+        spellcheck="false"
+      ></textarea>
       <div class="row">
         <button id="invoke">执行 invoke</button>
       </div>
@@ -120,12 +132,20 @@
 
     <section>
       <h2>结果</h2>
-      <pre id="result" class="panel">—</pre>
+      <pre
+        id="result"
+        class="panel"
+      >
+—</pre
+      >
     </section>
 
     <section>
       <h2>进度帧</h2>
-      <pre id="log" class="panel"></pre>
+      <pre
+        id="log"
+        class="panel"
+      ></pre>
     </section>
 
     <script src="renderer.js"></script>
