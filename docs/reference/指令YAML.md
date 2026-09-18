@@ -1,4 +1,4 @@
-# 指令 YAML（Directive，v7）
+# 指令 YAML（Directive，v10）
 
 > **简体中文指南（推荐新手阅读）：** [guide/指令与输入配置.md](../guide/指令与输入配置.md) · [文档中心](../README.md)
 

@@ -22,7 +22,7 @@
 | 企业锁定 / 合规                  | [ops/企业部署.md](./ops/企业部署.md)                                                                        |
 | 发版 / 写 CHANGELOG              | [ops/发布与Changelog.md](./ops/发布与Changelog.md)                                                          |
 | 体积 / 冷启动基线                | [ops/性能基线.md](./ops/性能基线.md)                                                                        |
-| 升级迁移                         |       [changelog/破坏性变更-v10.md](./changelog/破坏性变更-v10.md)                                          |
+| 升级迁移                         | [changelog/破坏性变更-v10.md](./changelog/破坏性变更-v10.md)                                                |
 
 ---
 
@@ -89,14 +89,16 @@ Schema：[schemas/directive.schema.json](../schemas/directive.schema.json)
 
 ### 变更 — `changelog/`
 
-| 文档                                          | 说明                                                                        |
-| --------------------------------------------- | --------------------------------------------------------------------------- |
-| [破坏性变更 v8](./changelog/破坏性变更-v8.md) | `category`→`bucket`、5 个配置键改名且拒绝未知键、`-i` 失误归退出码 2        |
-| [破坏性变更 v7](./changelog/破坏性变更-v7.md) | watch 计时拆成防抖门 / 节流门，新增 `debounce` / `throttle` 边沿            |
-| [破坏性变更 v6](./changelog/破坏性变更-v6.md) | `get_*`→`find_*`、`cooldown_ms` 移除、稳定错误 `kind()`、typed `AuditEntry` |
-| [破坏性变更 v5](./changelog/破坏性变更-v5.md) | Shortcut→Directive、审计字段、`find_*` API 前身                             |
-| [破坏性变更 v4](./changelog/破坏性变更-v4.md) | v3→v4 重构                                                                  |
-| [archive/](./archive/)                        | ≤v3 与已 superseded 草稿                                                    |
+| 文档                                            | 说明                                                                        |
+| ----------------------------------------------- | --------------------------------------------------------------------------- |
+| [破坏性变更 v10](./changelog/破坏性变更-v10.md) | `list_actions` 回目录文档、单连接多请求、错误码按错误类型给                 |
+| [破坏性变更 v9](./changelog/破坏性变更-v9.md)   | 连接/执行分离（`max_jobs`）、端点发现文件、`corex actions --json`           |
+| [破坏性变更 v8](./changelog/破坏性变更-v8.md)   | `category`→`bucket`、5 个配置键改名且拒绝未知键、`-i` 失误归退出码 2        |
+| [破坏性变更 v7](./changelog/破坏性变更-v7.md)   | watch 计时拆成防抖门 / 节流门，新增 `debounce` / `throttle` 边沿            |
+| [破坏性变更 v6](./changelog/破坏性变更-v6.md)   | `get_*`→`find_*`、`cooldown_ms` 移除、稳定错误 `kind()`、typed `AuditEntry` |
+| [破坏性变更 v5](./changelog/破坏性变更-v5.md)   | Shortcut→Directive、审计字段、`find_*` API 前身                             |
+| [破坏性变更 v4](./changelog/破坏性变更-v4.md)   | v3→v4 重构                                                                  |
+| [archive/](./archive/)                          | ≤v3 与已 superseded 草稿                                                    |
 
 ---
 

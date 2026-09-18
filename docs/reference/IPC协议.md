@@ -1,4 +1,4 @@
-# Corex IPC 协议（v9）
+# Corex IPC 协议（v10）
 
 > **接入指南（推荐）：** [integration/IPC接入指南.md](../integration/IPC接入指南.md)
 
@@ -177,10 +177,6 @@ CLI / 宿主 / SDK 侧的 token 解析顺序（一处实现：`corex_ipc::find_t
 | `params[].ty` | Corex 自己的类型标签（`str` / `file` / `map` / `any` …）；`description` 与 `default` 为 `None` 时**不出现** |
 | `input_schema` | 同一批事实派生出的 JSON Schema，可直接当 MCP 工具的 `inputSchema` 用 |
 | `permissions` | 取自动作自己的声明（`Action::permissions`），不是另抄的一张表 |
-
-⚠️ **v9.0.0 → 下一版有一处破坏性变更**：`data` 从「动作数组」变成「目录文档」（多了一层
-`actions`）。只要 id 的客户端从 `data[].id` 改成 `data.actions[].id` 即可；
-[`packages/corex-client`](../../packages/corex-client/README.md) 的 `actions()` 已经替你拆好了。
 
 ### 进度帧（`stream: true`）
 
