@@ -405,6 +405,7 @@ enum ProcessStream {
 ///
 /// Windows 上管道字节经常是 OEM（中文 CP936/GBK），不能当 UTF-8 硬解，
 /// 也不能把原始字节直接 `write_all` 进控制台（Rust 走 `WriteConsoleW`，要合法 UTF-8）。
+/// 解码交给 [`PipeText`]：一块一块地解，不重解已经解过的部分。
 async fn pump_process_stream<R>(reader: Option<R>, stream: ProcessStream) -> String
 where
     R: AsyncRead + Unpin,
@@ -413,7 +414,7 @@ where
         return String::new();
     };
     let mut collected = Vec::new();
-    let mut echoed = 0usize;
+    let mut text = PipeText::default();
     let mut buf = [0u8; 8192];
     loop {
         let n = match reader.read(&mut buf).await {
@@ -422,29 +423,136 @@ where
             Err(_) => break,
         };
         collected.extend_from_slice(&buf[..n]);
-        let text = decode_process_output_partial(&collected);
-        if text.len() > echoed {
-            // `echoed` 始终是上一段解码结果的 UTF-8 字节长，落在字符边界上。
-            let chunk = &text[echoed..];
-            match stream {
-                ProcessStream::Stdout => {
-                    let mut out = std::io::stdout().lock();
-                    let _ = out.write_all(chunk.as_bytes());
-                    let _ = out.flush();
-                }
-                ProcessStream::Stderr => {
-                    let mut err = std::io::stderr().lock();
-                    let _ = err.write_all(chunk.as_bytes());
-                    let _ = err.flush();
-                }
+        echo(stream, text.feed(&buf[..n]));
+    }
+    echo(stream, text.finish());
+    decode_process_output(&collected)
+}
+
+/// 把这一段解出来的文本回显出去。
+///
+/// 写不进去只忽略：终端已经关了不该让动作失败（这正是 `let _ =` 而不是 `?` 的理由）。
+fn echo(stream: ProcessStream, text: &str) {
+    if text.is_empty() {
+        return;
+    }
+    let _ = match stream {
+        ProcessStream::Stdout => {
+            let mut out = std::io::stdout().lock();
+            out.write_all(text.as_bytes()).and_then(|()| out.flush())
+        }
+        ProcessStream::Stderr => {
+            let mut err = std::io::stderr().lock();
+            err.write_all(text.as_bytes()).and_then(|()| err.flush())
+        }
+    };
+}
+
+/// 管道字节 → 文本的**流式**解码：每块只解这一块，边界上的半个字留到下一块。
+///
+/// 与 [`decode_process_output`] 是同一套取舍（先 UTF-8，解不动就回退管道编码），
+/// 区别只在“一块一块解”而不是“每块把已收到的全部重解一遍”——后者是 O(n²)，
+/// 几十 MB 的输出要几分钟。
+///
+/// 编码只在**第一次遇到非 ASCII 且真解出了东西**时定一次，之后不再改：逐块重猜会
+/// 让同一段文字前后跳编码（块边界上的半个字会让“这段像不像 UTF-8”时真时假）。
+/// 「先 ASCII 后 GBK」的输出因此不会在 ASCII 阶段被钉死成 UTF-8。
+#[derive(Default)]
+struct PipeText {
+    /// 定下来的解码器；`None` = 还没遇到需要判定的字节。
+    decoder: Option<encoding_rs::Decoder>,
+    /// 尚未判定的字节。只攒到能判定为止（最多一个字符的长度），之后转交解码器。
+    undecided: Vec<u8>,
+    /// 本轮解出的文本；复用同一块内存，省掉每块一次分配。
+    text: String,
+}
+
+impl PipeText {
+    /// 解出这一块里新出现的文本。边界上的半个字留到下一块。
+    fn feed(&mut self, bytes: &[u8]) -> &str {
+        self.text.clear();
+        if self.decoder.is_none() && bytes.is_ascii() {
+            // 纯 ASCII 在两种编码下结果一样，不必急着判定。
+            self.text
+                .push_str(std::str::from_utf8(bytes).expect("ASCII 是合法 UTF-8"));
+            return &self.text;
+        }
+        match self.decoder.as_mut() {
+            Some(decoder) => {
+                decode_into(decoder, bytes, &mut self.text);
             }
-            echoed = text.len();
-        } else if text.len() < echoed {
-            // 中途从 UTF-8 切到 OEM 时前缀偶发变短：别再按旧下标切片。
-            echoed = text.len();
+            None => self.decide(bytes),
+        }
+        &self.text
+    }
+
+    /// 收尾：判定过就交出解码器里卡着的半个字；还没判定过（只攒到半个字就结束了）
+    /// 就按整段那条路解——回显与 [`decode_process_output`] 给出的结果因此一致。
+    fn finish(&mut self) -> &str {
+        self.text.clear();
+        match self.decoder.as_mut() {
+            Some(decoder) => flush_into(decoder, &mut self.text),
+            None if !self.undecided.is_empty() => {
+                let pending = std::mem::take(&mut self.undecided);
+                self.text.push_str(&decode_process_output(&pending));
+            }
+            None => {}
+        }
+        &self.text
+    }
+
+    /// 首次遇到非 ASCII：用攒到的字节试一次，判不出来（只攒到半个字）就等下一块。
+    fn decide(&mut self, bytes: &[u8]) {
+        self.undecided.extend_from_slice(bytes);
+        let mut probe = encoding_rs::UTF_8.new_decoder_without_bom_handling();
+        let mut decoded = String::new();
+        let malformed = decode_into(&mut probe, &self.undecided, &mut decoded);
+        if !malformed && decoded.is_empty() {
+            return;
+        }
+        let encoding = if malformed {
+            fallback_encoding()
+        } else {
+            encoding_rs::UTF_8
+        };
+        let mut decoder = encoding.new_decoder_without_bom_handling();
+        let pending = std::mem::take(&mut self.undecided);
+        decode_into(&mut decoder, &pending, &mut self.text);
+        self.decoder = Some(decoder);
+    }
+}
+
+/// 把 `bytes` 喂给解码器，解出的文本追加到 `text`。
+///
+/// 返回值是“出现过非法序列”——调用方靠它区分「这段是坏字节」与「这段只是还没收完」。
+/// 容量不够时解码器会报 `OutputFull` 并原样留着没读的字节，扩容重来即可。
+fn decode_into(decoder: &mut encoding_rs::Decoder, bytes: &[u8], text: &mut String) -> bool {
+    // `decode_to_string` 把 `String` 的**容量**当输出上限，且保证不重新分配。
+    text.reserve(bytes.len().saturating_mul(3) + 8);
+    let mut malformed = false;
+    let mut at = 0;
+    while at < bytes.len() {
+        let (result, read, had_errors) = decoder.decode_to_string(&bytes[at..], text, false);
+        at += read;
+        malformed |= had_errors;
+        match result {
+            encoding_rs::CoderResult::InputEmpty => break,
+            encoding_rs::CoderResult::OutputFull => text.reserve(bytes.len() + 8),
         }
     }
-    decode_process_output(&collected)
+    malformed
+}
+
+/// 收尾：`last = true` 让解码器交出卡在它内部的半个字。
+fn flush_into(decoder: &mut encoding_rs::Decoder, text: &mut String) {
+    loop {
+        text.reserve(8);
+        if let (encoding_rs::CoderResult::InputEmpty, _, _) =
+            decoder.decode_to_string(&[], text, true)
+        {
+            return;
+        }
+    }
 }
 
 /// PowerShell `-Command` 里的单引号字面量：`'` → `''`。
@@ -452,9 +560,9 @@ fn powershell_single_quote(s: &str) -> String {
     format!("'{}'", s.replace('\'', "''"))
 }
 
-/// 子进程管道字节 → 文本。
+/// 子进程管道字节 → 文本（整段）。
 ///
-/// 先严格按 UTF-8；失败时在 Windows 上按 OEM 代码页（中文常见 GBK）回退。
+/// 先严格按 UTF-8；失败时按 [`fallback_encoding`] 回退。
 /// 这是「有些内容仍乱码」的主修点：CLI 自己的 `SetConsoleOutputCP` 管不到管道。
 fn decode_process_output(bytes: &[u8]) -> String {
     if bytes.is_empty() {
@@ -463,42 +571,28 @@ fn decode_process_output(bytes: &[u8]) -> String {
     if let Ok(text) = std::str::from_utf8(bytes) {
         return text.to_owned();
     }
+    fallback_encoding().decode(bytes).0.into_owned()
+}
+
+/// UTF-8 解不动时按哪个编码解。
+///
+/// Windows：管道侧的有效编码是 OEM（`GetOEMCP`——控制台程序重定向后走它，而不是
+/// 父进程的 Console CP）；中日韩页直接信它，其余（en-US 的 CP1252、系统 Beta UTF-8）
+/// 则用 GBK：那些页会把 GBK 字节「无错误地」解成拉丁乱码（CI 上就是 `ÄãºÃ`）。
+/// 其余平台没有第二套管道编码，就是 lossy UTF-8（解码器把非法字节出成替换字符）。
+fn fallback_encoding() -> &'static Encoding {
     #[cfg(windows)]
     {
         let oem = windows_pipe_encoding();
-        // 中日韩 OEM：直接信它。
         if is_cjk_legacy(oem) {
-            return oem.decode(bytes).0.into_owned();
+            oem
+        } else {
+            encoding_rs::GBK
         }
-        // 系统 Beta UTF-8、或 en-US 的 CP1252 等单字节页：对 GBK 字节会
-        // 「无错误地」解成拉丁乱码（CI 上就是 `ÄãºÃ`），必须再试 GBK。
-        let (gbk, _, _) = encoding_rs::GBK.decode(bytes);
-        gbk.into_owned()
     }
     #[cfg(not(windows))]
     {
-        String::from_utf8_lossy(bytes).into_owned()
-    }
-}
-
-/// 流式回显用：缓冲区末尾可能卡着半个多字节字符，先解「完整前缀」。
-fn decode_process_output_partial(bytes: &[u8]) -> String {
-    if bytes.is_empty() {
-        return String::new();
-    }
-    match std::str::from_utf8(bytes) {
-        Ok(text) => text.to_owned(),
-        Err(err) => {
-            let valid = err.valid_up_to();
-            // 仅末尾不完整：先把已完整的 UTF-8 吐出去，等下一截。
-            if err.error_len().is_none() && valid > 0 {
-                return std::str::from_utf8(&bytes[..valid])
-                    .expect("valid_up_to prefix")
-                    .to_owned();
-            }
-            // 中间就非法 → 不是 UTF-8，整段按管道编码解。
-            decode_process_output(bytes)
-        }
+        encoding_rs::UTF_8
     }
 }
 
@@ -961,12 +1055,42 @@ mod tests {
     }
 
     #[test]
-    fn decode_partial_holds_incomplete_utf8_tail() {
-        let mut bytes = "你好".as_bytes().to_vec();
-        // 砍掉最后一字节，留下半个 UTF-8 序列。
-        bytes.pop();
-        let partial = decode_process_output_partial(&bytes);
-        assert_eq!(partial, "你");
+    fn pipe_text_holds_a_split_character() {
+        let mut text = PipeText::default();
+        // `中` 的 UTF-8 是 E4 B8 AD：先把第一个字节给出去。
+        assert_eq!(text.feed(&[0xe4]), "");
+        assert_eq!(text.feed(&[0xb8, 0xad]), "中");
+        assert_eq!(text.finish(), "");
+    }
+
+    /// 首次非 ASCII 就落在 GBK 的半个字上（0xC4 看着像 UTF-8 的二字节首字节），
+    /// 得等下一块判得出来再定编码——否则整段中文回显都会变成替换字符。
+    #[test]
+    fn pipe_text_judges_gbk_from_a_split_character() {
+        let (gbk, _, _) = encoding_rs::GBK.encode("你好");
+        let mut text = PipeText::default();
+        let mut decoded = String::new();
+        // 一个字节一个字节地喂：每一步都切在字符中间，这是最坏情况。
+        for byte in gbk.iter() {
+            decoded.push_str(text.feed(std::slice::from_ref(byte)));
+        }
+        assert_eq!(decoded, "你好");
+    }
+
+    /// 纯 ASCII 不必判定编码，于是「先 ASCII 后 GBK」不会被钉死成 UTF-8。
+    #[test]
+    fn pipe_text_stays_undecided_on_ascii() {
+        let mut text = PipeText::default();
+        assert_eq!(text.feed(b"plain ascii"), "plain ascii");
+        assert_eq!(text.finish(), "");
+    }
+
+    /// 收尾要把卡在解码器里的半个字交出来，而不是静默丢掉。
+    #[test]
+    fn pipe_text_flushes_a_trailing_half() {
+        let mut text = PipeText::default();
+        assert_eq!(text.feed(&[0xe4]), "");
+        assert_eq!(text.finish(), "\u{fffd}");
     }
 
     #[test]
