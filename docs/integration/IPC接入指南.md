@@ -54,7 +54,9 @@ daemon 会把「它到底监听在哪」写成 **`<数据目录>/endpoint.json`*
 }
 ```
 
-`token_file` 只在 token 来自文件时出现；来自 `COREX_TOKEN` 或配置时**不写进记录**，连接方得自己去拿。
+`token_file` 只在 token 来自文件时出现；来自 `COREX_TOKEN` 或配置时**不写进记录**，连接方得自己去拿（那时也
+**不要**去读 `<数据目录>/token`：那是上一个 daemon 留下的东西）。完整的四档顺序见
+[IPC 协议 § 鉴权](../reference/IPC协议.md#鉴权)，Rust 侧就一个 `corex_ipc::find_token`。
 字段表与「谁读谁不读」见 [IPC 协议 § 端点发现文件](../reference/IPC协议.md#端点发现文件)。
 
 CLI 自己也走这条链路（`corex daemon status`、`corex run --remote`、`corex doctor` 的「IPC 端点」一行），

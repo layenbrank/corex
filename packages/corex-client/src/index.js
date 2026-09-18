@@ -122,13 +122,18 @@ function readTokenFile(file) {
  * 顺序与 Rust 的 `find_endpoint` 一致：**显式配置 → 端点记录 → 平台默认**。
  * 显式配置排最前是有意的——命令行/选项里写死的东西必须赢过发现。
  *
+ * token 的顺序与 Rust 的 `find_token` 一致：`token` 选项 → `COREX_TOKEN` → 记录里的
+ * `token_file` → `<数据目录>/token`。**记录在但没有 `token_file`** 时不去读那个文件：
+ * daemon 的 token 来自 `COREX_TOKEN` 或配置（那两处属于调用方，不会被写进记录），
+ * 此时 `<数据目录>/token` 是**上一个** daemon 留下的东西。
+ *
  * ⚠️ token 来自**配置文件**（`[daemon].token`）时这里看不到，需要 `token` 显式传入：
  * Rust 侧能读 TOML，这里刻意不引 TOML 解析器。
  */
 export function discover({ dataDir, endpoint, token } = {}) {
   const resolved = resolveDataDir(dataDir)
   const record = readRecord(resolved)
-  const tokenFile = record?.token_file ?? path.join(resolved, 'token')
+  const tokenFile = record ? record.token_file : path.join(resolved, 'token')
   return {
     dataDir: resolved,
     endpoint: endpoint ?? record?.endpoint ?? defaultEndpoint(resolved),

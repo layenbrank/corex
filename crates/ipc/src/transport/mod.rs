@@ -209,6 +209,40 @@ pub fn find_endpoint(data: &Path, configured: Option<&Path>) -> Result<PathBuf, 
     resolve_endpoint(data, configured)
 }
 
+/// 连接方要找的 token：`COREX_TOKEN` → 显式配置 → daemon 写下的记录 → `<data>/token`。
+///
+/// 与 [`find_endpoint`] 同一套优先级、同一处实现：命令行与配置里的东西赢过发现，
+/// 发现赢过平台默认（这里是「数据目录里那个文件」）。连接方不得各写一份顺序——
+/// CLI 曾经只看「环境变量 + `<data>/token`」，于是「在配置里设了 token 起的 daemon」
+/// 在它眼里永远是「已停止」。
+///
+/// `configured` 是调用方从配置读出的 `[daemon].token`（`corex-ipc` 不解析 TOML）。
+///
+/// 记录里没有 `token_file` 意味着 daemon 的 token 来自 `COREX_TOKEN` 或配置——那两处的
+/// 值属于调用方，不会被复制进记录。此时返回 `None` 而不是去读 `<data>/token`：那个文件
+/// 属于**上一个** daemon（或者根本不存在），拿它去连只会得到一句 401。
+pub fn find_token(data: &Path, configured: Option<&str>) -> Option<String> {
+    if let Ok(token) = std::env::var("COREX_TOKEN")
+        && !token.is_empty()
+    {
+        return Some(token);
+    }
+    if let Some(token) = configured.filter(|token| !token.is_empty()) {
+        return Some(token.to_string());
+    }
+    match crate::endpoint::discover(data) {
+        Some(record) => record.token_file.and_then(|path| read_token(&path)),
+        None => read_token(&data.join("token")),
+    }
+}
+
+/// 读一个 token 文件；空白或读不到都算「没有」。
+fn read_token(path: &Path) -> Option<String> {
+    let token = std::fs::read_to_string(path).ok()?;
+    let token = token.trim();
+    (!token.is_empty()).then(|| token.to_string())
+}
+
 /// Windows 命名管道名字（`\\.\pipe\...` / `//./pipe/...`）。
 #[cfg(windows)]
 fn is_pipe_name(path: &Path) -> bool {
@@ -536,6 +570,95 @@ mod tests {
             find_endpoint(dir.path(), Some(&wanted)).expect("显式端点"),
             wanted
         );
+    }
+
+    /// 环境变量那一档优先级最高，但测试进程里没法可靠地设/清它（用例并行跑，而在
+    /// edition 2024 里改进程环境是 unsafe）——设了就跳过下面几条，别让它们假红。
+    fn ambient_token() -> Option<String> {
+        std::env::var("COREX_TOKEN")
+            .ok()
+            .filter(|token| !token.is_empty())
+    }
+
+    /// daemon 在记录里指明的那个文件赢过 `<data>/token`：它才是「正在跑的那个」的 token。
+    #[test]
+    fn a_token_from_the_record_beats_the_data_dir_file() {
+        if ambient_token().is_some() {
+            return;
+        }
+        let dir = tempfile::tempdir().expect("临时目录");
+        std::fs::write(dir.path().join("token"), "默认文件\n").expect("写默认 token");
+        let recorded = dir.path().join("token.recorded");
+        std::fs::write(&recorded, "  记录里的  \n").expect("写记录 token");
+        crate::endpoint::publish(
+            dir.path(),
+            &crate::endpoint::Record::new(other_endpoint(dir.path()), Some(recorded)),
+        )
+        .expect("写入记录");
+
+        assert_eq!(
+            find_token(dir.path(), None).as_deref(),
+            Some("记录里的"),
+            "该读记录指的那个文件，并去掉首尾空白"
+        );
+    }
+
+    /// 显式配置赢过发现——与端点那一侧同一条规矩。
+    #[test]
+    fn an_explicit_token_beats_the_record() {
+        if ambient_token().is_some() {
+            return;
+        }
+        let dir = tempfile::tempdir().expect("临时目录");
+        let recorded = dir.path().join("token");
+        std::fs::write(&recorded, "文件里的").expect("写 token");
+        crate::endpoint::publish(
+            dir.path(),
+            &crate::endpoint::Record::new(other_endpoint(dir.path()), Some(recorded)),
+        )
+        .expect("写入记录");
+
+        assert_eq!(
+            find_token(dir.path(), Some("配置里的")).as_deref(),
+            Some("配置里的")
+        );
+        assert_eq!(
+            find_token(dir.path(), Some("")).as_deref(),
+            Some("文件里的"),
+            "配置里给空串等于没给"
+        );
+    }
+
+    /// 记录里没有 `token_file`：说明 daemon 的 token 来自 `COREX_TOKEN` 或配置，属于调用方。
+    /// 此时去读 `<data>/token` 只会拿到**上一个** daemon 留下的东西，所以宁可不给。
+    #[test]
+    fn a_record_without_a_token_file_leaves_the_token_to_the_caller() {
+        if ambient_token().is_some() {
+            return;
+        }
+        let dir = tempfile::tempdir().expect("临时目录");
+        std::fs::write(dir.path().join("token"), "上一个 daemon 留下的").expect("写旧 token");
+        crate::endpoint::publish(
+            dir.path(),
+            &crate::endpoint::Record::new(other_endpoint(dir.path()), None),
+        )
+        .expect("写入记录");
+
+        assert_eq!(find_token(dir.path(), None), None);
+    }
+
+    /// 没有记录（daemon 还没起过）时，数据目录里的那个文件就是答案。
+    #[test]
+    fn without_a_record_the_data_dir_file_is_read() {
+        if ambient_token().is_some() {
+            return;
+        }
+        let dir = tempfile::tempdir().expect("临时目录");
+        std::fs::write(dir.path().join("token"), "文件里的\n").expect("写 token");
+        assert_eq!(find_token(dir.path(), None).as_deref(), Some("文件里的"));
+
+        std::fs::write(dir.path().join("token"), "   \n").expect("写空白 token");
+        assert_eq!(find_token(dir.path(), None), None, "空白等于没有");
     }
 
     /// 监听方**不读**记录：崩溃残留会让新 daemon 去监听上一个进程的端点。

@@ -216,21 +216,20 @@ pub(crate) fn resolve_endpoint() -> Result<PathBuf> {
         .map_err(|e| anyhow::Error::new(corex_core::EngineError::Config(e.to_string())))
 }
 
-/// 守护进程 IPC 的鉴权 token：先用 `COREX_TOKEN` 环境变量，否则读 `<data_dir>/token`。
+/// 守护进程 IPC 的鉴权 token：`COREX_TOKEN` → 配置 `[daemon].token` → daemon 写的端点
+/// 记录 → `<data_dir>/token`。
+///
+/// 顺序与端点发现是同一套，解析也只有一处（`corex_ipc::find_token`）——CLI 曾经只看
+/// 「环境变量 + 文件」，于是配置里设了 token 起的 daemon 在它眼里永远是「已停止」。
 pub(crate) fn auth_token() -> Result<String> {
-    if let Ok(t) = std::env::var("COREX_TOKEN")
-        && !t.is_empty()
-    {
-        return Ok(t);
-    }
-    let path = data_dir()?.join("token");
-    let text = std::fs::read_to_string(&path)
-        .with_context(|| format!("无法读取 auth token {}", path.display()))?;
-    let token = text.trim().to_string();
-    if token.is_empty() {
-        bail!("auth token 为空: {}", path.display());
-    }
-    Ok(token)
+    let data = data_dir()?;
+    let configured = settings::effective().daemon.token.as_deref();
+    corex_ipc::find_token(&data, configured).ok_or_else(|| {
+        anyhow::anyhow!(
+            "读不到 auth token：设 COREX_TOKEN、在配置里写 [daemon].token，或让 daemon 创建 {}",
+            data.join("token").display()
+        )
+    })
 }
 
 pub(crate) fn build_registry() -> ActionRegistry {

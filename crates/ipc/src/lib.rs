@@ -9,7 +9,7 @@ pub use progress::{FrameSink, Outlet, ProgressEvent, Replay};
 pub use protocol::{MAX_LINE_BYTES, Request, Response, RpcError};
 pub use transport::{
     PlatformTransport, Transport, TransportError, config_paths, data_dir, find_endpoint,
-    ipc_connect, ipc_endpoint, resolve_data_relative, resolve_endpoint, serve_ipc,
+    find_token, ipc_connect, ipc_endpoint, resolve_data_relative, resolve_endpoint, serve_ipc,
 };
 
 #[cfg(windows)]

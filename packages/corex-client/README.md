@@ -58,6 +58,10 @@ await corex.close() // 自己拉起的 daemon 会一并收掉
 ## token
 
 `connect({ token })` → `COREX_TOKEN` → 记录里的 `token_file` → `<数据目录>/token`。
+与 Rust 侧 `corex_ipc::find_token` 是同一套顺序（CLI 也走它）。
+
+记录在、但里面没有 `token_file` 时**不读** `<数据目录>/token`：那说明 daemon 的 token 来自
+`COREX_TOKEN` 或配置（属于调用方，不会被复制进记录），而那个文件只属于**上一个** daemon。
 
 来自**配置文件**（`[daemon].token`）的 token 这里看不到：Rust 侧读 TOML，这个包刻意不引
 TOML 解析器。那种部署请把值显式传给 `connect({ token })` 或设 `COREX_TOKEN`。

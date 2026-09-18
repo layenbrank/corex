@@ -223,10 +223,17 @@ test('连接断开时在途请求被拒，而不是永远挂着', async () => {
 
 test('discover 的优先级：显式选项 → 记录 → 平台默认', async () => {
   const recorded = freshEndpoint('from-record')
-  const dataDir = freshDataDir({
-    record: { version: 1, pid: 4242, endpoint: recorded, kind: 'pipe' },
-    token: 'from-file\n'
-  })
+  const dataDir = freshDataDir({ token: 'from-file\n' })
+  fs.writeFileSync(
+    path.join(dataDir, 'endpoint.json'),
+    JSON.stringify({
+      version: 1,
+      pid: 4242,
+      endpoint: recorded,
+      kind: 'pipe',
+      token_file: path.join(dataDir, 'token')
+    })
+  )
 
   const byDefault = discover({ dataDir })
   assert.equal(byDefault.source, 'record')
@@ -245,14 +252,28 @@ test('discover 的优先级：显式选项 → 记录 → 平台默认', async (
 })
 
 test('损坏或版本不认识的记录按“没有记录”处理', async () => {
-  const broken = freshDataDir()
+  const broken = freshDataDir({ token: 'from-file' })
   fs.writeFileSync(path.join(broken, 'endpoint.json'), '{ 这不是 JSON')
   assert.equal(discover({ dataDir: broken }).source, 'default')
+  // 不算记录，于是回到「没有记录」那条路：数据目录里的文件就是答案。
+  assert.equal(discover({ dataDir: broken }).token, 'from-file')
 
   const future = freshDataDir({
     record: { version: 99, pid: 1, endpoint: 'x', kind: 'pipe' }
   })
   assert.equal(discover({ dataDir: future }).source, 'default')
+})
+
+test('记录里没有 token_file 时不去读 <数据目录>/token', async () => {
+  // daemon 的 token 来自 `COREX_TOKEN` 或配置——那两处的值属于调用方，不会被写进记录。
+  // 此时 `<数据目录>/token` 是**上一个** daemon 留下的东西，拿它去连只会得到 401。
+  const dataDir = freshDataDir({
+    record: { version: 1, pid: 4242, endpoint: freshEndpoint('no-token'), kind: 'pipe' },
+    token: '上一个 daemon 留下的'
+  })
+  assert.equal(discover({ dataDir }).token, undefined)
+  // 显式给的仍然算数（配置里的 token 由调用方读出来传进来）。
+  assert.equal(discover({ dataDir, token: 'explicit' }).token, 'explicit')
 })
 
 test('COREX_TOKEN 压过 token 文件，显式 token 压过两者', async () => {
