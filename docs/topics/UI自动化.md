@@ -40,7 +40,7 @@ corex ui element inspect --copy-yaml
 ```
 
 - `element tree` / `element get` **必须** `--hwnd` 或 `--title`（否则 `ui_scope_required`）
-- `element inspect` 用全局左键确认（FlaUI 四边框高亮 + `GetAsyncKeyState`），不依赖 overlay 焦点；scope 外点击会 stderr 提示
+- `element inspect` 用全局左键确认（FlaUI 四边框高亮 + `GetAsyncKeyState`），不依赖 overlay 焦点；悬停时在元素上方显示一条深色标签（`控件类型 "名称"`），scope 外点击会 stderr 提示
 - 输出含 `ancestors[]`、`selectors_yaml`；可选 `--redact` 打码 `name` / `automation_id`（含 ancestors）
 - 企业门禁与 daemon 对齐：`plugins.disabled`、`disabled_actions`、`[runtime].strict_permissions`；probe 写入 `audit.jsonl`（`ui.probe`）
 - 审计 / 门禁 action id：`ui.window.list` / `ui.window.desktop` / `ui.element.list` / `ui.element.find` / `ui.element.point` / `ui.element.inspect`

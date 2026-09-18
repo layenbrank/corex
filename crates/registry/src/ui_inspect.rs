@@ -6,31 +6,47 @@ use std::ffi::OsStr;
 use std::os::windows::ffi::OsStrExt;
 use std::sync::OnceLock;
 use uiautomation::types::Rect;
-use windows::Win32::Foundation::{COLORREF, HINSTANCE, HWND, LPARAM, LRESULT, WPARAM};
-use windows::Win32::Graphics::Gdi::CreateSolidBrush;
+use windows::Win32::Foundation::{COLORREF, HINSTANCE, HWND, LPARAM, LRESULT, RECT, WPARAM};
+use windows::Win32::Graphics::Gdi::{
+    BeginPaint, CreateSolidBrush, DT_END_ELLIPSIS, DT_LEFT, DT_NOPREFIX, DT_SINGLELINE, DT_VCENTER,
+    DeleteObject, DrawTextW, EndPaint, FillRect, HBRUSH, HGDIOBJ, InvalidateRect, PAINTSTRUCT,
+    SetBkMode, SetTextColor, TRANSPARENT,
+};
 use windows::Win32::System::Console::GetConsoleWindow;
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows::Win32::UI::Input::KeyboardAndMouse::{GetAsyncKeyState, VK_ESCAPE, VK_LBUTTON};
 use windows::Win32::UI::WindowsAndMessaging::{
     CS_HREDRAW, CS_VREDRAW, CreateWindowExW, DefWindowProcW, DispatchMessageW, GWLP_USERDATA,
-    GetCursorPos, GetMessageW, HWND_BOTTOM, HWND_TOPMOST, KillTimer, LoadCursorW, MSG,
-    PostQuitMessage, RegisterClassW, SW_HIDE, SW_SHOWNA, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE,
-    SWP_SHOWWINDOW, SetWindowLongPtrW, SetWindowPos, SetWindowTextW, ShowWindow, TranslateMessage,
-    WM_DESTROY, WM_TIMER, WNDCLASSW, WNDPROC, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW, WS_EX_TOPMOST,
-    WS_POPUP,
+    GetClientRect, GetCursorPos, GetMessageW, GetWindowTextW, HWND_BOTTOM, HWND_TOPMOST, KillTimer,
+    LoadCursorW, MSG, PostQuitMessage, RegisterClassW, SW_HIDE, SW_SHOWNA, SWP_NOACTIVATE,
+    SWP_NOMOVE, SWP_NOSIZE, SWP_SHOWWINDOW, SetWindowLongPtrW, SetWindowPos, SetWindowTextW,
+    ShowWindow, TranslateMessage, WM_DESTROY, WM_ERASEBKGND, WM_PAINT, WM_TIMER, WNDCLASSW,
+    WNDPROC, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW, WS_EX_TOPMOST, WS_POPUP,
 };
 
 const BORDER_CLASS: &str = "CorexUiInspectBorder";
+const LABEL_CLASS: &str = "CorexUiInspectLabel";
 const MSG_CLASS: &str = "CorexUiInspectMsg";
-const TOOLTIP_CLASS: &str = "CorexUiInspectTooltip";
 const BORDER_SIZE: i32 = 3;
 const INSPECT_TIMER_ID: usize = 1;
 const POLL_MS: u32 = 16;
 
+/// 高亮框的颜色（3px 实心条，靠类画刷填充）。
+const HIGHLIGHT: COLORREF = COLORREF(0x0000_00FF);
+/// 标签条：深灰底 + 白字，尺寸跟着元素宽窄在 `LABEL_MIN_W..=LABEL_MAX_W` 之间走。
+const LABEL_BG: COLORREF = COLORREF(0x0020_2020);
+const LABEL_FG: COLORREF = COLORREF(0x00FF_FFFF);
+const LABEL_H: i32 = 24;
+const LABEL_GAP: i32 = 4;
+const LABEL_PAD: i32 = 8;
+const LABEL_MIN_W: i32 = 160;
+const LABEL_MAX_W: i32 = 480;
+const LABEL_TEXT_MAX: usize = 512;
+
 struct InspectClasses {
     border: Vec<u16>,
+    label: Vec<u16>,
     msg: Vec<u16>,
-    tooltip: Vec<u16>,
 }
 
 static INSPECT_CLASSES: OnceLock<InspectClasses> = OnceLock::new();
@@ -42,17 +58,16 @@ fn wide(s: &str) -> Vec<u16> {
 fn init_inspect_classes(instance: HINSTANCE) -> Result<(), ActionError> {
     INSPECT_CLASSES.get_or_init(|| InspectClasses {
         border: wide(BORDER_CLASS),
+        label: wide(LABEL_CLASS),
         msg: wide(MSG_CLASS),
-        tooltip: wide(TOOLTIP_CLASS),
     });
 
     unsafe {
         let cursor = LoadCursorW(None, windows::Win32::UI::WindowsAndMessaging::IDC_ARROW)
             .map_err(|e| ActionError::execution(format!("LoadCursorW: {e}")))?;
-        let brush = CreateSolidBrush(COLORREF(0x0000_00FF));
         let classes = INSPECT_CLASSES.get().expect("INSPECT_CLASSES");
 
-        let register = |name: &[u16], proc: WNDPROC| {
+        let register = |name: &[u16], proc: WNDPROC, brush: HBRUSH| {
             let wc = WNDCLASSW {
                 lpfnWndProc: proc,
                 hInstance: instance,
@@ -64,14 +79,23 @@ fn init_inspect_classes(instance: HINSTANCE) -> Result<(), ActionError> {
             };
             let _ = RegisterClassW(&wc);
         };
-        register(&classes.border, Some(static_wnd_proc));
-        register(&classes.tooltip, Some(static_wnd_proc));
-        register(&classes.msg, Some(msg_wnd_proc));
+        // 高亮框只填色不画字，默认窗口过程够用。
+        register(
+            &classes.border,
+            Some(default_wnd_proc),
+            CreateSolidBrush(HIGHLIGHT),
+        );
+        // 标签条的文字必须自己画：`WS_POPUP` 没有 `WS_CAPTION`，默认窗口过程不会画窗口
+        // 文字，若再给它类画刷，屏幕上就只剩一条纯色空条。
+        register(&classes.label, Some(label_wnd_proc), HBRUSH::default());
+        // 消息宿主只用来挂定时器，从不显示。
+        register(&classes.msg, Some(msg_wnd_proc), HBRUSH::default());
     }
     Ok(())
 }
 
-unsafe extern "system" fn static_wnd_proc(
+/// `DefWindowProcW` 在 windows-rs 里是 Rust ABI，不能直接当 `WNDPROC`（`extern "system"`）用。
+unsafe extern "system" fn default_wnd_proc(
     hwnd: HWND,
     msg: u32,
     wparam: WPARAM,
@@ -80,9 +104,63 @@ unsafe extern "system" fn static_wnd_proc(
     unsafe { DefWindowProcW(hwnd, msg, wparam, lparam) }
 }
 
+/// 标签条窗口过程：把元素描述画出来。
+unsafe extern "system" fn label_wnd_proc(
+    hwnd: HWND,
+    msg: u32,
+    wparam: WPARAM,
+    lparam: LPARAM,
+) -> LRESULT {
+    match msg {
+        // 底色与文字在一次 `WM_PAINT` 里画完，跳过系统擦除以免闪烁。
+        WM_ERASEBKGND => LRESULT(1),
+        WM_PAINT => {
+            unsafe { paint_label(hwnd) };
+            LRESULT(0)
+        }
+        _ => unsafe { DefWindowProcW(hwnd, msg, wparam, lparam) },
+    }
+}
+
+/// 自绘标签：铺底色 → 取回窗口文本（`SetWindowTextW` 是唯一来源）→ 单行居中、超宽省略号。
+unsafe fn paint_label(hwnd: HWND) {
+    let mut ps = PAINTSTRUCT::default();
+    let hdc = unsafe { BeginPaint(hwnd, &mut ps) };
+    if hdc.is_invalid() {
+        return;
+    }
+    unsafe {
+        let mut rect = RECT::default();
+        if GetClientRect(hwnd, &mut rect).is_ok() {
+            let brush = CreateSolidBrush(LABEL_BG);
+            if !brush.is_invalid() {
+                FillRect(hdc, &rect, brush);
+                let _ = DeleteObject(HGDIOBJ(brush.0));
+            }
+            let mut text = [0u16; LABEL_TEXT_MAX];
+            let len = GetWindowTextW(hwnd, &mut text).max(0) as usize;
+            let mut inner = RECT {
+                left: rect.left + LABEL_PAD,
+                top: rect.top,
+                right: (rect.right - LABEL_PAD).max(rect.left + LABEL_PAD),
+                bottom: rect.bottom,
+            };
+            SetBkMode(hdc, TRANSPARENT);
+            SetTextColor(hdc, LABEL_FG);
+            let _ = DrawTextW(
+                hdc,
+                &mut text[..len],
+                &mut inner,
+                DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS | DT_NOPREFIX,
+            );
+        }
+        let _ = EndPaint(hwnd, &ps);
+    }
+}
+
 struct InspectUi {
     borders: [HWND; 4],
-    tooltip: HWND,
+    label: HWND,
     msg_hwnd: HWND,
 }
 
@@ -90,7 +168,7 @@ impl InspectUi {
     fn new() -> Self {
         Self {
             borders: [HWND::default(); 4],
-            tooltip: HWND::default(),
+            label: HWND::default(),
             msg_hwnd: HWND::default(),
         }
     }
@@ -123,21 +201,21 @@ impl InspectUi {
                 .map_err(|e| ActionError::execution(format!("CreateWindowExW border: {e}")))?;
             }
 
-            self.tooltip = CreateWindowExW(
+            self.label = CreateWindowExW(
                 ex,
-                windows::core::PCWSTR(classes.tooltip.as_ptr()),
+                windows::core::PCWSTR(classes.label.as_ptr()),
                 windows::core::PCWSTR::null(),
                 style,
                 0,
                 0,
-                320,
-                24,
+                LABEL_MAX_W,
+                LABEL_H,
                 None,
                 None,
                 Some(HINSTANCE(instance.0)),
                 None,
             )
-            .map_err(|e| ActionError::execution(format!("CreateWindowExW tooltip: {e}")))?;
+            .map_err(|e| ActionError::execution(format!("CreateWindowExW label: {e}")))?;
 
             self.msg_hwnd = CreateWindowExW(
                 ex,
@@ -165,13 +243,13 @@ impl InspectUi {
                     let _ = ShowWindow(*h, SW_HIDE);
                 }
             }
-            if !self.tooltip.is_invalid() {
-                let _ = ShowWindow(self.tooltip, SW_HIDE);
+            if !self.label.is_invalid() {
+                let _ = ShowWindow(self.label, SW_HIDE);
             }
         }
     }
 
-    fn show_highlight(&mut self, rect: &Rect, label: &str) {
+    fn show_highlight(&mut self, rect: &Rect, text: &str) {
         unsafe {
             let left = rect.get_left();
             let top = rect.get_top();
@@ -215,18 +293,26 @@ impl InspectUi {
                 );
                 let _ = ShowWindow(self.borders[i], SW_SHOWNA);
             }
-            let tip_y = (top - 28).max(0);
+            let tip_y = (top - LABEL_H - LABEL_GAP).max(0);
+            // 描述为空就别顶一条空色块出来。
+            if text.is_empty() {
+                let _ = ShowWindow(self.label, SW_HIDE);
+                return;
+            }
+            // 宽度跟着元素走：小控件不至于被一条大黑条盖住。
+            let label_w = width.clamp(LABEL_MIN_W, LABEL_MAX_W);
             let _ = SetWindowPos(
-                self.tooltip,
+                self.label,
                 Some(HWND_TOPMOST),
                 left,
                 tip_y,
-                480,
-                24,
+                label_w,
+                LABEL_H,
                 SWP_NOACTIVATE | SWP_SHOWWINDOW,
             );
-            let _ = SetWindowTextW(self.tooltip, windows::core::PCWSTR(wide(label).as_ptr()));
-            let _ = ShowWindow(self.tooltip, SW_SHOWNA);
+            let _ = SetWindowTextW(self.label, windows::core::PCWSTR(wide(text).as_ptr()));
+            let _ = InvalidateRect(Some(self.label), None, true);
+            let _ = ShowWindow(self.label, SW_SHOWNA);
         }
     }
 
@@ -237,8 +323,8 @@ impl InspectUi {
                     let _ = windows::Win32::UI::WindowsAndMessaging::DestroyWindow(h);
                 }
             }
-            if !self.tooltip.is_invalid() {
-                let _ = windows::Win32::UI::WindowsAndMessaging::DestroyWindow(self.tooltip);
+            if !self.label.is_invalid() {
+                let _ = windows::Win32::UI::WindowsAndMessaging::DestroyWindow(self.label);
             }
             if !self.msg_hwnd.is_invalid() {
                 let _ = windows::Win32::UI::WindowsAndMessaging::DestroyWindow(self.msg_hwnd);
