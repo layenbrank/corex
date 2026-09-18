@@ -19,6 +19,9 @@ import { connect, discover } from '../src/index.js'
 
 const DAEMON = process.env.COREX_DAEMON
 
+/** 等一会儿；给「慢请求先跑起来」留提前量。 */
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
+
 /** 一份只服务这次运行的配置：端点与锁都钉住，不碰用户的数据目录。 */
 function writeConfig(dir) {
   const name = `corex-client-smoke-${process.pid}`
@@ -106,6 +109,21 @@ test('对着真 daemon：发现 → 鉴权 → 目录 → 指令与进度帧 →
       `结果该是最后一步的值: ${JSON.stringify(result)}`
     )
     assert.equal(fs.statSync(target).size, fs.statSync(source).size)
+
+    // 慢请求期间，同一条连接上的控制请求要及时回。
+    //
+    // 客户端按**一条连接多路复用**写（`#pending` 按 id 归位），而 daemon 曾经是
+    // 「跑完一条才读下一条」——那样主机的探活会一直等到指令跑完（10s 上限一到就报
+    // “请求 ping 超时”，像是失联）。跨平台可用的慢动作只有 `ui.wait`。
+    if (process.platform === 'win32') {
+      const slow = client.invoke('ui.wait', { ms: 1200 })
+      await sleep(150)
+      const started = Date.now()
+      await client.ping()
+      const pingMs = Date.now() - started
+      assert.ok(pingMs < 600, `探活被慢请求挡住了：${pingMs}ms`)
+      await slow
+    }
 
     // `close()` 会请 daemon 退出——它写下的记录也该随之消失。
     const child = client.daemon?.child

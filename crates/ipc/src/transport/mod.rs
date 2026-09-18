@@ -6,6 +6,8 @@ use async_trait::async_trait;
 use std::path::{Path, PathBuf};
 use std::pin::pin;
 use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncWrite, AsyncWriteExt, BufReader};
+use tokio::sync::mpsc;
+use tokio::task::JoinSet;
 
 #[cfg(unix)]
 mod unix;
@@ -23,11 +25,17 @@ pub type PlatformTransport = UnixSocketTransport;
 #[cfg(windows)]
 pub type PlatformTransport = NamedPipeTransport;
 
-/// 每条连接上待写的中间帧队列长度。
+/// 每条连接上**单个请求**的中间帧队列长度。
 ///
 /// 满了就丢帧（见 [`FrameSink`]）：这个数字只是不让一次突发把内存撑大，
 /// 而不是背压参数——**进度永远不该让执行等它**。
 const FRAME_QUEUE: usize = 64;
+
+/// 每条连接待写的响应队列长度：**所有请求共用这一条**（写口只有一个）。
+///
+/// 帧满即丢的取舍只在单个请求内部（`FRAME_QUEUE`）；到了这里已经是“要真的写出去”
+/// 的东西，包括每条请求的终帧，所以满了就等而不是丢。
+const WRITE_QUEUE: usize = 64;
 
 /// 丢掉中间帧的落点。[`Transport::send`] 用它把流式读取退化成旧的一问一答。
 struct Discard;
@@ -256,14 +264,18 @@ pub(crate) fn stop_channel() -> (
     tokio::sync::mpsc::channel(1)
 }
 
-/// 一条连接的读写循环：逐行读请求，允许 handler 推中间帧，最后写回终帧。
+/// 一条连接的读写循环：逐行读请求，每个请求**各自一个任务**，写口只有一条。
 ///
-/// **帧必须先于终帧出去**，所以帧的出队与 handler 的推进在同一个任务里多路复用，
-/// 而不是把 writer 交给 handler 自己抢。两个平台传输的这段逻辑完全一致，只有底层流
-/// 类型不同，因此只写一份。
+/// 一条连接上因此可以同时有多条请求在飞（协议承诺，见 `docs/reference/IPC协议.md`
+/// 的并发模型）：慢请求不再让同一连接的其它请求排在它后面——宿主正是一个客户端一条
+/// 连接，探活与「拉目录」都搭在上面。要不要把**执行**也串起来是上层的事
+/// （见 daemon 的 `max_jobs`），这里只保证“读到就推进”。
 ///
-/// handler 结束时它的局部变量（连同 [`Outlet`]）一起 drop，发送端随即关闭；
-/// 那时把残留的帧排干净再写终帧，顺序就不会错。
+/// 两条顺序约束落在 [`run_request`] 里：一个请求的帧排在它自己的终帧之前；
+/// 跨请求没有顺序可言（除了一行的字节不被截断——写只有本函数一处）。
+///
+/// 收 `bye` 或对端断开就结束本连接：前者立刻退（服务正要收摊，在途请求一并中止，
+/// 它们也没有答案可送）；后者先把在途请求的答案写完再退。
 ///
 /// `handler` 按值传：调用方（平台传输）把克隆出来的一份移进本连接所在的任务。
 pub(crate) async fn serve_connection<R, W, F, Fut>(
@@ -274,51 +286,96 @@ pub(crate) async fn serve_connection<R, W, F, Fut>(
 where
     R: AsyncRead + Unpin,
     W: AsyncWrite + Unpin,
+    F: Fn(Request, Outlet) -> Fut + Clone + Send + 'static,
+    Fut: std::future::Future<Output = Response> + Send + 'static,
+{
+    let mut lines = BufReader::new(reader).lines();
+    let (write, mut written) = mpsc::channel::<Response>(WRITE_QUEUE);
+    let mut running = JoinSet::new();
+    let outcome = loop {
+        tokio::select! {
+            // `Lines::next_line` 与 `mpsc::Receiver::recv` 都是取消安全的：
+            // 没轮到的分支不会丢消息。
+            line = lines.next_line() => {
+                let Some(line) = line? else {
+                    break Connection::Closed;
+                };
+                if line.trim().is_empty() {
+                    continue;
+                }
+                // 拒收与解析失败不归任何请求，直接写——进队会在这个任务里自等而卡住。
+                if line.len() > MAX_LINE_BYTES {
+                    let refused = Response::error(
+                        0,
+                        RpcError::invalid(format!("请求超过最大长度 {MAX_LINE_BYTES} 字节")),
+                    );
+                    write_response(&mut writer, &refused).await?;
+                    continue;
+                }
+                let request = match serde_json::from_str::<Request>(&line) {
+                    Ok(request) => request,
+                    Err(e) => {
+                        let refused =
+                            Response::error(0, RpcError::invalid(format!("请求解析失败: {e}")));
+                        write_response(&mut writer, &refused).await?;
+                        continue;
+                    }
+                };
+                running.spawn(run_request(request, handler.clone(), write.clone()));
+            }
+            Some(response) = written.recv() => {
+                write_response(&mut writer, &response).await?;
+                if matches!(response, Response::Bye { .. }) {
+                    break Connection::Bye;
+                }
+            }
+            // 接住结束了的请求，免得 `JoinSet` 攒着它们的返回值。
+            Some(_) = running.join_next(), if !running.is_empty() => {}
+        }
+    };
+    // 对端断开时在途请求也得有答案。先放下自己那份发送端，否则下面这句永远等不到
+    // 「所有请求都结束了」——`recv` 只在发送端全没了才回 `None`。
+    drop(write);
+    if matches!(outcome, Connection::Closed) {
+        while let Some(response) = written.recv().await {
+            write_response(&mut writer, &response).await?;
+        }
+    }
+    // `bye` 意味着服务正要退：在途请求别接着动（UI 自动化尤其如此），
+    // 它们的答案也无处可送。
+    running.abort_all();
+    Ok(outcome)
+}
+
+/// 推进一条请求：把它的帧与终帧按顺序交给连接的写口。
+///
+async fn run_request<F, Fut>(request: Request, handler: F, write: mpsc::Sender<Response>)
+where
     F: Fn(Request, Outlet) -> Fut,
     Fut: std::future::Future<Output = Response>,
 {
-    let mut lines = BufReader::new(reader).lines();
-    while let Some(line) = lines.next_line().await? {
-        if line.trim().is_empty() {
-            continue;
-        }
-        if line.len() > MAX_LINE_BYTES {
-            let refused = Response::error(
-                0,
-                RpcError::invalid(format!("请求超过最大长度 {MAX_LINE_BYTES} 字节")),
-            );
-            write_response(&mut writer, &refused).await?;
-            continue;
-        }
-        let request = match serde_json::from_str::<Request>(&line) {
-            Ok(request) => request,
-            Err(e) => {
-                let refused = Response::error(0, RpcError::invalid(format!("请求解析失败: {e}")));
-                write_response(&mut writer, &refused).await?;
-                continue;
+    let (frames, mut pending_frames) = mpsc::channel(FRAME_QUEUE);
+    let outlet = Outlet::new(request.id(), frames);
+    let mut pending = pin!(handler(request, outlet));
+    let response = loop {
+        tokio::select! {
+            response = &mut pending => break response,
+            Some(frame) = pending_frames.recv() => {
+                // 写口满就等：背压只压这条请求，而帧仍排在它的终帧之前。
+                if write.send(frame).await.is_err() {
+                    return;
+                }
             }
-        };
-
-        let (tx, mut frames) = tokio::sync::mpsc::channel(FRAME_QUEUE);
-        let outlet = Outlet::new(request.id(), tx);
-        let mut pending = pin!(handler(request, outlet));
-        let response = loop {
-            tokio::select! {
-                response = &mut pending => break response,
-                // `mpsc::Receiver::recv` 是取消安全的：没轮到时不会丢消息。
-                Some(frame) = frames.recv() => write_response(&mut writer, &frame).await?,
-            }
-        };
-        while let Ok(frame) = frames.try_recv() {
-            write_response(&mut writer, &frame).await?;
         }
-        write_response(&mut writer, &response).await?;
-
-        if matches!(response, Response::Bye { .. }) {
-            return Ok(Connection::Bye);
+    };
+    // handler 结束时它的局部变量（连同持有帧发送端的 [`Outlet`]）一起 drop；
+    // 那时把残留的帧排干净再发终帧，顺序就不会错。
+    while let Ok(frame) = pending_frames.try_recv() {
+        if write.send(frame).await.is_err() {
+            return;
         }
     }
-    Ok(Connection::Closed)
+    let _ = write.send(response).await;
 }
 
 /// 写一条 NDJSON 帧。
@@ -375,6 +432,9 @@ pub(crate) async fn read_final<R: AsyncRead + Unpin>(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::progress::ProgressEvent;
+    use std::time::{Duration, Instant};
+    use tokio::io::{DuplexStream, Lines, ReadHalf, WriteHalf};
 
     #[test]
     fn nothing_configured_means_the_platform_default() {
@@ -492,5 +552,186 @@ mod tests {
             resolve_endpoint(dir.path(), None).expect("平台默认"),
             ipc_endpoint(dir.path())
         );
+    }
+
+    /// 一条连接的两端：`serve_connection` 那半边跑在任务里，客户端这半边交回来。
+    ///
+    /// 用内存里的双向流冒充连接：并发那条承诺是 `serve_connection` 的职责，与底层是
+    /// 命名管道还是 socket 无关，所以这里不必真开一个端点（真传输由
+    /// `tests/streaming.rs` 覆盖）。
+    fn connection<F, Fut>(
+        handler: F,
+    ) -> (
+        tokio::task::JoinHandle<Result<Connection, TransportError>>,
+        Peer,
+    )
+    where
+        F: Fn(Request, Outlet) -> Fut + Clone + Send + 'static,
+        Fut: std::future::Future<Output = Response> + Send + 'static,
+    {
+        let (client, server) = tokio::io::duplex(64 * 1024);
+        let (read, write) = tokio::io::split(server);
+        let serving = tokio::spawn(serve_connection(read, write, handler));
+        let (read, write) = tokio::io::split(client);
+        let peer = Peer {
+            writer: write,
+            lines: BufReader::new(read).lines(),
+        };
+        (serving, peer)
+    }
+
+    /// 客户端那半边：写请求、按行收响应（一条连接上可以有多条请求在飞）。
+    struct Peer {
+        writer: WriteHalf<DuplexStream>,
+        lines: Lines<BufReader<ReadHalf<DuplexStream>>>,
+    }
+
+    impl Peer {
+        async fn send(&mut self, request: &Request) {
+            let mut line = serde_json::to_string(request).expect("请求可序列化");
+            line.push('\n');
+            self.writer
+                .write_all(line.as_bytes())
+                .await
+                .expect("写请求");
+        }
+
+        /// 原样写一行（用来喂坏请求）。
+        async fn send_raw(&mut self, line: &str) {
+            self.writer
+                .write_all(line.as_bytes())
+                .await
+                .expect("写原始行");
+        }
+
+        async fn next(&mut self) -> Response {
+            let line = self
+                .lines
+                .next_line()
+                .await
+                .expect("读响应")
+                .expect("连接还在");
+            serde_json::from_str(&line).expect("响应是 JSON")
+        }
+    }
+
+    fn ping(id: u64) -> Request {
+        Request::Ping {
+            id,
+            auth_token: None,
+        }
+    }
+
+    fn slow_request(id: u64) -> Request {
+        Request::RunDirective {
+            id,
+            auth_token: None,
+            name: "probe".into(),
+            input: Default::default(),
+            path: None,
+            stream: true,
+        }
+    }
+
+    /// 对照 daemon 的服务器：`run_directive` 慢且推一帧，探活立刻答，`shutdown` 回 `bye`。
+    fn slow_server(
+        slow: Duration,
+    ) -> impl Fn(
+        Request,
+        Outlet,
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Response> + Send>>
+    + Clone
+    + Send
+    + 'static {
+        move |request: Request, outlet: Outlet| {
+            let slow = slow;
+            Box::pin(async move {
+                match request {
+                    Request::RunDirective { id, .. } => {
+                        outlet.offer(ProgressEvent::StepStart {
+                            seq: 1,
+                            step: "copy".into(),
+                            action: "file.copy".into(),
+                        });
+                        tokio::time::sleep(slow).await;
+                        Response::ok(id, "done")
+                    }
+                    Request::Ping { id, .. } => Response::Pong { id },
+                    Request::Shutdown { id, .. } => Response::Bye { id },
+                    other => Response::error(other.id(), RpcError::invalid("未预期的请求")),
+                }
+            })
+        }
+    }
+
+    /// 慢请求不再挡住同一条连接上的其它请求。
+    ///
+    /// 这曾经是坏的：`serve_connection` 逐行读、跑完一条才读下一条，于是宿主（一个客户端
+    /// 一条连接）在一条几分钟的指令期间连探活都发不出去。Rust 侧传输是每请求新建连接，
+    /// 所以只有手写多路复用的宿主（如 `packages/corex-client`）会撞上。
+    #[tokio::test]
+    async fn a_slow_request_does_not_hold_up_its_neighbours() {
+        let slow = Duration::from_millis(400);
+        let (serving, mut peer) = connection(slow_server(slow));
+
+        let started = Instant::now();
+        peer.send(&slow_request(1)).await;
+        peer.send(&ping(2)).await;
+
+        // 两个任务是并发调度的，所以慢请求那一帧与探活的回话谁先到都可能。要钉的是
+        // **探活不必等它睡完**：在它睡完之前到的，只能是探活的回话或它自己那一帧。
+        let pong_ms = loop {
+            match peer.next().await {
+                Response::Pong { id } => {
+                    assert_eq!(id, 2);
+                    break started.elapsed().as_millis();
+                }
+                Response::Event { id, .. } => assert_eq!(id, 1, "别的请求的帧不该串进来"),
+                other => panic!("慢请求睡完之前不该有它的终帧: {other:?}"),
+            }
+        };
+        assert!(
+            pong_ms < slow.as_millis() / 2,
+            "探活被慢请求挡住了：{pong_ms}ms"
+        );
+
+        // 它自己的终帧排在它自己的帧之后（那一帧可能已经先到过）。
+        loop {
+            match peer.next().await {
+                Response::Event { id, .. } => assert_eq!(id, 1, "帧不该串到别的请求上"),
+                Response::Ok { id, .. } => {
+                    assert_eq!(id, 1);
+                    break;
+                }
+                other => panic!("慢请求之后不该有别的东西: {other:?}"),
+            }
+        }
+
+        peer.send(&Request::Shutdown {
+            id: 3,
+            auth_token: None,
+        })
+        .await;
+        assert!(matches!(peer.next().await, Response::Bye { id: 3 }));
+        assert!(
+            matches!(serving.await.expect("服务任务"), Ok(Connection::Bye)),
+            "`bye` 该让整条连接结束"
+        );
+    }
+
+    /// 坏请求只拒收它自己，连接与在途请求都还在。
+    #[tokio::test]
+    async fn a_broken_line_is_refused_on_its_own() {
+        let (serving, mut peer) = connection(slow_server(Duration::from_millis(50)));
+
+        peer.send_raw("这不是 JSON\n").await;
+        assert!(
+            matches!(peer.next().await, Response::Error { id: 0, .. }),
+            "解析失败该回一条 id 为 0 的错误"
+        );
+        peer.send(&ping(1)).await;
+        assert!(matches!(peer.next().await, Response::Pong { id: 1 }));
+
+        serving.abort();
     }
 }
