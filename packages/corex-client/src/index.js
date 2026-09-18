@@ -473,10 +473,26 @@ export class CorexClient {
     return true
   }
 
-  /** 动作目录：与 `corex actions --json` 的 `actions` 数组同形（含 params / permissions / input_schema）。 */
-  async actions({ timeoutMs = LIGHT_TIMEOUT_MS } = {}) {
+  /**
+   * 动作目录：与 `corex actions --json` 的**同一份文档**
+   * （`{ version, count, bucket, actions }`）。
+   *
+   * `version` 是 daemon 的 corex 版本，宿主据此判断手里的参数表要不要重拉。
+   */
+  async catalog({ timeoutMs = LIGHT_TIMEOUT_MS } = {}) {
     const response = await this.#request({ type: 'list_actions' }, { timeoutMs })
-    return response.data ?? []
+    return response.data ?? { version: null, count: 0, actions: [] }
+  }
+
+  /**
+   * 动作清单（就是 [`catalog`](#catalog) 里的 `actions` 数组）。
+   *
+   * 每个元素含 `id` / `name` / `description` / `bucket` / `params` / `permissions` /
+   * `input_schema`——够 agent 直接拼工具清单。
+   */
+  async actions({ timeoutMs = LIGHT_TIMEOUT_MS } = {}) {
+    const doc = await this.catalog({ timeoutMs })
+    return doc.actions ?? []
   }
 
   /** 指令名。`dir` 是数据目录下的子目录（**路径沙箱**：越界会被拒）。 */

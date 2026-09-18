@@ -86,6 +86,9 @@ test('对着真 daemon：发现 → 鉴权 → 目录 → 指令与进度帧 →
     assert.match(live.token ?? '', /^[0-9a-f]{64}$/, 'daemon 创建的 token 该被读到')
     assert.equal(await client.ping(), true)
 
+    const catalog = await client.catalog()
+    assert.equal(typeof catalog.version, 'string', '目录该带 daemon 的版本号')
+    assert.equal(catalog.count, catalog.actions.length)
     const actions = await client.actions()
     assert.ok(actions.length > 0, '目录不该是空的')
     const copy = actions.find((entry) => entry.id === 'file.copy')

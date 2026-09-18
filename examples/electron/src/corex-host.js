@@ -85,6 +85,7 @@ function createHost({
     start,
     stop,
     status,
+    catalog: () => connected().catalog(),
     actions: () => connected().actions(),
     directives: (dir) => connected().directives(dir),
     invoke: (action, params) => connected().invoke(action, params ?? {}, { onProgress }),

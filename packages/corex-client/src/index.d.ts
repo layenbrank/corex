@@ -57,6 +57,19 @@ export interface ActionEntry {
   }
 }
 
+/**
+ * 动作目录文档；与 `corex actions --json`（以及 `list_actions` 的回话）**逐字同形**。
+ *
+ * `version` 是 daemon 的 corex 版本，用它判断手里的参数表要不要重拉。
+ */
+export interface Catalog {
+  version: string
+  count: number
+  /** 筛过的组；不筛时为 `null`。 */
+  bucket: string | null
+  actions: ActionEntry[]
+}
+
 /** 磁盘上的端点记录（`<数据目录>/endpoint.json`）。 */
 export interface EndpointRecord {
   version: number
@@ -145,7 +158,10 @@ export declare class CorexClient {
   /** 探活。 */
   ping(options?: { timeoutMs?: number }): Promise<true>
 
-  /** 动作目录（含参数表、权限与 `input_schema`）。 */
+  /** 动作目录文档（含 `version` 与 `actions`）。 */
+  catalog(options?: { timeoutMs?: number }): Promise<Catalog>
+
+  /** 动作清单（`catalog().actions`）：含参数表、权限与 `input_schema`。 */
   actions(options?: { timeoutMs?: number }): Promise<ActionEntry[]>
 
   /** 指令名；`dir` 是数据目录下的子目录，越界会被拒。 */

@@ -106,7 +106,10 @@ try {
   check('认出是自己拉起的', started.spawned === true)
 
   console.log('目录')
-  const actions = await host.actions()
+  const catalog = await host.catalog()
+  // 版本号是宿主判断「手里的参数表要不要重拉」的依据。
+  check('目录带版本号', typeof catalog.version === 'string', JSON.stringify(catalog.version))
+  const actions = catalog.actions
   check('目录非空', actions.length > 0, `${actions.length} 个`)
   const copy = actions.find((entry) => entry.id === 'file.copy')
   check('带权限声明', JSON.stringify(copy?.permissions) === '["filesystem"]')

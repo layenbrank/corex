@@ -179,9 +179,32 @@ test('invoke 先按序回调进度帧，终帧才当结果', async () => {
   await server.close()
 })
 
+test('目录文档：catalog() 给整份，actions() 给数组', async () => {
+  const doc = {
+    version: '9.0.0',
+    count: 1,
+    bucket: null,
+    actions: [{ id: 'file.copy' }]
+  }
+  const server = await startServer((request, socket) => {
+    send(socket, { type: 'ok', id: request.id, data: doc })
+  })
+  const client = await connect({ endpoint: server.endpoint })
+
+  assert.deepEqual(await client.catalog(), doc)
+  assert.deepEqual(await client.actions(), doc.actions)
+
+  await client.close()
+  await server.close()
+})
+
 test('不给回调就不置 stream', async () => {
   const server = await startServer((request, socket) => {
-    send(socket, { type: 'ok', id: request.id, data: [] })
+    send(socket, {
+      type: 'ok',
+      id: request.id,
+      data: { version: '9.0.0', count: 0, bucket: null, actions: [] }
+    })
   })
   const client = await connect({ endpoint: server.endpoint })
   await client.actions()
