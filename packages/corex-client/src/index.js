@@ -201,8 +201,12 @@ export function spawnDaemon({
     stdio: onLog ? ['ignore', 'pipe', 'pipe'] : 'ignore'
   })
   if (onLog) {
-    child.stdout.on('data', (chunk) => onLog(chunk.toString()))
-    child.stderr.on('data', (chunk) => onLog(chunk.toString()))
+    // 交给 Node 的 `StringDecoder`（`setEncoding` 内部就是它）：一条日志被读块从
+    // 汉字中间切开时，它会把半个字符留到下一块，而不是就地变成 U+FFFD。
+    child.stdout.setEncoding('utf8')
+    child.stderr.setEncoding('utf8')
+    child.stdout.on('data', (chunk) => onLog(chunk))
+    child.stderr.on('data', (chunk) => onLog(chunk))
   }
 
   return {
@@ -345,7 +349,12 @@ export class CorexClient {
 
   #attach(socket) {
     this.#socket = socket
-    socket.on('data', (chunk) => this.#receive(chunk.toString()))
+    // 同上：**必须**按流解码，不能对每块调 `chunk.toString()`。一个汉字被读块从
+    // 中间切开时，后者会把它变成 U+FFFD —— 而 JSON 仍然合法，于是坏掉的是内容
+    // 而不是解析（动作名与说明全是中文，`list_actions` 一次推 ~103 KB，切在
+    // 多字节中间是常态）。
+    socket.setEncoding('utf8')
+    socket.on('data', (chunk) => this.#receive(chunk))
     socket.on('error', (err) => this.#failAll(err))
     socket.on('close', () => {
       this.#closed = true

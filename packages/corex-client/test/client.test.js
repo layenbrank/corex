@@ -118,6 +118,28 @@ test('ping 在 pong 上收尾', async () => {
   await server.close()
 })
 
+/**
+ * 一帧被读块从**多字节字符中间**切开时，半个字符要留到下一块拼回来。
+ *
+ * 这条不是理论风险：动作名与说明全是中文，`list_actions` 一次推 ~103 KB，切在
+ * 多字节中间是常态。按块 `chunk.toString()` 会就地把它变成 U+FFFD，而 JSON 仍然
+ * 合法——坏掉的是内容而不是解析，所以只能靠断言内容发现。
+ */
+test('跨块的半个汉字要被拼回来，而不是变成替换字符', async () => {
+  const server = await startServer((request, socket) => {
+    const head = Buffer.from(`{"type":"ok","id":${request.id},"data":["`)
+    const tail = Buffer.concat([Buffer.from([0xb8, 0xad]), Buffer.from('"]}\n')])
+    // 第一块在 `中`（E4 B8 AD）的第一个字节后断开，其余留到下一块。
+    socket.write(Buffer.concat([head, Buffer.from([0xe4])]))
+    setImmediate(() => socket.write(tail))
+  })
+  const client = await connect({ endpoint: server.endpoint })
+  // 指令名里就有中文：一帧被切开时坏掉的是**内容**，所以只能靠内容比对发现。
+  assert.deepEqual(await client.directives(), ['中'])
+  await client.close()
+  await server.close()
+})
+
 test('invoke 先按序回调进度帧，终帧才当结果', async () => {
   const server = await startServer((request, socket) => {
     send(socket, {
