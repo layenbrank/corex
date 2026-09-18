@@ -19,32 +19,32 @@ Corex daemon 的 NDJSON IPC 客户端。**零依赖、零构建**：`import` 的
 ## 快速开始
 
 ```js
-import { connect } from 'corex-client';
+import { connect } from 'corex-client'
 
 // 连已经跑着的 daemon；没有就先拉起一个（宿主启动时的常规写法）
-const corex = await connect({ spawn: true });
+const corex = await connect({ spawn: true })
 
-await corex.ping();
+await corex.ping()
 
-const catalog = await corex.actions(); // 与 `corex actions --json` 逐字同形
-const copy = catalog.find((action) => action.id === 'file.copy');
+const catalog = await corex.actions() // 与 `corex actions --json` 逐字同形
+const copy = catalog.find((action) => action.id === 'file.copy')
 
 const result = await corex.invoke(
   'file.copy',
   { from: 'a.bin', to: 'b.bin' },
-  { onProgress: (frame) => console.log(frame.kind, frame.step, frame.done, frame.unit) },
-);
+  { onProgress: (frame) => console.log(frame.kind, frame.step, frame.done, frame.unit) }
+)
 
-await corex.run('hello', { input: { who: 'electron' } });
+await corex.run('hello', { input: { who: 'electron' } })
 
-await corex.close(); // 自己拉起的 daemon 会一并收掉
+await corex.close() // 自己拉起的 daemon 会一并收掉
 ```
 
 ## 端点发现
 
-| 顺序 | 来源                                                              |
-| ---- | ----------------------------------------------------------------- |
-| 1    | `connect({ endpoint })`                                           |
+| 顺序 | 来源                                                               |
+| ---- | ------------------------------------------------------------------ |
+| 1    | `connect({ endpoint })`                                            |
 | 2    | `<数据目录>/endpoint.json`（daemon 运行中写下）                    |
 | 3    | 平台默认（Windows `\\.\pipe\corex`；Unix `<数据目录>/corex.sock`） |
 
@@ -73,19 +73,19 @@ TOML 解析器。那种部署请把值显式传给 `connect({ token })` 或设 `
 
 ## API
 
-| 成员                                                  | 说明                                                       |
-| ----------------------------------------------------- | ---------------------------------------------------------- |
-| `connect(options)` / `CorexClient.connect`            | 建连；`spawn: true` 时连不上先拉起 daemon                  |
-| `client.ping()`                                       | 探活（`corex daemon status` 用的同一个请求）               |
-| `client.actions()`                                    | 动作目录：参数表 + 权限 + `input_schema`                   |
-| `client.directives(dir?)`                             | 指令名（受路径沙箱约束）                                   |
-| `client.invoke(action, params, { onProgress })`       | 调用单个 Action                                            |
-| `client.run(name, { input, file, onProgress })`       | 执行指令                                                   |
-| `client.shutdown()` / `client.close({ stopDaemon })`  | 请 daemon 退出 / 断开（自己起的默认顺带收掉）              |
-| `client.daemon`                                       | 自己拉起的子进程句柄；连别人的时是 `null`                  |
-| `discover(options)`                                   | 只解析「连到哪、用什么 token」，便于打进日志               |
-| `spawnDaemon(options)`                                | 只拉起 daemon，返回 `{ child, stop, kill }`                |
-| `RpcError`                                            | 带 `code`（400 / 401 / 403 / 404 / 500）的请求失败         |
+| 成员                                                 | 说明                                               |
+| ---------------------------------------------------- | -------------------------------------------------- |
+| `connect(options)` / `CorexClient.connect`           | 建连；`spawn: true` 时连不上先拉起 daemon          |
+| `client.ping()`                                      | 探活（`corex daemon status` 用的同一个请求）       |
+| `client.actions()`                                   | 动作目录：参数表 + 权限 + `input_schema`           |
+| `client.directives(dir?)`                            | 指令名（受路径沙箱约束）                           |
+| `client.invoke(action, params, { onProgress })`      | 调用单个 Action                                    |
+| `client.run(name, { input, file, onProgress })`      | 执行指令                                           |
+| `client.shutdown()` / `client.close({ stopDaemon })` | 请 daemon 退出 / 断开（自己起的默认顺带收掉）      |
+| `client.daemon`                                      | 自己拉起的子进程句柄；连别人的时是 `null`          |
+| `discover(options)`                                  | 只解析「连到哪、用什么 token」，便于打进日志       |
+| `spawnDaemon(options)`                               | 只拉起 daemon，返回 `{ child, stop, kill }`        |
+| `RpcError`                                           | 带 `code`（400 / 401 / 403 / 404 / 500）的请求失败 |
 
 `invoke` / `run` **默认不限时**：一条指令跑几分钟是正常的，给它卡上限只会把正常工作判成失败
 （连接真断了由 `close` / `error` 拦下）。要上限就自己传 `timeoutMs`。

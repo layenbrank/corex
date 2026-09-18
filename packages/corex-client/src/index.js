@@ -17,30 +17,30 @@
 //! 或给 `connect({ dataDir })`；否则客户端只能按「`COREX_DATA_DIR` → 平台项目目录」去猜，
 //! 而 daemon 可能正用着 exe 旁边那个目录。
 
-import net from 'node:net';
-import fs from 'node:fs';
-import os from 'node:os';
-import path from 'node:path';
-import { spawn } from 'node:child_process';
+import { spawn } from 'node:child_process'
+import fs from 'node:fs'
+import net from 'node:net'
+import os from 'node:os'
+import path from 'node:path'
 
 /** 端点记录的文件名；与 Rust 侧 `endpoint::FILE` 一致。 */
-const RECORD_FILE = 'endpoint.json';
+const RECORD_FILE = 'endpoint.json'
 
 /** 记录格式版本；不认识就当这份文件不存在。 */
-const RECORD_FORMAT = 1;
+const RECORD_FORMAT = 1
 
 /** Windows 上的默认命名管道；与 Rust 侧 `ipc_endpoint()` 一致。 */
-const DEFAULT_PIPE = '\\\\.\\pipe\\corex';
+const DEFAULT_PIPE = '\\\\.\\pipe\\corex'
 
 /** 轻量请求（探活、拉目录）的默认等待上限。 */
-const LIGHT_TIMEOUT_MS = 10000;
+const LIGHT_TIMEOUT_MS = 10000
 
 /** daemon → 客户端的一帧错误。`code` 与 `RpcError` 的四个辅助码对齐（400/401/403/404/500）。 */
 export class RpcError extends Error {
   constructor(code, message) {
-    super(message);
-    this.name = 'RpcError';
-    this.code = code;
+    super(message)
+    this.name = 'RpcError'
+    this.code = code
   }
 }
 
@@ -52,31 +52,31 @@ export class RpcError extends Error {
  */
 export function resolveDataDir(explicit) {
   if (explicit) {
-    return path.resolve(explicit);
+    return path.resolve(explicit)
   }
-  const fromEnv = process.env.COREX_DATA_DIR;
-  return fromEnv ? path.resolve(fromEnv) : platformDataDir();
+  const fromEnv = process.env.COREX_DATA_DIR
+  return fromEnv ? path.resolve(fromEnv) : platformDataDir()
 }
 
 /** `directories::ProjectDirs::from("dev", "", "corex")` 的 JS 对应实现。 */
 function platformDataDir() {
   if (process.platform === 'win32') {
-    const roaming = process.env.APPDATA ?? path.join(os.homedir(), 'AppData', 'Roaming');
+    const roaming = process.env.APPDATA ?? path.join(os.homedir(), 'AppData', 'Roaming')
     // Windows 上 ProjectDirs 会在末尾补 `\data`，XDG 系不补。
-    return path.join(roaming, 'corex', 'data');
+    return path.join(roaming, 'corex', 'data')
   }
   if (process.platform === 'darwin') {
-    return path.join(os.homedir(), 'Library', 'Application Support', 'corex');
+    return path.join(os.homedir(), 'Library', 'Application Support', 'corex')
   }
   // `directories` 只认绝对路径的 XDG_DATA_HOME，相对值一律回落到默认。
-  const xdg = process.env.XDG_DATA_HOME;
-  const root = xdg && path.isAbsolute(xdg) ? xdg : path.join(os.homedir(), '.local', 'share');
-  return path.join(root, 'corex');
+  const xdg = process.env.XDG_DATA_HOME
+  const root = xdg && path.isAbsolute(xdg) ? xdg : path.join(os.homedir(), '.local', 'share')
+  return path.join(root, 'corex')
 }
 
 /** 平台的默认端点（没有记录、也没有显式配置时）。 */
 function defaultEndpoint(dataDir) {
-  return process.platform === 'win32' ? DEFAULT_PIPE : path.join(dataDir, 'corex.sock');
+  return process.platform === 'win32' ? DEFAULT_PIPE : path.join(dataDir, 'corex.sock')
 }
 
 /**
@@ -85,34 +85,34 @@ function defaultEndpoint(dataDir) {
  * 读不到就该退回平台默认，而不是让连接起不来——这正是 Rust 侧 `discover` 的取舍。
  */
 function readRecord(dataDir) {
-  let text;
+  let text
   try {
-    text = fs.readFileSync(path.join(dataDir, RECORD_FILE), 'utf8');
+    text = fs.readFileSync(path.join(dataDir, RECORD_FILE), 'utf8')
   } catch {
-    return null;
+    return null
   }
-  let record;
+  let record
   try {
-    record = JSON.parse(text);
+    record = JSON.parse(text)
   } catch {
-    return null;
+    return null
   }
   if (!record || record.version !== RECORD_FORMAT || typeof record.endpoint !== 'string') {
-    return null;
+    return null
   }
-  return record;
+  return record
 }
 
 /** 读 token 文件；读不到返回 `undefined`（让请求以 401 现形，而不是在这里抛）。 */
 function readTokenFile(file) {
   if (!file) {
-    return undefined;
+    return undefined
   }
   try {
-    const token = fs.readFileSync(file, 'utf8').trim();
-    return token || undefined;
+    const token = fs.readFileSync(file, 'utf8').trim()
+    return token || undefined
   } catch {
-    return undefined;
+    return undefined
   }
 }
 
@@ -126,9 +126,9 @@ function readTokenFile(file) {
  * Rust 侧能读 TOML，这里刻意不引 TOML 解析器。
  */
 export function discover({ dataDir, endpoint, token } = {}) {
-  const resolved = resolveDataDir(dataDir);
-  const record = readRecord(resolved);
-  const tokenFile = record?.token_file ?? path.join(resolved, 'token');
+  const resolved = resolveDataDir(dataDir)
+  const record = readRecord(resolved)
+  const tokenFile = record?.token_file ?? path.join(resolved, 'token')
   return {
     dataDir: resolved,
     endpoint: endpoint ?? record?.endpoint ?? defaultEndpoint(resolved),
@@ -136,31 +136,31 @@ export function discover({ dataDir, endpoint, token } = {}) {
     kind: record?.kind ?? null,
     pid: record?.pid ?? null,
     /** 端点是从哪来的：`option` / `record` / `default`。排错时第一个该看的东西。 */
-    source: endpoint ? 'option' : record ? 'record' : 'default',
-  };
+    source: endpoint ? 'option' : record ? 'record' : 'default'
+  }
 }
 
 function sleep(ms) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
+  return new Promise((resolve) => setTimeout(resolve, ms))
 }
 
 /** 等子进程自己退出；超时返回 `false`（调用方再决定要不要强杀）。 */
 function waitExit(child, timeoutMs) {
   if (child.exitCode !== null || child.signalCode !== null) {
-    return Promise.resolve(true);
+    return Promise.resolve(true)
   }
   return new Promise((resolve) => {
-    let timer;
+    let timer
     const onExit = () => {
-      clearTimeout(timer);
-      resolve(true);
-    };
+      clearTimeout(timer)
+      resolve(true)
+    }
     timer = setTimeout(() => {
-      child.off('exit', onExit);
-      resolve(false);
-    }, timeoutMs);
-    child.once('exit', onExit);
-  });
+      child.off('exit', onExit)
+      resolve(false)
+    }, timeoutMs)
+    child.once('exit', onExit)
+  })
 }
 
 /**
@@ -178,14 +178,14 @@ export function spawnDaemon({
   dataDir,
   token,
   cwd,
-  onLog,
+  onLog
 } = {}) {
-  const childEnv = { ...process.env, ...env };
+  const childEnv = { ...process.env, ...env }
   if (dataDir) {
-    childEnv.COREX_DATA_DIR = dataDir;
+    childEnv.COREX_DATA_DIR = dataDir
   }
   if (token) {
-    childEnv.COREX_TOKEN = token;
+    childEnv.COREX_TOKEN = token
   }
 
   const child = spawn(daemonPath, args, {
@@ -193,11 +193,11 @@ export function spawnDaemon({
     cwd,
     windowsHide: true,
     // daemon 的日志流按设计就是 stdout；没人要就直接丢掉，免得它把宿主的管道顶满。
-    stdio: onLog ? ['ignore', 'pipe', 'pipe'] : 'ignore',
-  });
+    stdio: onLog ? ['ignore', 'pipe', 'pipe'] : 'ignore'
+  })
   if (onLog) {
-    child.stdout.on('data', (chunk) => onLog(chunk.toString()));
-    child.stderr.on('data', (chunk) => onLog(chunk.toString()));
+    child.stdout.on('data', (chunk) => onLog(chunk.toString()))
+    child.stderr.on('data', (chunk) => onLog(chunk.toString()))
   }
 
   return {
@@ -208,34 +208,34 @@ export function spawnDaemon({
      */
     async stop(timeoutMs = 3000) {
       if (await waitExit(child, timeoutMs)) {
-        return;
+        return
       }
-      child.kill();
+      child.kill()
     },
     kill() {
       if (child.exitCode === null && child.signalCode === null) {
-        child.kill();
+        child.kill()
       }
-    },
-  };
+    }
+  }
 }
 
 /** 与一个运行中的 daemon 的连接。用 [`connect`] 创建。 */
 export class CorexClient {
-  #socket = null;
-  #token;
-  #daemon;
-  #pending = new Map();
-  #nextId = 1;
-  #buffer = '';
-  #closed = false;
-  #closeHandlers = new Set();
+  #socket = null
+  #token
+  #daemon
+  #pending = new Map()
+  #nextId = 1
+  #buffer = ''
+  #closed = false
+  #closeHandlers = new Set()
 
   constructor({ endpoint, token, dataDir, daemon = null }) {
-    this.endpoint = endpoint;
-    this.dataDir = dataDir;
-    this.#token = token;
-    this.#daemon = daemon;
+    this.endpoint = endpoint
+    this.dataDir = dataDir
+    this.#token = token
+    this.#daemon = daemon
   }
 
   /**
@@ -248,14 +248,14 @@ export class CorexClient {
    * 返回的客户端记住了“是自己起的还是连别人的”，`close()` 据此决定收不收掉它。
    */
   static async connect(options = {}) {
-    const requested = discover(options);
-    const dialTimeout = options.timeoutMs ?? 3000;
+    const requested = discover(options)
+    const dialTimeout = options.timeoutMs ?? 3000
 
     try {
-      return await CorexClient.#join(requested, dialTimeout, null);
+      return await CorexClient.#join(requested, dialTimeout, null)
     } catch (err) {
       if (!options.spawn) {
-        throw err;
+        throw err
       }
     }
 
@@ -265,41 +265,41 @@ export class CorexClient {
       // 数据目录必须两边一致，否则会以「连不上」的形式表现出来；token 由 daemon
       // 自己解析/创建，我们把显式给过的那个传下去就够了。
       dataDir: requested.dataDir,
-      token: options.spawnOptions?.token ?? options.token,
-    });
+      token: options.spawnOptions?.token ?? options.token
+    })
 
-    const deadline = Date.now() + (options.spawnTimeoutMs ?? 10000);
-    let lastError = new Error('daemon 未就绪');
+    const deadline = Date.now() + (options.spawnTimeoutMs ?? 10000)
+    let lastError = new Error('daemon 未就绪')
     for (;;) {
       if (daemon.child.exitCode !== null) {
-        throw new Error(`corex-daemon 启动即退出（码 ${daemon.child.exitCode}）`);
+        throw new Error(`corex-daemon 启动即退出（码 ${daemon.child.exitCode}）`)
       }
       // **每轮重新解析**：daemon 现在写下记录了（端点以它为准，它可能读到了另一份配置），
       // `<数据目录>/token` 也可能是它刚创建出来的——首次解析时那个文件还不存在。
       try {
-        return await CorexClient.#join(discover(options), 500, daemon);
+        return await CorexClient.#join(discover(options), 500, daemon)
       } catch (err) {
-        lastError = err;
+        lastError = err
       }
       if (Date.now() > deadline) {
-        await daemon.stop(0);
-        throw new Error(`corex-daemon 未在超时内就绪（${lastError.message}）`);
+        await daemon.stop(0)
+        throw new Error(`corex-daemon 未在超时内就绪（${lastError.message}）`)
       }
-      await sleep(50);
+      await sleep(50)
     }
   }
 
   /** 建一条连接并装配好客户端。 */
   static async #join(settings, timeoutMs, daemon) {
-    const socket = await CorexClient.#open(settings, timeoutMs);
-    const client = new CorexClient({ ...settings, daemon });
-    client.#attach(socket);
-    return client;
+    const socket = await CorexClient.#open(settings, timeoutMs)
+    const client = new CorexClient({ ...settings, daemon })
+    client.#attach(socket)
+    return client
   }
 
   /** 底层流连上了没有。 */
   get isOpen() {
-    return this.#socket !== null && !this.#closed;
+    return this.#socket !== null && !this.#closed
   }
 
   /**
@@ -308,47 +308,47 @@ export class CorexClient {
    * 暴露出来是为了让宿主能监控它（看 pid、等退出）或者在 `close()` 之外兜底强杀。
    */
   get daemon() {
-    return this.#daemon;
+    return this.#daemon
   }
 
   /** daemon 退出（或连接断开）时的回调；返回退订函数。 */
   onClose(handler) {
-    this.#closeHandlers.add(handler);
-    return () => this.#closeHandlers.delete(handler);
+    this.#closeHandlers.add(handler)
+    return () => this.#closeHandlers.delete(handler)
   }
 
   /** 建连。失败时抛出的错误里带得上端点，因为“连不上”九成是端点不对。 */
   static async #open(settings, timeoutMs) {
     const socket = await new Promise((resolve, reject) => {
-      const attempt = net.connect({ path: settings.endpoint });
+      const attempt = net.connect({ path: settings.endpoint })
       const timer = setTimeout(() => {
-        attempt.destroy();
-        reject(new Error(`连接 ${settings.endpoint} 超时（${timeoutMs}ms）`));
-      }, timeoutMs);
+        attempt.destroy()
+        reject(new Error(`连接 ${settings.endpoint} 超时（${timeoutMs}ms）`))
+      }, timeoutMs)
       attempt.once('connect', () => {
-        clearTimeout(timer);
-        resolve(attempt);
-      });
+        clearTimeout(timer)
+        resolve(attempt)
+      })
       attempt.once('error', (err) => {
-        clearTimeout(timer);
-        attempt.destroy();
-        reject(new Error(`连接 ${settings.endpoint} 失败: ${err.message}`));
-      });
-    });
-    return socket;
+        clearTimeout(timer)
+        attempt.destroy()
+        reject(new Error(`连接 ${settings.endpoint} 失败: ${err.message}`))
+      })
+    })
+    return socket
   }
 
   #attach(socket) {
-    this.#socket = socket;
-    socket.on('data', (chunk) => this.#receive(chunk.toString()));
-    socket.on('error', (err) => this.#failAll(err));
+    this.#socket = socket
+    socket.on('data', (chunk) => this.#receive(chunk.toString()))
+    socket.on('error', (err) => this.#failAll(err))
     socket.on('close', () => {
-      this.#closed = true;
-      this.#failAll(new Error('与 daemon 的连接已断开'));
+      this.#closed = true
+      this.#failAll(new Error('与 daemon 的连接已断开'))
       for (const handler of this.#closeHandlers) {
-        handler();
+        handler()
       }
-    });
+    })
   }
 
   /**
@@ -359,65 +359,65 @@ export class CorexClient {
    * 正确的读法——一条连接上可以有别的请求的帧在飞。
    */
   #receive(text) {
-    this.#buffer += text;
+    this.#buffer += text
     for (;;) {
-      const end = this.#buffer.indexOf('\n');
+      const end = this.#buffer.indexOf('\n')
       if (end < 0) {
-        return;
+        return
       }
-      const line = this.#buffer.slice(0, end);
-      this.#buffer = this.#buffer.slice(end + 1);
+      const line = this.#buffer.slice(0, end)
+      this.#buffer = this.#buffer.slice(end + 1)
       if (line.trim()) {
-        this.#dispatch(line);
+        this.#dispatch(line)
       }
     }
   }
 
   #dispatch(line) {
-    let message;
+    let message
     try {
-      message = JSON.parse(line);
+      message = JSON.parse(line)
     } catch (err) {
-      this.#failAll(new Error(`daemon 回话不是 JSON: ${line}`));
-      return;
+      this.#failAll(new Error(`daemon 回话不是 JSON: ${line}`))
+      return
     }
-    const pending = this.#pending.get(message.id);
+    const pending = this.#pending.get(message.id)
     if (!pending) {
       // 不属于任何在途请求：可能是超时后被丢掉的那条的回话，忽略而不是炸掉整条连接。
-      return;
+      return
     }
     if (message.type === 'event') {
-      pending.onProgress?.(message.progress);
-      return;
+      pending.onProgress?.(message.progress)
+      return
     }
-    this.#pending.delete(message.id);
+    this.#pending.delete(message.id)
     if (message.type === 'error') {
-      pending.reject(new RpcError(message.error?.code ?? 0, message.error?.message ?? '未知错误'));
+      pending.reject(new RpcError(message.error?.code ?? 0, message.error?.message ?? '未知错误'))
     } else {
-      pending.resolve(message);
+      pending.resolve(message)
     }
   }
 
   #failAll(err) {
-    const pending = [...this.#pending.values()];
-    this.#pending.clear();
+    const pending = [...this.#pending.values()]
+    this.#pending.clear()
     for (const entry of pending) {
-      entry.reject(err);
+      entry.reject(err)
     }
   }
 
   #request(request, { onProgress, stream = false, timeoutMs = 0 } = {}) {
     if (!this.isOpen) {
-      return Promise.reject(new Error('客户端未连接或已关闭'));
+      return Promise.reject(new Error('客户端未连接或已关闭'))
     }
-    const id = this.#nextId++;
-    const payload = { ...request, id };
+    const id = this.#nextId++
+    const payload = { ...request, id }
     if (this.#token) {
-      payload.auth_token = this.#token;
+      payload.auth_token = this.#token
     }
     // 只要不给回调就不要帧：不置 `stream` 的请求一帧都不会收到，daemon 那边也省掉观察者。
     if (stream) {
-      payload.stream = true;
+      payload.stream = true
     }
 
     return new Promise((resolve, reject) => {
@@ -426,53 +426,53 @@ export class CorexClient {
       const timer =
         timeoutMs > 0
           ? setTimeout(() => {
-              this.#pending.delete(id);
-              reject(new Error(`请求 ${request.type} 超时（${timeoutMs}ms）`));
+              this.#pending.delete(id)
+              reject(new Error(`请求 ${request.type} 超时（${timeoutMs}ms）`))
             }, timeoutMs)
-          : null;
-      timer?.unref?.();
+          : null
+      timer?.unref?.()
       this.#pending.set(id, {
         resolve: (message) => {
-          clearTimeout(timer);
-          resolve(message);
+          clearTimeout(timer)
+          resolve(message)
         },
         reject: (err) => {
-          clearTimeout(timer);
-          reject(err);
+          clearTimeout(timer)
+          reject(err)
         },
-        onProgress,
-      });
+        onProgress
+      })
       this.#socket.write(`${JSON.stringify(payload)}\n`, (err) => {
         if (!err) {
-          return;
+          return
         }
-        this.#pending.delete(id);
-        clearTimeout(timer);
-        reject(err);
-      });
-    });
+        this.#pending.delete(id)
+        clearTimeout(timer)
+        reject(err)
+      })
+    })
   }
 
   /** 探活。`corex daemon status` 用的是同一个请求。 */
   async ping({ timeoutMs = LIGHT_TIMEOUT_MS } = {}) {
-    await this.#request({ type: 'ping' }, { timeoutMs });
-    return true;
+    await this.#request({ type: 'ping' }, { timeoutMs })
+    return true
   }
 
   /** 动作目录：与 `corex actions --json` 的 `actions` 数组同形（含 params / permissions / input_schema）。 */
   async actions({ timeoutMs = LIGHT_TIMEOUT_MS } = {}) {
-    const response = await this.#request({ type: 'list_actions' }, { timeoutMs });
-    return response.data ?? [];
+    const response = await this.#request({ type: 'list_actions' }, { timeoutMs })
+    return response.data ?? []
   }
 
   /** 指令名。`dir` 是数据目录下的子目录（**路径沙箱**：越界会被拒）。 */
   async directives(dir, { timeoutMs = LIGHT_TIMEOUT_MS } = {}) {
-    const request = { type: 'list_directives' };
+    const request = { type: 'list_directives' }
     if (dir) {
-      request.dir = dir;
+      request.dir = dir
     }
-    const response = await this.#request(request, { timeoutMs });
-    return response.data ?? [];
+    const response = await this.#request(request, { timeoutMs })
+    return response.data ?? []
   }
 
   /**
@@ -484,9 +484,9 @@ export class CorexClient {
   async invoke(action, params = {}, { onProgress, timeoutMs } = {}) {
     const response = await this.#request(
       { type: 'invoke', action, params },
-      { onProgress, stream: Boolean(onProgress), timeoutMs },
-    );
-    return response.data;
+      { onProgress, stream: Boolean(onProgress), timeoutMs }
+    )
+    return response.data
   }
 
   /**
@@ -496,21 +496,21 @@ export class CorexClient {
    * - `file`：指令文件路径；**必须落在 daemon 的指令目录下**（同样受沙箱约束）
    */
   async run(name, { input, file, onProgress, timeoutMs } = {}) {
-    const request = { type: 'run_directive', name, input: input ?? {} };
+    const request = { type: 'run_directive', name, input: input ?? {} }
     if (file) {
-      request.path = file;
+      request.path = file
     }
     const response = await this.#request(request, {
       onProgress,
       stream: Boolean(onProgress),
-      timeoutMs,
-    });
-    return response.data;
+      timeoutMs
+    })
+    return response.data
   }
 
   /** 请 daemon 退出。它回 `bye` 后进程会结束（连接随之断掉）。 */
   async shutdown({ timeoutMs } = {}) {
-    await this.#request({ type: 'shutdown' }, { timeoutMs });
+    await this.#request({ type: 'shutdown' }, { timeoutMs })
   }
 
   /**
@@ -521,20 +521,20 @@ export class CorexClient {
    */
   async close({ stopDaemon = this.#daemon !== null } = {}) {
     if (this.#closed) {
-      return;
+      return
     }
     if (stopDaemon && this.isOpen) {
       try {
-        await this.shutdown();
+        await this.shutdown()
       } catch {
         // 已经不在的 daemon 不值得再报一次；下面还有强杀兜底。
       }
     }
-    this.#closed = true;
-    this.#socket?.destroy();
-    this.#socket = null;
-    this.#failAll(new Error('客户端已关闭'));
-    await this.#daemon?.stop();
+    this.#closed = true
+    this.#socket?.destroy()
+    this.#socket = null
+    this.#failAll(new Error('客户端已关闭'))
+    await this.#daemon?.stop()
   }
 }
 
@@ -549,5 +549,5 @@ export class CorexClient {
  * - `onLog`：daemon 的 stdout/stderr 回调
  */
 export function connect(options = {}) {
-  return CorexClient.connect(options);
+  return CorexClient.connect(options)
 }
