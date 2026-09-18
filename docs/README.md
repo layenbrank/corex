@@ -22,7 +22,7 @@
 | 企业锁定 / 合规 | [ops/企业部署.md](./ops/企业部署.md) |
 | 发版 / 写 CHANGELOG | [ops/发布与Changelog.md](./ops/发布与Changelog.md) |
 | 体积 / 冷启动基线 | [ops/性能基线.md](./ops/性能基线.md) |
-| 升级迁移 | [changelog/破坏性变更-v9.md](./changelog/破坏性变更-v9.md) |
+| 升级迁移 | [changelog/破坏性变更-v10.md](./changelog/破坏性变更-v10.md) |
 
 ---
 

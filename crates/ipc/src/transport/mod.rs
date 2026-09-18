@@ -260,10 +260,12 @@ pub fn ipc_connect(endpoint: impl Into<PathBuf>) -> PlatformTransport {
 /// `handler` 除请求外还会收到一个 [`Outlet`]：只有当请求置了 `stream` 时 daemon
 /// 才拿它推帧；不推的请求一行多余输出也不会有。
 ///
-/// **每条连接跑在自己的任务里**，所以 `handler` 必须可克隆、可跨任务移动
-/// （用 `Arc` 捕获共享状态即可）。串行地一条条服务会把慢请求变成对所有人的阻塞：
-/// 一条几分钟的指令期间，另一个客户端连 `ping` 都发不出去——而探活正是宿主判断
-/// “它还活着吗”的手段。要不要把**执行**也串起来是上层的事（见 daemon 的 `max_jobs`）。
+/// **每条连接跑在自己的任务里**，而且**一条连接上的多条请求也各自推进**（见
+/// [`serve_connection`]）：宿主正是一个客户端一条连接，探活与「拉目录」都搭在上面，
+/// 被一条几分钟的指令堵住是最糟的形态。
+///
+/// `handler` 因此必须可克隆、可跨任务移动（用 `Arc` 捕获共享状态即可）。
+/// 要不要把**执行**也串起来是上层的事（见 daemon 的 `max_jobs`）。
 ///
 /// 收到 `bye` 的那条连接会让整个服务返回（见 [`Connection`]）。
 pub async fn serve_ipc<F, Fut>(endpoint: &Path, handler: F) -> Result<(), TransportError>
@@ -271,7 +273,24 @@ where
     F: Fn(Request, Outlet) -> Fut + Clone + Send + 'static,
     Fut: std::future::Future<Output = Response> + Send + 'static,
 {
-    PlatformTransport::serve(endpoint, handler).await
+    serve_ipc_ready(endpoint, || {}, handler).await
+}
+
+/// 同上，但在端点**已经可以连**之后先调一次 `ready`，再进入服务循环。
+///
+/// daemon 用它写端点记录：写下与可连之间的那段空隙因此不存在——「有记录」就是
+/// 「端点正听着」，而不是「有人正打算监听」。
+pub async fn serve_ipc_ready<F, Fut, R>(
+    endpoint: &Path,
+    ready: R,
+    handler: F,
+) -> Result<(), TransportError>
+where
+    R: FnOnce(),
+    F: Fn(Request, Outlet) -> Fut + Clone + Send + 'static,
+    Fut: std::future::Future<Output = Response> + Send + 'static,
+{
+    PlatformTransport::serve(endpoint, ready, handler).await
 }
 
 /// 一条连接的结局。

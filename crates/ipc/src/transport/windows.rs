@@ -30,7 +30,13 @@ impl NamedPipeTransport {
     }
 
     /// 服务连接：每条连接跑在自己的任务里，对每个换行分隔的 JSON 请求调用 `handler`。
-    pub async fn serve<F, Fut>(path: &Path, handler: F) -> Result<(), TransportError>
+    ///
+    /// `ready` 在管道真的可以连之后调一次（见 [`serve_ipc_ready`](crate::serve_ipc_ready)）。
+    pub async fn serve<F, Fut>(
+        path: &Path,
+        ready: impl FnOnce(),
+        handler: F,
+    ) -> Result<(), TransportError>
     where
         F: Fn(Request, Outlet) -> Fut + Clone + Send + 'static,
         Fut: std::future::Future<Output = Response> + Send + 'static,
@@ -39,12 +45,21 @@ impl NamedPipeTransport {
 
         // 默认安全设置：当前用户可访问的管道（未显式指定 SD 的命名管道，
         // 按操作系统默认通常是仅本机可用）。
+        //
+        // 建不出来时把话说清楚：管道名被占时 Windows 报的是「拒绝访问（os error 5）」，
+        // 听起来像权限问题，实际原因通常是「已经有 daemon 在用这个端点」。
         let listener = PipeListenerOptions::new()
             .path(path)
             .create_tokio_duplex::<pipe_mode::Bytes>()
-            .map_err(|e| TransportError::Connect(format!("{}: {e}", path.display())))?;
+            .map_err(|e| {
+                TransportError::Connect(format!(
+                    "创建命名管道 {} 失败: {e}（该端点多半已被占用：已有 daemon 在跑，或别的程序占了同名管道；需要并存就显式设 `socket_path`）",
+                    path.display()
+                ))
+            })?;
 
         tracing::info!(path = %path.display(), "IPC Named Pipe 已监听");
+        ready();
 
         let (stop, mut stopped) = stop_channel();
         loop {

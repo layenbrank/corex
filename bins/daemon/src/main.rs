@@ -3,12 +3,12 @@
 use anyhow::{Context, Result, bail};
 use clap::Parser;
 use corex_core::{
-    DaemonConfig, ExecutionContext, LoggingConfig, Mark, Observer, RuntimeConfig, Spot, Value,
-    check_runtime_allowed,
+    ActionError, DaemonConfig, EngineError, ExecutionContext, LoggingConfig, Mark, Observer,
+    RuntimeConfig, Spot, Value, check_runtime_allowed,
 };
 use corex_engine::{AuditEntry, Directive, ExecutionAudit, ExecutionHistory, Pipeline};
 use corex_ipc::protocol::{Request, Response, RpcError};
-use corex_ipc::{FrameSink, Outlet, ProgressEvent, config_paths, data_dir, serve_ipc};
+use corex_ipc::{FrameSink, Outlet, ProgressEvent, config_paths, data_dir, serve_ipc_ready};
 use corex_registry::ActionRegistry;
 use fs2::FileExt;
 use rand::RngExt;
@@ -130,14 +130,19 @@ async fn main() -> Result<()> {
 
     info!(endpoint = %endpoint.display(), "corex-daemon 启动");
 
-    // 记录要在开始服务**之前**写下：连接方读到它才有端点可连。
-    let _record = PublishedRecord::publish(&data, &endpoint, auth.file);
-
+    // 记录在**端点就绪之后**才写（`serve_ipc_ready` 的回调）：这样「有记录」就等于
+    // 「端点正听着」，而不是「有人正打算监听」。守卫借用单例锁，把「先删记录、再放锁」
+    // 变成编译期约束——反过来会让旧进程删掉新 daemon 刚写下的那份记录。
+    let record = PublishedRecord::of(&data, &_lock);
     let state_serve = Arc::clone(&state);
-    let result = serve_ipc(&endpoint, move |req, outlet| {
-        let state = Arc::clone(&state_serve);
-        async move { handle_request(&state, req, outlet).await }
-    })
+    let result = serve_ipc_ready(
+        &endpoint,
+        || record.write(&endpoint, auth.file.clone()),
+        move |req, outlet| {
+            let state = Arc::clone(&state_serve);
+            async move { handle_request(&state, req, outlet).await }
+        },
+    )
     .await;
 
     #[cfg(unix)]
@@ -149,29 +154,40 @@ async fn main() -> Result<()> {
     Ok(())
 }
 
-/// 端点记录的守卫：`Drop` 时把它删掉。
+/// 端点记录的守卫：`write` 写下记录，`Drop` 时删掉。
 ///
 /// 用守卫而不是在末尾补一行 `retract`：服务异常退出、将来有人在中间加个 `?`，都不该
 /// 留下一份指向死端点的记录让下一个连接方白跑一趟。
-struct PublishedRecord {
+///
+/// 它**借用**单例锁（而不是各自独立地声明），于是「先删记录、再放锁」成了编译期约束：
+/// 反过来会让下一个 daemon 读到一份指向**上一个**进程端点的记录，而它自己刚写下的那份
+/// 又被旧进程删掉。
+struct PublishedRecord<'a> {
     data: PathBuf,
+    _lock: &'a File,
 }
 
-impl PublishedRecord {
-    /// 写下记录。写不进去只警告：发现文件是便利设施，缺了连接方仍能退回平台默认端点，
-    /// 而因为一个杂项文件写不下就拒绝启动，是把便利设施当成了必需品。
-    fn publish(data: &Path, endpoint: &Path, token_file: Option<PathBuf>) -> Self {
-        let record = corex_ipc::endpoint::Record::new(endpoint, token_file);
-        if let Err(e) = corex_ipc::endpoint::publish(data, &record) {
-            warn!(error = %e, "端点记录写不下，连接方得自己解析端点");
-        }
+impl<'a> PublishedRecord<'a> {
+    fn of(data: &Path, lock: &'a File) -> Self {
         Self {
             data: data.to_path_buf(),
+            _lock: lock,
+        }
+    }
+
+    /// 写下记录（在端点 bind 之后调，见 [`corex_ipc::serve_ipc_ready`]）。
+    ///
+    /// 写不进去只警告：发现文件是便利设施，缺了连接方仍能退回平台默认端点，
+    /// 而因为一个杂项文件写不下就拒绝启动，是把便利设施当成了必需品。
+    fn write(&self, endpoint: &Path, token_file: Option<PathBuf>) {
+        let record = corex_ipc::endpoint::Record::new(endpoint, token_file);
+        if let Err(e) = corex_ipc::endpoint::publish(&self.data, &record) {
+            warn!(error = %e, "端点记录写不下，连接方得自己解析端点");
         }
     }
 }
 
-impl Drop for PublishedRecord {
+impl Drop for PublishedRecord<'_> {
     fn drop(&mut self) {
         corex_ipc::endpoint::retract(&self.data);
     }
@@ -285,28 +301,56 @@ async fn handle_request(state: &DaemonState, req: Request, outlet: Outlet) -> Re
             ..
         } => match run_directive(state, &name, path.as_deref(), input, observer.as_ref()).await {
             Ok(v) => Response::ok(id, v),
-            Err(e) => {
-                let msg = e.to_string();
-                if msg.contains("指令未找到") {
-                    Response::error(id, RpcError::not_found(msg))
-                } else {
-                    Response::error(id, RpcError::internal(msg))
-                }
-            }
+            Err(e) => Response::error(id, classify(&e)),
         },
         Request::Invoke {
             id, action, params, ..
         } => match invoke_action(state, &action, params, observer.as_ref()).await {
             Ok(v) => Response::ok(id, v),
-            Err(e) => {
-                let msg = e.to_string();
-                if msg.contains("strict_permissions") || msg.contains("权限") {
-                    Response::error(id, RpcError::forbidden(msg))
-                } else {
-                    Response::error(id, RpcError::internal(msg))
-                }
-            }
+            Err(e) => Response::error(id, classify(&e)),
         },
+    }
+}
+
+/// 把一条失败映射成 IPC 的错误码。
+///
+/// 与 CLI 的 `ExitStatus::read` 同一个做法：遍历 `anyhow` 链逐个 downcast。**不问消息
+/// 文本**——`contains("权限")` 会把「文件权限不足」这类运行期失败也报成 403；也不能单独
+/// 用 `kind()`：`not_found` 在动作上指文件 / 窗口没了，在引擎上指指令不存在。
+fn classify(err: &anyhow::Error) -> RpcError {
+    for cause in err.chain() {
+        if let Some(action) = cause.downcast_ref::<ActionError>() {
+            return from_action(action);
+        }
+        if let Some(engine) = cause.downcast_ref::<EngineError>() {
+            return match engine {
+                EngineError::StepFailed { source, .. } => from_action(source),
+                EngineError::Action(action) => from_action(action),
+                other => from_engine(other),
+            };
+        }
+    }
+    RpcError::internal(err.to_string())
+}
+
+/// 动作侧：门禁拒绝是 403，参数写错是 400，其余（`io` / `timeout` / 运行期 `not_found` …）
+/// 都是 500——动作跑了但没成功。
+fn from_action(err: &ActionError) -> RpcError {
+    let message = err.to_string();
+    match err.kind().as_str() {
+        "permission_denied" | "disabled" => RpcError::forbidden(message),
+        "invalid_params" => RpcError::invalid(message),
+        _ => RpcError::internal(message),
+    }
+}
+
+/// 引擎侧：`not_found` 是用户点名的指令（404），解析 / 用法 / 配置类是调用方的问题（400）。
+fn from_engine(err: &EngineError) -> RpcError {
+    let message = err.to_string();
+    match err.kind().as_str() {
+        "not_found" => RpcError::not_found(message),
+        "not_registered" | "parse" | "config" | "usage" => RpcError::invalid(message),
+        _ => RpcError::internal(message),
     }
 }
 
@@ -387,12 +431,15 @@ async fn invoke_action(
 
 /// 严格模式 + 配置层面的停用（与 `corex ui` 共用 [`check_runtime_allowed`]）。
 /// 被禁用的动作也会通过 `remove_disabled` 从注册表里移除。
+///
+/// **保留 `ActionError` 的类型**：调用方要按错误种类回 IPC 码（见 [`classify`]），
+/// 而 `anyhow!("{e}")` 会把它压成字符串，只剩 `contains` 可猜。
 fn check_invoke_allowed(
     config: &RuntimeConfig,
     store: &dyn corex_core::ActionStore,
     action_id: &str,
-) -> Result<()> {
-    check_runtime_allowed(config, store, action_id).map_err(|e| anyhow::anyhow!("{e}"))
+) -> Result<(), ActionError> {
+    check_runtime_allowed(config, store, action_id)
 }
 
 /// 按名称解析指令：只在 `dir` 下找 `{name}.yaml` / `{name}.yml`。
@@ -681,5 +728,61 @@ mod tests {
         };
         assert!(check_invoke_allowed(&cfg, &store(), "shell.run").is_err());
         assert!(check_invoke_allowed(&cfg, &store(), "template.render").is_ok());
+    }
+
+    /// 失败按**类型**分桶，不看消息文本。
+    ///
+    /// 看文本那种写法把「文件权限不足」这类运行期失败也报成 403；而只看 `kind()` 又会把
+    /// 动作的 `not_found`（文件 / 窗口没了）与引擎的 `not_found`（指令不存在）混成一个。
+    #[test]
+    fn failures_map_to_ipc_codes_by_kind() {
+        let code = |err: anyhow::Error| classify(&err).code;
+
+        // 门禁拒绝：403。流水线会把它包进步骤失败，包了一层也还是 403。
+        assert_eq!(
+            code(ActionError::PermissionDenied("strict".into()).into()),
+            403
+        );
+        assert_eq!(code(ActionError::Disabled("shell.run".into()).into()), 403);
+        assert_eq!(
+            code(
+                EngineError::StepFailed {
+                    step: "copy".into(),
+                    source: ActionError::PermissionDenied("strict".into()),
+                }
+                .into()
+            ),
+            403
+        );
+
+        // 指令不存在：404（这是引擎的 `not_found`）。
+        assert_eq!(
+            code(EngineError::DirectiveNotFound("nope".into()).into()),
+            404
+        );
+
+        // 运行期找不到文件：500，不是 404——那是动作跑了但没成功。
+        assert_eq!(
+            code(
+                EngineError::StepFailed {
+                    step: "read".into(),
+                    source: ActionError::NotFound("build.log".into()),
+                }
+                .into()
+            ),
+            500
+        );
+
+        // 消息里出现「权限」不再等于门禁拒绝。
+        assert_eq!(
+            code(ActionError::ExecutionFailed("权限不足: 无法写入 build.log".into()).into()),
+            500
+        );
+        // 参数写错与指令解析失败是调用方的问题：400。
+        assert_eq!(
+            code(ActionError::InvalidParams("缺少 from".into()).into()),
+            400
+        );
+        assert_eq!(code(EngineError::ParseError("坏 YAML".into()).into()), 400);
     }
 }

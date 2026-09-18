@@ -25,7 +25,13 @@ impl UnixSocketTransport {
     }
 
     /// 服务连接：每条连接跑在自己的任务里，对每个换行分隔的 JSON 请求调用 `handler`。
-    pub async fn serve<F, Fut>(path: &Path, handler: F) -> Result<(), TransportError>
+    ///
+    /// `ready` 在 socket 真的可以连之后调一次（见 [`serve_ipc_ready`](crate::serve_ipc_ready)）。
+    pub async fn serve<F, Fut>(
+        path: &Path,
+        ready: impl FnOnce(),
+        handler: F,
+    ) -> Result<(), TransportError>
     where
         F: Fn(Request, Outlet) -> Fut + Clone + Send + 'static,
         Fut: std::future::Future<Output = Response> + Send + 'static,
@@ -44,6 +50,7 @@ impl UnixSocketTransport {
         // 只限当前用户访问。
         let _ = std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600));
         tracing::info!(path = %path.display(), "IPC Unix socket 已监听");
+        ready();
 
         let (stop, mut stopped) = stop_channel();
         loop {

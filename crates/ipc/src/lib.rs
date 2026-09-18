@@ -10,6 +10,7 @@ pub use protocol::{MAX_LINE_BYTES, Request, Response, RpcError};
 pub use transport::{
     PlatformTransport, Transport, TransportError, config_paths, data_dir, find_endpoint,
     find_token, ipc_connect, ipc_endpoint, resolve_data_relative, resolve_endpoint, serve_ipc,
+    serve_ipc_ready,
 };
 
 #[cfg(windows)]
