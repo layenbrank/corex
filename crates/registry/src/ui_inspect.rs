@@ -6,22 +6,26 @@ use std::ffi::OsStr;
 use std::os::windows::ffi::OsStrExt;
 use std::sync::OnceLock;
 use uiautomation::types::Rect;
-use windows::Win32::Foundation::{COLORREF, HINSTANCE, HWND, LPARAM, LRESULT, RECT, WPARAM};
+use windows::Win32::Foundation::{COLORREF, HINSTANCE, HWND, LPARAM, LRESULT, POINT, RECT, WPARAM};
 use windows::Win32::Graphics::Gdi::{
-    BeginPaint, CreateSolidBrush, DT_END_ELLIPSIS, DT_LEFT, DT_NOPREFIX, DT_SINGLELINE, DT_VCENTER,
-    DeleteObject, DrawTextW, EndPaint, FillRect, HBRUSH, HGDIOBJ, InvalidateRect, PAINTSTRUCT,
-    SetBkMode, SetTextColor, TRANSPARENT,
+    BeginPaint, CLEARTYPE_QUALITY, CLIP_DEFAULT_PRECIS, CreateFontW, CreateSolidBrush,
+    DEFAULT_CHARSET, DEFAULT_PITCH, DT_END_ELLIPSIS, DT_LEFT, DT_NOPREFIX, DT_SINGLELINE,
+    DT_VCENTER, DeleteObject, DrawTextW, EndPaint, FF_DONTCARE, FW_NORMAL, FillRect, HBRUSH, HFONT,
+    HGDIOBJ, InvalidateRect, OUT_DEFAULT_PRECIS, PAINTSTRUCT, SelectObject, SetBkMode,
+    SetTextColor, TRANSPARENT,
 };
 use windows::Win32::System::Console::GetConsoleWindow;
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
+use windows::Win32::UI::HiDpi::GetDpiForWindow;
 use windows::Win32::UI::Input::KeyboardAndMouse::{GetAsyncKeyState, VK_ESCAPE, VK_LBUTTON};
 use windows::Win32::UI::WindowsAndMessaging::{
     CS_HREDRAW, CS_VREDRAW, CreateWindowExW, DefWindowProcW, DispatchMessageW, GWLP_USERDATA,
-    GetClientRect, GetCursorPos, GetMessageW, GetWindowTextW, HWND_BOTTOM, HWND_TOPMOST, KillTimer,
-    LoadCursorW, MSG, PostQuitMessage, RegisterClassW, SW_HIDE, SW_SHOWNA, SWP_NOACTIVATE,
-    SWP_NOMOVE, SWP_NOSIZE, SWP_SHOWWINDOW, SetWindowLongPtrW, SetWindowPos, SetWindowTextW,
-    ShowWindow, TranslateMessage, WM_DESTROY, WM_ERASEBKGND, WM_PAINT, WM_TIMER, WNDCLASSW,
-    WNDPROC, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW, WS_EX_TOPMOST, WS_POPUP,
+    GetClientRect, GetCursorPos, GetMessageW, GetWindowLongPtrW, GetWindowTextW, HWND_BOTTOM,
+    HWND_TOPMOST, KillTimer, LoadCursorW, MSG, PostQuitMessage, RegisterClassW, SW_HIDE, SW_SHOWNA,
+    SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SWP_SHOWWINDOW, SetWindowLongPtrW, SetWindowPos,
+    SetWindowTextW, ShowWindow, TranslateMessage, WM_DESTROY, WM_ERASEBKGND, WM_PAINT, WM_TIMER,
+    WNDCLASSW, WNDPROC, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW, WS_EX_TOPMOST, WS_POPUP,
+    WindowFromPoint,
 };
 
 const BORDER_CLASS: &str = "CorexUiInspectBorder";
@@ -36,11 +40,13 @@ const HIGHLIGHT: COLORREF = COLORREF(0x0000_00FF);
 /// 标签条：深灰底 + 白字，尺寸跟着元素宽窄在 `LABEL_MIN_W..=LABEL_MAX_W` 之间走。
 const LABEL_BG: COLORREF = COLORREF(0x0020_2020);
 const LABEL_FG: COLORREF = COLORREF(0x00FF_FFFF);
+// 下面的尺寸与字高都按 96 DPI 写，实际像素由 `Metrics::px` 折算。
 const LABEL_H: i32 = 24;
 const LABEL_GAP: i32 = 4;
 const LABEL_PAD: i32 = 8;
 const LABEL_MIN_W: i32 = 160;
 const LABEL_MAX_W: i32 = 480;
+const LABEL_FONT_PX: i32 = 14;
 const LABEL_TEXT_MAX: usize = 512;
 
 struct InspectClasses {
@@ -53,6 +59,60 @@ static INSPECT_CLASSES: OnceLock<InspectClasses> = OnceLock::new();
 
 fn wide(s: &str) -> Vec<u16> {
     OsStr::new(s).encode_wide().chain(Some(0)).collect()
+}
+
+/// 96 DPI 基准尺寸到元素所在显示器像素的折算。
+/// 多屏缩放不同时不能拿主屏 DC 的 DPI 充数：那在 150% 屏上 overlay 只有 2/3 大。
+struct Metrics {
+    dpi: i32,
+}
+
+impl Metrics {
+    fn at(x: i32, y: i32) -> Self {
+        let hwnd = unsafe { WindowFromPoint(POINT { x, y }) };
+        Self {
+            dpi: if hwnd.is_invalid() { 96 } else { dpi_of(hwnd) },
+        }
+    }
+
+    fn of(hwnd: HWND) -> Self {
+        Self { dpi: dpi_of(hwnd) }
+    }
+
+    fn px(&self, base: i32) -> i32 {
+        base * self.dpi / 96
+    }
+}
+
+/// `GetDpiForWindow` 对无效窗口返回 0，当作 96 处理。
+fn dpi_of(hwnd: HWND) -> i32 {
+    let dpi = unsafe { GetDpiForWindow(hwnd) };
+    if dpi > 0 { dpi as i32 } else { 96 }
+}
+
+/// 标签字体：显式建 TrueType + `CLEARTYPE_QUALITY`。DC 默认字体是 System 点阵字体，
+/// 既不抗锯齿、被系统拉伸后更糊；中文交给字体链接回退到系统中文，不用另挑字型。
+/// 句柄由标签窗口自己的 `GWLP_USERDATA` 持有，随窗口销毁。
+fn label_font(px: i32) -> HFONT {
+    let face = wide("Segoe UI");
+    unsafe {
+        CreateFontW(
+            -px,
+            0,
+            0,
+            0,
+            FW_NORMAL.0 as i32,
+            0,
+            0,
+            0,
+            DEFAULT_CHARSET,
+            OUT_DEFAULT_PRECIS,
+            CLIP_DEFAULT_PRECIS,
+            CLEARTYPE_QUALITY,
+            u32::from(DEFAULT_PITCH.0 | FF_DONTCARE.0),
+            windows::core::PCWSTR(face.as_ptr()),
+        )
+    }
 }
 
 fn init_inspect_classes(instance: HINSTANCE) -> Result<(), ActionError> {
@@ -129,6 +189,8 @@ unsafe fn paint_label(hwnd: HWND) {
     if hdc.is_invalid() {
         return;
     }
+    let m = Metrics::of(hwnd);
+    let pad = m.px(LABEL_PAD);
     unsafe {
         let mut rect = RECT::default();
         if GetClientRect(hwnd, &mut rect).is_ok() {
@@ -137,12 +199,18 @@ unsafe fn paint_label(hwnd: HWND) {
                 FillRect(hdc, &rect, brush);
                 let _ = DeleteObject(HGDIOBJ(brush.0));
             }
+            let font = HFONT(GetWindowLongPtrW(hwnd, GWLP_USERDATA) as *mut std::ffi::c_void);
+            let previous = if font.is_invalid() {
+                HGDIOBJ::default()
+            } else {
+                SelectObject(hdc, HGDIOBJ(font.0))
+            };
             let mut text = [0u16; LABEL_TEXT_MAX];
             let len = GetWindowTextW(hwnd, &mut text).max(0) as usize;
             let mut inner = RECT {
-                left: rect.left + LABEL_PAD,
+                left: rect.left + pad,
                 top: rect.top,
-                right: (rect.right - LABEL_PAD).max(rect.left + LABEL_PAD),
+                right: (rect.right - pad).max(rect.left + pad),
                 bottom: rect.bottom,
             };
             SetBkMode(hdc, TRANSPARENT);
@@ -153,6 +221,9 @@ unsafe fn paint_label(hwnd: HWND) {
                 &mut inner,
                 DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS | DT_NOPREFIX,
             );
+            if !previous.is_invalid() {
+                let _ = SelectObject(hdc, previous);
+            }
         }
         let _ = EndPaint(hwnd, &ps);
     }
@@ -162,6 +233,8 @@ struct InspectUi {
     borders: [HWND; 4],
     label: HWND,
     msg_hwnd: HWND,
+    font: HFONT,
+    font_dpi: i32,
 }
 
 impl InspectUi {
@@ -170,7 +243,28 @@ impl InspectUi {
             borders: [HWND::default(); 4],
             label: HWND::default(),
             msg_hwnd: HWND::default(),
+            font: HFONT::default(),
+            font_dpi: 0,
         }
+    }
+
+    /// 标签条跨显示器时得换字号，否则在 150% 屏上沿用 96 DPI 的字就只有 2/3 大。
+    fn sync_font(&mut self, m: &Metrics) {
+        if self.font_dpi == m.dpi && !self.font.is_invalid() {
+            return;
+        }
+        let font = label_font(m.px(LABEL_FONT_PX));
+        if font.is_invalid() {
+            return;
+        }
+        unsafe {
+            if !self.font.is_invalid() {
+                let _ = DeleteObject(HGDIOBJ(self.font.0));
+            }
+            SetWindowLongPtrW(self.label, GWLP_USERDATA, font.0 as isize);
+        }
+        self.font = font;
+        self.font_dpi = m.dpi;
     }
 
     fn create(&mut self) -> Result<(), ActionError> {
@@ -250,36 +344,20 @@ impl InspectUi {
     }
 
     fn show_highlight(&mut self, rect: &Rect, text: &str) {
+        let m = Metrics::at(rect.get_left(), rect.get_top());
+        let border = m.px(BORDER_SIZE);
+        let label_h = m.px(LABEL_H);
+        self.sync_font(&m);
         unsafe {
             let left = rect.get_left();
             let top = rect.get_top();
             let width = rect.get_width().max(1);
             let height = rect.get_height().max(1);
             let borders = [
-                (
-                    left - BORDER_SIZE,
-                    top - BORDER_SIZE,
-                    BORDER_SIZE,
-                    height + 2 * BORDER_SIZE,
-                ),
-                (
-                    left - BORDER_SIZE,
-                    top - BORDER_SIZE,
-                    width + 2 * BORDER_SIZE,
-                    BORDER_SIZE,
-                ),
-                (
-                    left + width,
-                    top - BORDER_SIZE,
-                    BORDER_SIZE,
-                    height + 2 * BORDER_SIZE,
-                ),
-                (
-                    left - BORDER_SIZE,
-                    top + height,
-                    width + 2 * BORDER_SIZE,
-                    BORDER_SIZE,
-                ),
+                (left - border, top - border, border, height + 2 * border),
+                (left - border, top - border, width + 2 * border, border),
+                (left + width, top - border, border, height + 2 * border),
+                (left - border, top + height, width + 2 * border, border),
             ];
             for (i, (x, y, w, h)) in borders.iter().enumerate() {
                 let _ = SetWindowPos(
@@ -293,21 +371,21 @@ impl InspectUi {
                 );
                 let _ = ShowWindow(self.borders[i], SW_SHOWNA);
             }
-            let tip_y = (top - LABEL_H - LABEL_GAP).max(0);
+            let tip_y = (top - label_h - m.px(LABEL_GAP)).max(0);
             // 描述为空就别顶一条空色块出来。
             if text.is_empty() {
                 let _ = ShowWindow(self.label, SW_HIDE);
                 return;
             }
             // 宽度跟着元素走：小控件不至于被一条大黑条盖住。
-            let label_w = width.clamp(LABEL_MIN_W, LABEL_MAX_W);
+            let label_w = width.clamp(m.px(LABEL_MIN_W), m.px(LABEL_MAX_W));
             let _ = SetWindowPos(
                 self.label,
                 Some(HWND_TOPMOST),
                 left,
                 tip_y,
                 label_w,
-                LABEL_H,
+                label_h,
                 SWP_NOACTIVATE | SWP_SHOWWINDOW,
             );
             let _ = SetWindowTextW(self.label, windows::core::PCWSTR(wide(text).as_ptr()));
@@ -328,6 +406,9 @@ impl InspectUi {
             }
             if !self.msg_hwnd.is_invalid() {
                 let _ = windows::Win32::UI::WindowsAndMessaging::DestroyWindow(self.msg_hwnd);
+            }
+            if !self.font.is_invalid() {
+                let _ = DeleteObject(HGDIOBJ(self.font.0));
             }
         }
     }
@@ -437,8 +518,6 @@ unsafe extern "system" fn msg_wnd_proc(
     wparam: WPARAM,
     lparam: LPARAM,
 ) -> LRESULT {
-    use windows::Win32::UI::WindowsAndMessaging::GetWindowLongPtrW;
-
     let session_ptr = unsafe { GetWindowLongPtrW(hwnd, GWLP_USERDATA) as *mut InspectSession };
     if msg == WM_TIMER && wparam.0 == INSPECT_TIMER_ID && !session_ptr.is_null() {
         let _ = unsafe { (*session_ptr).on_tick() };

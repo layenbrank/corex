@@ -208,6 +208,18 @@ where
     result.map_err(anyhow::Error::new)
 }
 
+/// `ui element inspect` 要和 UIA 用同一套坐标：非 DPI 感知的进程在 150% 缩放下，
+/// `GetCursorPos` / `SetWindowPos` 走的是被系统缩放的虚拟坐标，而 UIA 的
+/// `BoundingRectangle` 是物理像素，于是选中元素和高亮框一起偏。这条命令是独立
+/// 短命进程，就地声明感知最省事，也不动 daemon 的坐标语义。
+#[cfg(windows)]
+fn declare_dpi_aware() {
+    use windows::Win32::UI::HiDpi::{
+        DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2, SetProcessDpiAwarenessContext,
+    };
+    let _ = unsafe { SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2) };
+}
+
 pub async fn run(command: UiCommands, data_dir: &Path) -> Result<()> {
     let config = crate::settings::effective().clone();
     let ctx = ui_probe::probe_context(config.clone());
@@ -296,6 +308,7 @@ pub async fn run(command: UiCommands, data_dir: &Path) -> Result<()> {
             } => {
                 #[cfg(windows)]
                 {
+                    declare_dpi_aware();
                     let v = run_probe(data_dir, &config, "ui.element.inspect", async {
                         corex_registry::ui_inspect::probe_inspect(scope_hwnd).await
                     })

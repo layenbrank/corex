@@ -43,4 +43,4 @@ tempfile = { workspace = true }
 [target.'cfg(windows)'.dependencies]
 # 控制台输出代码页：中文在 cp936 的传统控制台里会乱码（见 `output::use_utf8_console`）。
 # 复用仓库既有的 `windows` 绑定，不再引第二套。
-windows = { workspace = true, features = ["Win32_System_Console"] }
+windows = { workspace = true, features = ["Win32_System_Console", "Win32_UI_HiDpi"] }
