@@ -1,6 +1,6 @@
 # Corex 文档
 
-可组合的**指令（Directive）/ Action** 运行时。当前版本：**v10.0.0**。
+可组合的**指令（Directive）/ Action** 运行时。当前版本：**v11.0.0**。
 
 按用途选文档即可；找不到时先回本页。
 
@@ -26,7 +26,7 @@
 | 企业锁定 / 合规                  | [ops/企业部署.md](./ops/企业部署.md)                                                                        |
 | 发版 / 写 CHANGELOG              | [ops/发布与Changelog.md](./ops/发布与Changelog.md)                                                          |
 | 体积 / 冷启动基线                | [ops/性能基线.md](./ops/性能基线.md)                                                                        |
-| 升级迁移                         | [changelog/破坏性变更-v10.md](./changelog/破坏性变更-v10.md)                                                |
+| 升级迁移                         | [changelog/破坏性变更-v11.md](./changelog/破坏性变更-v11.md)                                                |
 
 ---
 
@@ -100,6 +100,7 @@ Schema：[schemas/directive.schema.json](../schemas/directive.schema.json)
 
 | 文档                                            | 说明                                                                        |
 | ----------------------------------------------- | --------------------------------------------------------------------------- |
+| [破坏性变更 v11](./changelog/破坏性变更-v11.md) | `ui.element.pick` 改名 `ui.element.inspect`，旧 id 不再注册                   |
 | [破坏性变更 v10](./changelog/破坏性变更-v10.md) | `list_actions` 回目录文档、单连接多请求、错误码按错误类型给                 |
 | [破坏性变更 v9](./changelog/破坏性变更-v9.md)   | 连接/执行分离（`max_jobs`）、端点发现文件、`corex actions --json`           |
 | [破坏性变更 v8](./changelog/破坏性变更-v8.md)   | `category`→`bucket`、5 个配置键改名且拒绝未知键、`-i` 失误归退出码 2        |
