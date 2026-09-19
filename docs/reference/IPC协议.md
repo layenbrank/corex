@@ -283,5 +283,7 @@ daemon 会在**这条请求的终帧之前**插入零个或多个 `event` 帧：
 
 - [actions.md](内置Action.md) — Action ID
 - [directive-yaml.md](指令YAML.md) — Directive DSL
+- [数据目录与状态文件](数据目录与状态文件.md) — `endpoint.json` / `token` 文件的生命周期
+- [退出码与错误码](退出码与错误码.md) — `RpcError` 码与 CLI 退出码的对应
 - [integration/Tauri接入指南.md](../integration/Tauri接入指南.md) — Sidecar 客户端
 - [architecture.md](架构.md) — Workspace 概览

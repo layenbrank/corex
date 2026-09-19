@@ -14,13 +14,9 @@ COREX_BLESS_SCHEMA=1 cargo test -p corex-engine --features schema --test directi
 
 ### 让编辑器补全并校验指令
 
-拿到这份 schema 有三条路，按省事程度排：
-
-| 做法                                 | 适合                                                                                                                                                |
-| ------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 在该目录跑一次 `corex create <名称>` | 最省事：它会写好 `# yaml-language-server: $schema=./directive.schema.json` 并在同目录放一份 schema 副本，编辑器下次打开就有补全、悬停文档与红波浪线 |
-| `corex schema --write <路径>`        | 已有指令目录：落盘后自己配编辑器                                                                                                                    |
-| 编辑器设置里映射                     | VS Code 的 YAML 扩展：`"yaml.schemas": { "<schema 路径>": ["**/directives/*.yaml"] }`                                                               |
+三条路：在该目录跑一次 `corex create <名称>`（自动写好 modeline 并放一份 schema 副本）、
+`corex schema --write <路径>`（只落盘）、在编辑器设置里映射 schema。
+各自适用场合与 VS Code / JetBrains 的具体配法见 [编辑器集成](../integration/编辑器集成.md)。
 
 `schema` 子命令里的那份是**编译期内嵌**的副本，与仓库里的 `schemas/directive.schema.json` 同源
 （CLI 不能链接 `schemars`，内嵌是唯一不引入该依赖的拿法）。

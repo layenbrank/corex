@@ -16,6 +16,10 @@
 | 写 cron 表达式                   | [reference/cron表达式.md](./reference/cron表达式.md)                                                        |
 | 跑示例                           | [examples/directives](../examples/directives/README.md) · [examples/actions](../examples/actions/README.md) |
 | 接到 Tauri / 别的应用            | [integration/接入总览.md](./integration/接入总览.md)                                                        |
+| 在编辑器里写 / 跑指令            | [integration/编辑器集成.md](./integration/编辑器集成.md)                                                    |
+| 让 AI 助手调用 corex（MCP）      | [integration/MCP接入指南.md](./integration/MCP接入指南.md)                                                  |
+| 出问题了                         | [ops/故障排查.md](./ops/故障排查.md)                                                                        |
+| 脚本要按退出码分支               | [reference/退出码与错误码.md](./reference/退出码与错误码.md)                                                |
 | 配 `corex.toml`                  | [guide/运行时配置.md](./guide/运行时配置.md)                                                                |
 | 了解架构 / watch·cron / 开发门禁 | [reference/架构.md](./reference/架构.md)                                                                    |
 | 升级 / 回滚 corex 自身           | [reference/自更新.md](./reference/自更新.md)                                                                |
@@ -49,26 +53,30 @@ docs/
 
 ### 参考 — `reference/`
 
-| 文档                                     | 说明                                              |
-| ---------------------------------------- | ------------------------------------------------- |
-| [指令 YAML](./reference/指令YAML.md)     | DSL、triggers、schema                             |
-| [Cron 表达式](./reference/cron表达式.md) | tokio-cron-scheduler → croner 3 规则              |
-| [内置 Action](./reference/内置Action.md) | Action ID 与示例                                  |
-| [架构](./reference/架构.md)              | crate 布局、Supervisor、错误/审计 API、开发工具链 |
-| [IPC 协议](./reference/IPC协议.md)       | NDJSON 请求/响应                                  |
-| [自更新](./reference/自更新.md)          | `corex update`、校验链、`[update]` 配置           |
+| 文档                                                    | 说明                                           |
+| ------------------------------------------------------- | ---------------------------------------------- |
+| [指令 YAML](./reference/指令YAML.md)                    | DSL、triggers、schema                          |
+| [Cron 表达式](./reference/cron表达式.md)                | tokio-cron-scheduler → croner 3 规则           |
+| [内置 Action](./reference/内置Action.md)                | Action ID 与示例                               |
+| [退出码与错误码](./reference/退出码与错误码.md)         | `0`/`1`/`2`/`3`、`kind()` 全表、IPC 折回规则   |
+| [数据目录与状态文件](./reference/数据目录与状态文件.md) | 每个文件写在哪、谁写、何时失效                 |
+| [架构](./reference/架构.md)                             | crate 布局、Supervisor、并发与调优、开发工具链 |
+| [IPC 协议](./reference/IPC协议.md)                      | NDJSON 请求/响应                               |
+| [自更新](./reference/自更新.md)                         | `corex update`、校验链、`[update]` 配置        |
 
 Schema：[schemas/directive.schema.json](../schemas/directive.schema.json)
 
 ### 接入 — `integration/`
 
-| 文档                                             | 说明                      |
-| ------------------------------------------------ | ------------------------- |
-| [接入总览](./integration/接入总览.md)            | CLI / Daemon / 嵌入怎么选 |
-| [IPC 接入指南](./integration/IPC接入指南.md)     | NDJSON 客户端             |
-| [Rust 嵌入指南](./integration/Rust嵌入指南.md)   | 同进程 Pipeline           |
-| [WASM 插件开发](./integration/WASM插件开发.md)   | 动态扩展 Action           |
-| [Tauri 接入指南](./integration/Tauri接入指南.md) | sidecar `corex-daemon`    |
+| 文档                                             | 说明                                          |
+| ------------------------------------------------ | --------------------------------------------- |
+| [接入总览](./integration/接入总览.md)            | CLI / Daemon / 嵌入怎么选                     |
+| [IPC 接入指南](./integration/IPC接入指南.md)     | NDJSON 客户端                                 |
+| [Rust 嵌入指南](./integration/Rust嵌入指南.md)   | 同进程 Pipeline                               |
+| [WASM 插件开发](./integration/WASM插件开发.md)   | 动态扩展 Action                               |
+| [Tauri 接入指南](./integration/Tauri接入指南.md) | sidecar `corex-daemon`                        |
+| [编辑器集成](./integration/编辑器集成.md)        | schema 补全、任务、给助手用的出口（MCP 现状） |
+| [MCP 接入指南](./integration/MCP接入指南.md)     | `corex-mcp`：把 Action / 指令暴露成 MCP 工具  |
 
 ### 专题 — `topics/`
 
@@ -86,6 +94,7 @@ Schema：[schemas/directive.schema.json](../schemas/directive.schema.json)
 | [性能基线](./ops/性能基线.md)                | 发布体积与 `corex --version` 冷启动的实测值与复测方法 |
 | [合规说明](./ops/合规说明.md)                | 授权与控制项                                          |
 | [威胁模型](./ops/威胁模型.md)                | 高风险 Action                                         |
+| [故障排查](./ops/故障排查.md)                | 按现象查原因（daemon / 权限 / 编码 / 网络）           |
 
 ### 变更 — `changelog/`
 
