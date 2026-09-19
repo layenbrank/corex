@@ -8,6 +8,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 See also [Conventional Commits](https://www.conventionalcommits.org/).
 
 ---
+## [11.0.0](https://github.com/layenbrank/corex/compare/v10.0.0..v11.0.0) - 2026-09-19
+
+### 💥 Breaking Changes
+
+- **(ui)** ui.element.pick 改名 ui.element.inspect
+> BREAKING CHANGE:ui.element.pick 不再注册。按 id 匹配的 plugins.disabled /
+> disabled_actions 若仍写旧名字，会被当成不存在的动作，禁用不再生效。 · ([`7780a05`](https://github.com/layenbrank/corex/commit/7780a05809d58d20a108afc74444efc8e21aaf5d)) · lh
+
+
+### 🚀 Features
+- **(mcp)** 新增 corex-mcp，把内置 Action 与指令暴露成 MCP 工具 · ([`f3569de`](https://github.com/layenbrank/corex/commit/f3569de549dc9ba26313bbfd221ee897f9c4dc01)) · layen
+
+
+### 🐛 Bug Fixes
+- **(registry)** inspect 的悬停标签真的把字画出来 · ([`2e98920`](https://github.com/layenbrank/corex/commit/2e98920f5e8c310950ed220968f4a709a15413b8)) · lh
+- **(registry)** inspect 覆盖层按显示器 DPI 渲染，不再被系统拉伸 · ([`fa55ddb`](https://github.com/layenbrank/corex/commit/fa55ddb7ac9c6cca75f1868c6f2621f413b612b3)) · lh
+
+
+### 📚 Documentation
+- 修复内置 Action 目录表格损坏并统一版本标注到 v10 · ([`325cf36`](https://github.com/layenbrank/corex/commit/325cf360bedf648836168041726d63be4e5abce8)) · layen
+- 补全接入、参考与排障文档，修正索引与数据目录表述 · ([`ecefcb5`](https://github.com/layenbrank/corex/commit/ecefcb54c0da6566d997a911e4c42939aa1d1608)) · layen
+
+
+### ♻️ Refactoring
+- 💥 **(ui)** ui.element.pick 改名 ui.element.inspect — **breaking** · ([`7780a05`](https://github.com/layenbrank/corex/commit/7780a05809d58d20a108afc74444efc8e21aaf5d)) · lh
+
+
+### 🔧 Miscellaneous
+- **(hooks)** cargo deny 走离线，提交不再被 github 链路左右 · ([`1e3902c`](https://github.com/layenbrank/corex/commit/1e3902c1e7787ada7221b7915ca3d88bd47bd438)) · lh
+
+---
 ## [10.0.0](https://github.com/layenbrank/corex/compare/v9.0.0..v10.0.0) - 2026-09-18
 
 ### 💥 Breaking Changes
@@ -33,6 +64,10 @@ See also [Conventional Commits](https://www.conventionalcommits.org/).
 ### 🎨 Style
 - **(client)** 统一 JS 客户端与测试的代码格式 · ([`0e9bdf5`](https://github.com/layenbrank/corex/commit/0e9bdf5b72652144cbc1bb312136ddfcf4bd2c47)) · lh
 - **(examples)** 统一 Electron 示例的代码格式 · ([`a29f91c`](https://github.com/layenbrank/corex/commit/a29f91cb78de9bf738036cbaf8bbeda92ecbbc5c)) · lh
+
+
+### 📦 Release
+- **(release)** bump version to 10.0.0 · ([`ba36623`](https://github.com/layenbrank/corex/commit/ba3662384ca0cd54feb0a7e31bf00d7e5ccdbdb5)) · lh
 
 ---
 ## [9.0.0](https://github.com/layenbrank/corex/compare/v8.1.0..v9.0.0) - 2026-09-17
@@ -523,6 +558,10 @@ See also [Conventional Commits](https://www.conventionalcommits.org/).
 - **(corex)** 重构核心库并优化命令行架构 · ([`752380f`](https://github.com/layenbrank/corex/commit/752380f612a72bc6aa6d0448f7d8c8abd5d204c9)) · lh
 - **(schedule)** 重构任务调度器支持流水线及步骤执行 · ([`95171c3`](https://github.com/layenbrank/corex/commit/95171c360f2c86b57f9033d9e37b467eec5a06f6)) · lh
 
+
+### 🔧 Miscellaneous
+- 删除 Visual Studio 相关配置文件和索引，清理项目目录 · ([`874929d`](https://github.com/layenbrank/corex/commit/874929dcd79563d3e8bdc12beded4a5fa80b6227)) · lh
+
 ---
 ## [0.2.9](https://github.com/layenbrank/corex/compare/v0.2.8..v0.2.9) - 2026-05-14
 
@@ -539,10 +578,6 @@ See also [Conventional Commits](https://www.conventionalcommits.org/).
 - 添加支持命令行界面 (CLI) 的压缩模块 · ([`e199374`](https://github.com/layenbrank/corex/commit/e19937442e08aff120fcfa49b0b8aa5f648f9416)) · lh
 - 添加时间戳功能并生成版本文件，更新依赖项 · ([`641c63d`](https://github.com/layenbrank/corex/commit/641c63d782770a6806d77977bdaa08bc0e2529c6)) · lh
 - 更新 README.md，添加压缩打包功能说明及示例 · ([`e0a737a`](https://github.com/layenbrank/corex/commit/e0a737a04b00fc94aba0af6a24017032154bb68f)) · lh
-
-
-### 🔧 Miscellaneous
-- 删除 Visual Studio 相关配置文件和索引，清理项目目录 · ([`874929d`](https://github.com/layenbrank/corex/commit/874929dcd79563d3e8bdc12beded4a5fa80b6227)) · lh
 
 ---
 ## [0.2.7](https://github.com/layenbrank/corex/compare/v0.2.6..v0.2.7) - 2026-01-08
@@ -569,10 +604,15 @@ See also [Conventional Commits](https://www.conventionalcommits.org/).
 - feat：重构项目结构并添加清理功能 · ([`8c8e6da`](https://github.com/layenbrank/corex/commit/8c8e6da5952dc9ef2d87ac0ff9a892a25ffc6cbe)) · lh
 
 ---
-## [0.2.4](https://github.com/layenbrank/corex/compare/v0.2.3..v0.2.4) - 2025-08-20
+## [0.2.5](https://github.com/layenbrank/corex/compare/v0.2.4..v0.2.5) - 2025-10-19
 
 ### 🚀 Features
 - feat：初始化 corex 项目结构和配置 · ([`7aa7d25`](https://github.com/layenbrank/corex/commit/7aa7d2511a3f5d0c6c565746f541c79e1d27e0c8)) · lh
+
+---
+## [0.2.4](https://github.com/layenbrank/corex/compare/v0.2.3..v0.2.4) - 2025-08-20
+
+### 🚀 Features
 - 更新发布工作流，添加提交信息获取和通知功能；重构文件处理和进度显示模块 · ([`b52c35e`](https://github.com/layenbrank/corex/commit/b52c35ec713e9f8431da734672a46e138e63b7fe)) · 李贺
 
 
@@ -589,6 +629,7 @@ See also [Conventional Commits](https://www.conventionalcommits.org/).
 - fluxor.yml · ([`322cb9c`](https://github.com/layenbrank/corex/commit/322cb9cb8c1e91f0b0a0b47e0014ae4c872fa846)) · layenbrank
 - Remove legacy notification examples and related files to streamline the project structure and focus on the updated notification system. This includes deleting old test files, configuration files, and XML templates that are no longer in use. · ([`fc89b31`](https://github.com/layenbrank/corex/commit/fc89b313725223dd1b0ce38ed5ad6b877f9a16e8)) · 李贺
 
+[11.0.0]: https://github.com/layenbrank/corex/compare/v10.0.0..v11.0.0
 [10.0.0]: https://github.com/layenbrank/corex/compare/v9.0.0..v10.0.0
 [9.0.0]: https://github.com/layenbrank/corex/compare/v8.1.0..v9.0.0
 [8.1.0]: https://github.com/layenbrank/corex/compare/v8.0.0..v8.1.0
@@ -622,6 +663,7 @@ See also [Conventional Commits](https://www.conventionalcommits.org/).
 [0.2.8]: https://github.com/layenbrank/corex/compare/v0.2.7..v0.2.8
 [0.2.7]: https://github.com/layenbrank/corex/compare/v0.2.6..v0.2.7
 [0.2.6]: https://github.com/layenbrank/corex/compare/v0.2.5..v0.2.6
+[0.2.5]: https://github.com/layenbrank/corex/compare/v0.2.4..v0.2.5
 [0.2.4]: https://github.com/layenbrank/corex/compare/v0.2.3..v0.2.4
 [0.1.1]: https://github.com/layenbrank/corex/releases/tag/v0.1.1
 
