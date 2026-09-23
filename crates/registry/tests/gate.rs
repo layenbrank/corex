@@ -110,6 +110,11 @@ const LEGACY_GATE: &[(&str, PermissionKind)] = &[
     ("html.links", PermissionKind::None),
     ("html.select", PermissionKind::None),
     ("html.text", PermissionKind::None),
+    // 数值与时间只吃参数：不读文件、不联网、不起进程。
+    ("math.eval", PermissionKind::None),
+    ("math.rand", PermissionKind::None),
+    ("math.round", PermissionKind::None),
+    ("math.stats", PermissionKind::None),
     ("scan.os", PermissionKind::None),
     // v12.1 新增：旧表里没有这些 id，登记的是它们各自声明的要求。
     ("sys.sleep", PermissionKind::None),
@@ -121,6 +126,11 @@ const LEGACY_GATE: &[(&str, PermissionKind)] = &[
     ("text.replace", PermissionKind::None),
     ("text.split", PermissionKind::None),
     ("text.trim", PermissionKind::None),
+    ("time.add", PermissionKind::None),
+    ("time.format", PermissionKind::None),
+    ("time.parse", PermissionKind::None),
+    ("time.sub", PermissionKind::None),
+    ("time.tz", PermissionKind::None),
 ];
 
 /// 刻意与旧表不同的声明，以及原因。

@@ -36,6 +36,8 @@ all-actions = [
   "act-sys",
   "act-html",
   "act-text",
+  "act-math",
+  "act-time",
 ]
 
 # 共享的 Windows feature 包（经 act-* 开启；保持 windows 可选 + default-features=false）。
@@ -92,6 +94,9 @@ act-scan = ["dep:sysinfo"]
 act-capture = ["dep:image", "dep:base64", "dep:screenshots", "winrt-ocr"]
 act-morph = ["dep:lopdf", "dep:base64"]
 act-text = ["dep:regex"]
+# 表达式引擎与 `template.render` 共用：指令里只该有一套表达式语法。
+act-math = ["dep:minijinja", "dep:rand"]
+act-time = ["dep:chrono"]
 act-ui = [
   "win32-base",
   "dep:uiautomation",

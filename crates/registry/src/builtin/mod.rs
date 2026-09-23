@@ -42,6 +42,8 @@ pub mod html;
 pub mod http;
 #[cfg(feature = "act-keyring")]
 pub mod keyring;
+#[cfg(feature = "act-math")]
+pub mod math;
 #[cfg(feature = "act-morph")]
 pub mod morph;
 #[cfg(feature = "act-notify")]
@@ -60,6 +62,8 @@ pub mod sys;
 pub mod template;
 #[cfg(feature = "act-text")]
 pub mod text;
+#[cfg(feature = "act-time")]
+pub mod time;
 #[cfg(feature = "act-ui")]
 pub mod ui;
 
@@ -108,6 +112,10 @@ pub fn register_all(registry: &mut ActionRegistry) {
     codec::register(registry);
     #[cfg(feature = "act-text")]
     text::register(registry);
+    #[cfg(feature = "act-math")]
+    math::register(registry);
+    #[cfg(feature = "act-time")]
+    time::register(registry);
     #[cfg(feature = "act-scan")]
     scan::register(registry);
     #[cfg(feature = "act-capture")]
