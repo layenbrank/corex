@@ -24,6 +24,8 @@ tracing            = { workspace = true }
 tracing-subscriber = { workspace = true }
 fs2                = { workspace = true }
 rand               = { workspace = true }
+serde              = { workspace = true }
+serde_json         = { workspace = true }
 
 [dev-dependencies]
 # `tests/streaming.rs` 拉起真实二进制，靠 `CARGO_BIN_EXE_corex-daemon` 驱动。

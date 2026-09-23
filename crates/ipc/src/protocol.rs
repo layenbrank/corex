@@ -32,6 +32,45 @@ pub enum Request {
         #[serde(default)]
         dir: Option<String>,
     },
+    /// 读一条指令：原文与解析结果一起给，宿主不必自己解析 YAML。
+    ReadDirective {
+        #[serde(default)]
+        id: u64,
+        #[serde(default)]
+        auth_token: Option<String>,
+        name: String,
+        #[serde(default)]
+        dir: Option<String>,
+    },
+    /// 写一条指令：`definition` 是宿主编辑器里的结构化模型，由 daemon 校验后落盘。
+    ///
+    /// 宿主**不要**自己序列化 YAML——写盘格式（键序、省略哪些默认值）只有引擎一份。
+    SaveDirective {
+        #[serde(default)]
+        id: u64,
+        #[serde(default)]
+        auth_token: Option<String>,
+        name: String,
+        definition: Value,
+        #[serde(default)]
+        dir: Option<String>,
+    },
+    /// 列最近的执行记录：卡片的「上次跑成什么样」只该有一个来源。
+    ///
+    /// 历史是引擎在跑完的当口自己写的（`[history]` 配置，默认开）；这里开的是**只读**
+    /// 出口——宿主再存一份「上次运行时间」就会与这份账本各说各话。
+    ListRuns {
+        #[serde(default)]
+        id: u64,
+        #[serde(default)]
+        auth_token: Option<String>,
+        /// 只看这条指令；不给就是全部。
+        #[serde(default)]
+        name: Option<String>,
+        /// 最多几条；不给用 daemon 的默认条数。
+        #[serde(default)]
+        limit: Option<usize>,
+    },
     ListActions {
         #[serde(default)]
         id: u64,
@@ -76,6 +115,9 @@ impl Request {
             Request::Ping { id, .. }
             | Request::Shutdown { id, .. }
             | Request::ListDirectives { id, .. }
+            | Request::ReadDirective { id, .. }
+            | Request::SaveDirective { id, .. }
+            | Request::ListRuns { id, .. }
             | Request::ListActions { id, .. }
             | Request::RunDirective { id, .. }
             | Request::Invoke { id, .. } => *id,
@@ -92,11 +134,22 @@ impl Request {
         }
     }
 
+    /// 本请求会不会真的执行东西（`run_directive` / `invoke`）。
+    ///
+    /// daemon 只给这类请求排 `max_jobs` 的队、只给它们起心跳：控制类请求（探活、状态、
+    /// 列目录）答得越快越好。
+    pub fn is_execution(&self) -> bool {
+        matches!(self, Request::RunDirective { .. } | Request::Invoke { .. })
+    }
+
     pub fn auth_token(&self) -> Option<&str> {
         match self {
             Request::Ping { auth_token, .. }
             | Request::Shutdown { auth_token, .. }
             | Request::ListDirectives { auth_token, .. }
+            | Request::ReadDirective { auth_token, .. }
+            | Request::SaveDirective { auth_token, .. }
+            | Request::ListRuns { auth_token, .. }
             | Request::ListActions { auth_token, .. }
             | Request::RunDirective { auth_token, .. }
             | Request::Invoke { auth_token, .. } => auth_token.as_deref(),
@@ -110,6 +163,9 @@ impl Request {
             Request::Ping { auth_token, .. }
             | Request::Shutdown { auth_token, .. }
             | Request::ListDirectives { auth_token, .. }
+            | Request::ReadDirective { auth_token, .. }
+            | Request::SaveDirective { auth_token, .. }
+            | Request::ListRuns { auth_token, .. }
             | Request::ListActions { auth_token, .. }
             | Request::RunDirective { auth_token, .. }
             | Request::Invoke { auth_token, .. } => *auth_token = t,
@@ -271,5 +327,68 @@ mod tests {
         let json = r#"{"type":"ping","id":3}"#;
         let req: Request = serde_json::from_str(json).unwrap();
         assert!(!req.wants_stream());
+
+        // 编辑类请求同样是控制请求：一条都不能推中间帧。
+        let json = r#"{"type":"save_directive","id":4,"name":"hello","definition":{}}"#;
+        let req: Request = serde_json::from_str(json).unwrap();
+        assert!(!req.wants_stream());
+    }
+
+    /// 编辑类请求要能带鉴权 token，也要能顺手替换——三个 match 少写一个就会静默漏掉。
+    #[test]
+    fn the_editing_requests_carry_auth() {
+        let json = r#"{"type":"read_directive","id":9,"name":"build","auth_token":"tok"}"#;
+        let req: Request = serde_json::from_str(json).unwrap();
+        assert_eq!(req.id(), 9);
+        assert_eq!(req.auth_token(), Some("tok"));
+        assert_eq!(
+            req.with_auth_token("other").auth_token(),
+            Some("other"),
+            "with_auth_token 必须覆盖已有 token"
+        );
+    }
+
+    /// `save_directive` 的定义是结构化模型：原样带着走，daemon 才好在落盘前校验它。
+    #[test]
+    fn save_directive_keeps_the_definition() {
+        let json = r#"{"type":"save_directive","id":5,"name":"build","definition":{"name":"build","steps":[{"id":"a","action":"template.render"}]}}"#;
+        let req: Request = serde_json::from_str(json).unwrap();
+        let Request::SaveDirective {
+            name, definition, ..
+        } = &req
+        else {
+            panic!("判成了别的请求: {req:?}");
+        };
+        assert_eq!(name, "build");
+        assert_eq!(
+            definition.to_json()["steps"][0]["action"],
+            serde_json::json!("template.render")
+        );
+
+        // 原样回写：宿主发的 JSON 与 daemon 解析出来的形状一致。
+        let back: Request = serde_json::from_value(serde_json::to_value(&req).unwrap()).unwrap();
+        assert_eq!(back.id(), 5);
+        assert!(matches!(back, Request::SaveDirective { .. }));
+    }
+
+    /// 读历史是控制请求：要能带 token，但不排队、也不推中间帧。
+    ///
+    /// 过滤与条数都可选——只想知道「最近跑了什么」的客户端不该被迫多写字段。
+    #[test]
+    fn list_runs_is_a_read_only_control_request() {
+        let json = r#"{"type":"list_runs","id":6,"auth_token":"tok"}"#;
+        let req: Request = serde_json::from_str(json).unwrap();
+        assert_eq!(req.id(), 6);
+        assert_eq!(req.auth_token(), Some("tok"));
+        assert!(!req.is_execution());
+        assert!(!req.wants_stream());
+
+        let json = r#"{"type":"list_runs","id":7,"name":"build","limit":20}"#;
+        let req: Request = serde_json::from_str(json).unwrap();
+        let Request::ListRuns { name, limit, .. } = req.with_auth_token("tok") else {
+            panic!("判成了别的请求");
+        };
+        assert_eq!(name.as_deref(), Some("build"));
+        assert_eq!(limit, Some(20));
     }
 }

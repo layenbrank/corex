@@ -921,6 +921,8 @@ dependencies = [
  "corex-registry",
  "fs2",
  "rand 0.10.2",
+ "serde",
+ "serde_json",
  "tempfile",
  "tokio",
  "tracing",

@@ -1,19 +1,18 @@
 //! `corex-daemon` 的进度帧：只有真的把这个二进制拉起来才验得准。
 //!
 //! 所以这里不 mock 任何东西——起真进程、连真的命名管道 / Unix socket、跑一条真的指令。
-//! 守护进程是唯一能加载 WASM 插件的执行者，它的 IPC 回话形状只能这样验。
+//! 起重与握手在 [`harness`] 里，这份只关心帧。
 
-use corex_core::Value;
+mod harness;
+
+use corex_core::{Stream, Value};
 use corex_ipc::protocol::{Request, Response};
 use corex_ipc::{FrameSink, ProgressEvent, Transport, ipc_connect};
+use harness::{authed, start, start_with, strings};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::process::{Child, Command, Stdio};
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
-
-/// 固定的测试 token：`COREX_TOKEN` 优先于配置文件，两边都给同一个值才不必读文件。
-const TOKEN: &str = "corex-daemon-streaming-test";
 
 /// 把收到的帧按顺序记下来的落点。
 #[derive(Default)]
@@ -34,153 +33,6 @@ impl FrameSink for Recorder {
             .expect("recorder lock")
             .push(progress.clone());
     }
-}
-
-/// 起进程的护栏：测试无论怎么退出（含 panic）都要把 daemon 收掉，
-/// 否则下一次运行会撞上单实例锁。
-struct Daemon {
-    child: Child,
-    log: PathBuf,
-}
-
-impl Drop for Daemon {
-    fn drop(&mut self) {
-        let _ = self.child.kill();
-        let _ = self.child.wait();
-    }
-}
-
-impl Daemon {
-    fn spawn(config: &Path, directives: &Path, log: &Path, data: &Path) -> Self {
-        let out = std::fs::File::create(log).expect("daemon log");
-        let err = out.try_clone().expect("daemon log clone");
-        let child = Command::new(env!("CARGO_BIN_EXE_corex-daemon"))
-            .arg("--config")
-            .arg(config)
-            .arg("--directives")
-            .arg(directives)
-            .env("COREX_TOKEN", TOKEN)
-            // 钉住数据目录。不钉的话 `data_dir()` 会退到二进制所在的目录（构建产物旁边），
-            // 端点记录与历史都写到那儿去，而且几个用例共用一份会互相覆盖。
-            .env("COREX_DATA_DIR", data)
-            .stdin(Stdio::null())
-            .stdout(Stdio::from(out))
-            .stderr(Stdio::from(err))
-            .spawn()
-            .expect("spawn corex-daemon");
-        Self {
-            child,
-            log: log.to_path_buf(),
-        }
-    }
-
-    fn pid(&self) -> u32 {
-        self.child.id()
-    }
-
-    /// 等到进程自己退出。只有走有序清理路径（收 `shutdown`）才会发生。
-    async fn wait_exit(&mut self) {
-        for _ in 0..300 {
-            if let Some(status) = self.child.try_wait().expect("poll daemon") {
-                assert!(
-                    status.success(),
-                    "corex-daemon 退出码异常 {status}:\n{}",
-                    self.log_text()
-                );
-                return;
-            }
-            tokio::time::sleep(Duration::from_millis(20)).await;
-        }
-        panic!("corex-daemon 没有在 6s 内退出:\n{}", self.log_text());
-    }
-
-    fn log_text(&self) -> String {
-        std::fs::read_to_string(&self.log).unwrap_or_default()
-    }
-
-    /// 连上为止；连不上就把 daemon 的日志贴出来——否则失败只剩一句“连接失败”。
-    async fn wait_ready(&mut self, endpoint: &Path, token: &str) {
-        for _ in 0..300 {
-            if let Some(status) = self.child.try_wait().expect("poll daemon") {
-                panic!(
-                    "corex-daemon 提前退出（{status}）:\n{}",
-                    std::fs::read_to_string(&self.log).unwrap_or_default()
-                );
-            }
-            let ping = Request::Ping {
-                id: 0,
-                auth_token: None,
-            }
-            .with_auth_token(token);
-            if ipc_connect(endpoint).send(&ping).await.is_ok() {
-                return;
-            }
-            tokio::time::sleep(Duration::from_millis(20)).await;
-        }
-        panic!(
-            "corex-daemon 没有在 6s 内就绪:\n{}",
-            std::fs::read_to_string(&self.log).unwrap_or_default()
-        );
-    }
-}
-
-/// 每个用例自己的端点与锁：命名管道是全局的，而测试是并行跑的。
-fn endpoint(tag: &str) -> PathBuf {
-    #[cfg(windows)]
-    {
-        PathBuf::from(format!(
-            r"\\.\pipe\corex-daemon-test-{}-{tag}",
-            std::process::id()
-        ))
-    }
-    #[cfg(unix)]
-    {
-        std::env::temp_dir().join(format!(
-            "corex-daemon-test-{}-{tag}.sock",
-            std::process::id()
-        ))
-    }
-}
-
-/// 写一份只服务这个用例的配置：端点、锁、token 都钉住，不碰用户的数据目录。
-///
-/// `extra` 原样接在 `[daemon]` 里，用来直接写要测的那个键（如 `max_jobs = 2`）。
-fn write_config(dir: &Path, endpoint: &Path, extra: &str) -> PathBuf {
-    let path = dir.join("corex-daemon-test.toml");
-    // 用 TOML 的字面量字符串（单引号）：Windows 管道路径里的反斜杠不该被当成转义。
-    let text = format!(
-        "[daemon]\nsocket_path = '{}'\nlock_path = '{}'\ntoken = '{TOKEN}'\n{extra}",
-        endpoint.display(),
-        dir.join("daemon.lock").display()
-    );
-    std::fs::write(&path, text).expect("write config");
-    path
-}
-
-/// 起一个 daemon，并把它的指令目录与端点一起交回来。
-async fn start(tag: &str) -> (tempfile::TempDir, Daemon, PathBuf) {
-    start_with(tag, "").await
-}
-
-/// 同上，但可以往 `[daemon]` 里多写几行。
-async fn start_with(tag: &str, extra: &str) -> (tempfile::TempDir, Daemon, PathBuf) {
-    let dir = tempfile::tempdir().expect("temp dir");
-    let directives = dir.path().join("directives");
-    std::fs::create_dir_all(&directives).expect("directives dir");
-    let endpoint = endpoint(tag);
-    let config = write_config(dir.path(), &endpoint, extra);
-    let mut daemon = Daemon::spawn(
-        &config,
-        &directives,
-        &dir.path().join("daemon.log"),
-        dir.path(),
-    );
-    daemon.wait_ready(&endpoint, TOKEN).await;
-    (dir, daemon, endpoint)
-}
-
-fn authed(request: Request) -> Request {
-    request.with_auth_token(TOKEN)
 }
 
 /// `ui.wait` 的参数。
@@ -223,18 +75,43 @@ async fn two_waits(endpoint: &Path, ms: i64) -> u128 {
     started.elapsed().as_millis()
 }
 
-/// 取一个字符串数组字段；缺失或类型不对都当空表。
-fn strings(value: &Value, path: &str) -> Vec<String> {
-    value
-        .find_path(path)
-        .and_then(|v| v.as_array())
-        .map(|items| {
-            items
-                .iter()
-                .filter_map(|v| v.as_str().map(str::to_string))
-                .collect()
-        })
-        .unwrap_or_default()
+/// 发一条流式 `ui.wait`，帧交给 `recorder`，返回终帧。
+///
+/// 端点与落点都持所有权：调用方要把它 `tokio::spawn` 出去，才能让它在另一条请求
+/// 还在飞的时候一直跑下去。
+#[cfg(windows)]
+async fn invoke_streaming(
+    endpoint: PathBuf,
+    recorder: Arc<Recorder>,
+    id: u64,
+    ms: i64,
+) -> Response {
+    let mut transport = ipc_connect(&endpoint);
+    transport
+        .send_events(
+            &authed(Request::Invoke {
+                id,
+                auth_token: None,
+                action: "ui.wait".into(),
+                params: wait_params(ms),
+                stream: true,
+            }),
+            recorder.as_ref(),
+        )
+        .await
+        .expect("invoke")
+}
+
+/// 等到 `recorder` 收到第一个步骤帧：那一刻这条请求已经拿到执行名额、真的在跑了。
+#[cfg(windows)]
+async fn wait_until_started(recorder: &Recorder) {
+    for _ in 0..200 {
+        if !recorder.take().is_empty() {
+            return;
+        }
+        tokio::time::sleep(Duration::from_millis(5)).await;
+    }
+    panic!("第一条请求迟迟没开始");
 }
 
 /// `list_actions` 回的不是一串 id，而是完整目录：宿主与 agent 靠它知道「怎么调」——
@@ -363,27 +240,84 @@ async fn a_long_invoke_does_not_block_ping() {
     assert!(slow.await.expect("慢请求任务").is_ok(), "慢请求该正常结束");
 }
 
-/// 默认（`max_jobs = 1`）执行是**串行**的：两条 400ms 的请求不可能少于 800ms 跑完。
+/// `max_jobs = 1` 时执行是**串行**的：两条 400ms 的请求不可能少于 800ms 跑完。
 ///
-/// 这条是 UI 自动化的保险：两条指令同时驱鼠标键盘必然互相踩。所以“并行”是**显式选择**，
-/// 不是升级后的默认。
+/// 这条是 UI 自动化的保险：两条指令同时驱鼠标键盘必然互相踩。资源门也会在默认并发度
+/// 下提供同样的保证；这里保留 `max_jobs = 1` 作为全局队列的回归测试。
 #[cfg(windows)]
 #[tokio::test]
-async fn the_default_serializes_execution() {
-    let (_dir, _daemon, endpoint) = start("serial-jobs").await;
+async fn a_serial_jobs_limit_runs_them_one_by_one() {
+    let (_dir, _daemon, endpoint) = start_with("serial-jobs", "max_jobs = 1\n").await;
     let elapsed = two_waits(&endpoint, 400).await;
-    assert!(elapsed >= 720, "默认该是串行的，实测 {elapsed}ms");
+    assert!(elapsed >= 720, "max_jobs = 1 该是串行的，实测 {elapsed}ms");
 }
 
-/// `max_jobs = 2` 时两条请求真的并排跑：400ms 级的活儿不该串成 800ms。
+/// 默认配置下两条 UI 请求也不会并排跑：共享输入设备的资源门不能被 `max_jobs`
+/// 的默认并发度绕过。
 #[cfg(windows)]
 #[tokio::test]
-async fn a_larger_jobs_limit_runs_them_together() {
+async fn the_default_serializes_interactive_jobs() {
+    let (_dir, _daemon, endpoint) = start("default-jobs").await;
+    let elapsed = two_waits(&endpoint, 400).await;
+    assert!(elapsed >= 720, "默认 UI 资源该串行，实测 {elapsed}ms");
+}
+
+/// 提高全局并发度也不能让两条 UI 请求争用共享设备。
+#[cfg(windows)]
+#[tokio::test]
+async fn a_larger_jobs_limit_still_serializes_interactive_jobs() {
     let (_dir, _daemon, endpoint) = start_with("parallel-jobs", "max_jobs = 2\n").await;
     let elapsed = two_waits(&endpoint, 400).await;
     assert!(
-        elapsed < 720,
-        "两条 400ms 的请求该并排跑完，实测 {elapsed}ms"
+        elapsed >= 720,
+        "两条 UI 请求不该因 max_jobs = 2 而并排跑，实测 {elapsed}ms"
+    );
+}
+
+/// 排队中的流式请求会收到 `is_queued` 心跳，跑起来之后收到的不再带这个标记。
+///
+/// 这是「排队」与「卡死」的唯一区别：没有心跳时两者在客户端看来都是「一段时间没有任何帧」，
+/// 而排队久到撞穿宿主的请求时限时，请求会被误报成失败——它其实还在队列里，之后照样执行。
+#[cfg(windows)]
+#[tokio::test]
+async fn a_queued_request_gets_a_heartbeat() {
+    let (_dir, _daemon, endpoint) = start_with("queued-heartbeat", "max_jobs = 1\n").await;
+    let running = Arc::new(Recorder::default());
+    let queued = Arc::new(Recorder::default());
+    // 谁拿到唯一的名额得由我们说了算：两条一起发出去，1ms 那条完全可能先落地，
+    // 于是排队等着的反倒成了 3.5s 那条。所以先发占名额的，等它真的跑起来再发第二条。
+    let holder = tokio::spawn(invoke_streaming(endpoint.clone(), running.clone(), 1, 3500));
+    wait_until_started(&running).await;
+    // 第一条占着名额 3.5s，第二条只能在队列里等；心跳间隔 2s，所以它至少收得到一帧「还在排队」。
+    let second = invoke_streaming(endpoint.clone(), queued.clone(), 2, 1).await;
+    let first = holder.await.expect("第一条");
+    assert!(matches!(first, Response::Ok { .. }), "{first:?}");
+    assert!(matches!(second, Response::Ok { .. }), "{second:?}");
+
+    let heartbeats: Vec<_> = queued
+        .take()
+        .into_iter()
+        .filter(|event| matches!(event, ProgressEvent::Heartbeat { .. }))
+        .collect();
+    assert!(
+        heartbeats.iter().any(|event| matches!(
+            event,
+            ProgressEvent::Heartbeat {
+                is_queued: true,
+                ..
+            }
+        )),
+        "排队中该收到 is_queued 心跳: {heartbeats:?}"
+    );
+    assert!(
+        running.take().iter().any(|event| matches!(
+            event,
+            ProgressEvent::Heartbeat {
+                is_queued: false,
+                ..
+            }
+        )),
+        "跑起来之后的心跳不该再报排队"
     );
 }
 
@@ -495,6 +429,77 @@ async fn run_directive_streams_every_step() {
         })
         .collect();
     assert_eq!(steps, vec!["1:render", "2:write"]);
+}
+
+/// 指令里的 `shell.run` 把子进程 stdout 变成帧送到客户端。
+///
+/// 这条是整件事的**要害**：daemon 里子进程的输出接在 daemon 自己的控制台上，客户端
+/// （Studio 的运行面板）不看帧就一个字节也拿不到——它能显示命令输出，全靠这条通路。
+#[tokio::test]
+async fn run_directive_streams_shell_output() {
+    let (dir, _daemon, endpoint) = start("output").await;
+    let directives = dir.path().join("directives");
+    // `host: cmd`：Windows 走 `cmd /C`，别处走 `sh -c`，两边都能 echo。
+    std::fs::write(
+        directives.join("probe.yaml"),
+        concat!(
+            "name: probe\n",
+            "permissions:\n",
+            "  shell: true\n",
+            "steps:\n",
+            "  - id: echo\n",
+            "    action: shell.run\n",
+            "    params:\n",
+            "      command: \"echo corex-step-output-probe\"\n",
+            "      host: cmd\n",
+        ),
+    )
+    .expect("write directive");
+
+    let recorder = Recorder::default();
+    let response = ipc_connect(&endpoint)
+        .send_events(
+            &authed(Request::RunDirective {
+                id: 6,
+                auth_token: None,
+                name: "probe".into(),
+                input: HashMap::new(),
+                path: None,
+                stream: true,
+            }),
+            &recorder,
+        )
+        .await
+        .expect("run_directive");
+
+    assert!(
+        matches!(response, Response::Ok { id, .. } if id == 6),
+        "{response:?}"
+    );
+    let seen = recorder.take();
+    let text: String = seen
+        .iter()
+        .filter_map(|event| match event {
+            ProgressEvent::StepOutput {
+                step,
+                stream: Stream::Stdout,
+                text,
+                ..
+            } if step == "echo" => Some(text.as_str()),
+            _ => None,
+        })
+        .collect();
+    assert!(
+        text.contains("corex-step-output-probe"),
+        "stdout 应当经帧抵达客户端，实得: {seen:?}"
+    );
+    assert!(
+        seen.iter().any(|event| matches!(
+            event,
+            ProgressEvent::StepEnd { step, ok: true, .. } if step == "echo"
+        )),
+        "输出帧之后仍要有这一步的结束帧: {seen:?}"
+    );
 }
 
 /// 不问就不给：没置 `stream` 的请求一帧都不该收到，线的形状与旧版完全一致。
