@@ -417,7 +417,10 @@ async fn a_directive_that_asks_for_less_than_its_steps_need_is_rejected() {
         "该点出缺的是哪一类权限: {message}"
     );
     assert!(
-        !dir.path().join("directives").join("restricted.yaml").exists(),
+        !dir.path()
+            .join("directives")
+            .join("restricted.yaml")
+            .exists(),
         "校验没过就不该落盘"
     );
 }

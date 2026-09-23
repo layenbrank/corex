@@ -669,7 +669,7 @@ async fn run_directive(
     if let Some(observer) = observer {
         pipeline = pipeline.with_observer(Arc::clone(observer));
     }
-    Ok(pipeline.execute(&directive, ctx).await?)
+    Ok(pipeline.execute(directive, ctx).await?)
 }
 
 async fn invoke_action(

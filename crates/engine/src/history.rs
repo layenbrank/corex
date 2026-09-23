@@ -267,7 +267,7 @@ impl ExecutionHistory {
     pub fn recent_names(&self, limit: usize) -> Vec<String> {
         let mut names: Vec<String> = Vec::new();
         for entry in self.recent(None, SCAN) {
-            if names.iter().any(|seen| *seen == entry.directive) {
+            if names.contains(&entry.directive) {
                 continue;
             }
             names.push(entry.directive);
