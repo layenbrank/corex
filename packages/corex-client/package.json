@@ -1,6 +1,6 @@
 {
   "name": "corex-client",
-  "version": "12.0.0",
+  "version": "12.1.0",
   "description": "Corex daemon 的 NDJSON IPC 客户端：端点发现、daemon 拉起、请求/进度帧（零依赖）",
   "type": "module",
   "exports": {
