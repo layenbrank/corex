@@ -8,6 +8,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 See also [Conventional Commits](https://www.conventionalcommits.org/).
 
 ---
+## [12.1.0](https://github.com/layenbrank/corex/compare/v12.0.0..v12.1.0) - 2026-09-23
+
+### 🚀 Features
+- **(registry)** 补 text.* 六个字符串动作与 sys.sleep · ([`66dfcad`](https://github.com/layenbrank/corex/commit/66dfcad312decc88de4d70d3204a36734b4408d1)) · layen
+- **(registry)** 补 math.* 与 time.* 共九个动作 · ([`521244f`](https://github.com/layenbrank/corex/commit/521244f11e5d323b7639f98395556bd9a4815e51)) · layen
+- **(registry)** 重做 dialog 系列并补 app.launch / sys.lock · ([`4443371`](https://github.com/layenbrank/corex/commit/4443371d2f94ce952e7647f38b52a106593f7917)) · layen
+
+
+### 🎨 Style
+- 修掉 clippy 与 rustfmt 告警，Quality 门禁恢复干净 · ([`b9ed597`](https://github.com/layenbrank/corex/commit/b9ed597b60d5991b646255cc04ebaa9c84033ce6)) · layen
+
+
+### 📦 Release
+- **(release)** 补齐 12.0.0 版本标注（IPC 示例与 JS 客户端） · ([`7e2baa1`](https://github.com/layenbrank/corex/commit/7e2baa12603737864a27311b499357bab45c879f)) · layen
+- **(release)** bump version to 12.1.0 · ([`685994a`](https://github.com/layenbrank/corex/commit/685994ab3b88b45511e80c3cb0cb341a4642c80e)) · layen
+
+
+---
 ## [12.0.0](https://github.com/layenbrank/corex/compare/v11.0.0..v12.0.0) - 2026-09-23
 
 ### 💥 Breaking Changes
@@ -668,6 +686,7 @@ See also [Conventional Commits](https://www.conventionalcommits.org/).
 - fluxor.yml · ([`322cb9c`](https://github.com/layenbrank/corex/commit/322cb9cb8c1e91f0b0a0b47e0014ae4c872fa846)) · layenbrank
 - Remove legacy notification examples and related files to streamline the project structure and focus on the updated notification system. This includes deleting old test files, configuration files, and XML templates that are no longer in use. · ([`fc89b31`](https://github.com/layenbrank/corex/commit/fc89b313725223dd1b0ce38ed5ad6b877f9a16e8)) · 李贺
 
+[12.1.0]: https://github.com/layenbrank/corex/compare/v12.0.0..v12.1.0
 [12.0.0]: https://github.com/layenbrank/corex/compare/v11.0.0..v12.0.0
 [11.0.0]: https://github.com/layenbrank/corex/compare/v10.0.0..v11.0.0
 [10.0.0]: https://github.com/layenbrank/corex/compare/v9.0.0..v10.0.0
