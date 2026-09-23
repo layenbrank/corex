@@ -11,6 +11,7 @@ mod exit;
 mod fuzzy;
 mod history;
 mod output;
+mod paths;
 mod progress;
 mod repl;
 mod run;
@@ -159,6 +160,7 @@ pub(crate) async fn dispatch(cli: Cli) -> Result<()> {
             limit,
         }),
         Commands::Doctor => doctor::run().await,
+        Commands::Paths { json } => paths::run(json, cli.dir.as_deref()),
         Commands::Repl => repl::run(cli.dir).await,
         Commands::Watch { command } => watch::run(command, cli.dir.as_deref()).await,
         Commands::Cron { command } => cron::run(command, cli.dir.as_deref()).await,

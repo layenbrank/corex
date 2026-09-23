@@ -131,6 +131,12 @@ pub(crate) enum Commands {
     },
     /// 自检：数据目录、配置、守护进程、动作与指令
     Doctor,
+    /// 打印本次运行使用的目录与 IPC 端点；宿主照着读，不要自己拼路径
+    Paths {
+        /// 输出机器可读的 JSON
+        #[arg(long)]
+        json: bool,
+    },
     /// 交互式 REPL
     Repl,
     /// 守护进程控制
@@ -175,6 +181,7 @@ impl Commands {
                 | Commands::Cron { .. }
                 | Commands::Ui { .. }
                 | Commands::Schema { .. }
+                | Commands::Paths { .. }
                 | Commands::Completions { .. }
                 | Commands::Doctor
                 | Commands::Repl

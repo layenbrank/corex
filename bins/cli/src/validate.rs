@@ -6,10 +6,9 @@
 use crate::build_registry;
 use crate::output::{errln, is_stdout_closed, outln};
 use crate::settings;
-use crate::steps;
 use crate::usage;
 use anyhow::{Context, Result};
-use corex_engine::{Directive, validate_permissions};
+use corex_engine::{Directive, validate_permissions, validate_registered};
 use std::path::Path;
 use std::time::{Duration, SystemTime};
 
@@ -44,7 +43,7 @@ fn check(path: Option<&Path>, strict: bool) -> Result<()> {
     let directive = Directive::from_yaml_file(path)?;
     let registry = build_registry();
 
-    steps::require_registered(&directive.steps, &registry)?;
+    validate_registered(&registry, &directive)?;
     if strict {
         // `validate_permissions` 只给出文字，所以需要一个带类型的载体——
         // 而门禁拒绝就是权限错误，退出码表已经认得它。

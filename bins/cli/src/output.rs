@@ -72,6 +72,18 @@ pub fn error_line(text: &str) {
     }
 }
 
+/// 把原始文本写到 stderr，容忍管道关闭。
+///
+/// 与 [`bytes`] 对称：转发的是**别人给的原文**（子进程的 stderr），
+/// 因此既不补换行也不加颜色——一个字节都别动。
+pub fn error_bytes(data: &[u8]) {
+    let stderr = io::stderr();
+    let mut out = stderr.lock();
+    if let Err(err) = out.write_all(data).and_then(|()| out.flush()) {
+        tracing::debug!(error = %err, "写入 stderr 失败");
+    }
+}
+
 /// stdout 的读方是否曾经关闭过管道。
 ///
 /// `main` 据此返回退出码 0，而不是失败。

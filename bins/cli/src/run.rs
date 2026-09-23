@@ -18,6 +18,7 @@ use anyhow::{Context, Result};
 use corex_core::{EngineError, ExecutionContext, Observer, RuntimeConfig, Value};
 use corex_engine::{
     Directive, ExecutionAudit, ExecutionHistory, InputDecl, Pipeline, is_input_unset,
+    validate_allowed, validate_registered,
 };
 use corex_ipc::protocol::{Request, Response, RpcError};
 use corex_ipc::{Replay, Transport, data_dir, ipc_connect};
@@ -403,10 +404,10 @@ fn dry_run(
     channel: &Channel,
     input: &HashMap<String, Value>,
 ) -> Result<()> {
-    steps::require_registered(&directive.steps, registry)?;
+    validate_registered(registry, directive)?;
     // 走运行时那道门，而不是 `validate --strict` 的企业门禁：后者会要求
     // 「必须声明 permissions」，而真实运行并不要求，拿它判预览会让能跑的指令失败。
-    steps::require_allowed(&directive.steps, &directive.permissions, registry)?;
+    validate_allowed(registry, directive)?;
     channel.plan(
         directive,
         &steps::outline(&directive.steps, registry),

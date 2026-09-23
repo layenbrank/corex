@@ -5,14 +5,16 @@
 //! - [`Events`]：给机器看的。stdout 上的 NDJSON。
 //!
 //! 三者只有 [`steps`] 一个入口，形态各自独立实现，方法里没有「这次要不要画」的分支。
-//! 它们都写 stderr（`Events` 除外，它的本职就是 stdout 上的事件流）——stdout 的结果
-//! 通道不能被进度污染，`println!` 那条路子早在 `output` 模块就已经堵死了。
+//! 进度本身都写 stderr（`Events` 除外，它的本职就是 stdout 上的事件流）——stdout 的结果
+//! 通道不能被进度污染，`println!` 那条路子早在 `output` 模块就已经堵死了。**动作自己吐出的
+//! 文本不算进度**：它经 [`Observer::output`] 回流到这里，再原样落在它本来就属于的那个流
+//! （见 [`forward`]），因此本地跑与远程跑（帧经 `corex_ipc::Replay` 重放）看到的是同一份输出。
 //!
 //! `--remote` 时这三个实现并不知情：daemon 推回来的帧经 `corex_ipc::Replay`
 //! 重放进同一个上报口，于是本地与远程两条路径共用这一套渲染。
 
 use crate::output::{self, error_line, line};
-use corex_core::{Mark, Observer, Spot, Unit};
+use corex_core::{Mark, Observer, Spot, Stream, Unit};
 use corex_ipc::ProgressEvent;
 use corex_updater::human_size;
 use indicatif::{MultiProgress, ProgressBar, ProgressDrawTarget, ProgressStyle};
@@ -81,6 +83,11 @@ impl Observer for Live {
         }
     }
 
+    fn output(&self, _at: Spot<'_>, stream: Stream, text: &str) {
+        // 覆盖式刷新会连同这几行一起擦掉，所以让画布先让开再写。
+        self.canvas.suspend(|| forward(stream, text));
+    }
+
     fn end(&self, at: Spot<'_>, took: Duration, ok: bool) {
         if let Some(bar) = self.running().remove(&key(at)) {
             bar.finish_and_clear();
@@ -96,11 +103,15 @@ impl Observer for Live {
 /// 非终端下的进度：每步只留一行结论。
 ///
 /// 进度条那种覆盖式刷新在日志里只会变成噪声，而结论行滚出去之后恰好就是一份
-/// 可读的执行记录——这正是重定向到文件时想要的东西。
+/// 可读的执行记录——这正是重定向到文件时想要的东西。步骤的输出照旧原样转发。
 #[derive(Debug)]
 pub(crate) struct Lines;
 
 impl Observer for Lines {
+    fn output(&self, _at: Spot<'_>, stream: Stream, text: &str) {
+        forward(stream, text);
+    }
+
     fn end(&self, at: Spot<'_>, took: Duration, ok: bool) {
         error_line(&conclusion(at, took, ok));
     }
@@ -149,6 +160,20 @@ fn percent(mark: Mark) -> u64 {
     }
 }
 
+/// 把动作吐出来的一段文本原样写到它自己的流上。
+///
+/// **输出不是进度**：`shell.run` 的 stdout 可能是下游要 `|` 走的产物，而进度一律走 stderr，
+/// 所以两个流各归各的、谁也不必给谁让位。这里一个字节都不加工——解码早在动作里做完了。
+fn forward(stream: Stream, text: &str) {
+    match stream {
+        Stream::Stdout => {
+            // 读方随时可能走掉（`corex run x | head -1`），失败只说明它看够了。
+            let _ = output::bytes(text.as_bytes());
+        }
+        Stream::Stderr => output::error_bytes(text.as_bytes()),
+    }
+}
+
 /// 结束行：`✓ file.copy  copy  12ms`。符号与颜色都取自 `output` 的两张表。
 fn conclusion(at: Spot<'_>, took: Duration, ok: bool) -> String {
     let (role, glyph) = if ok {
@@ -186,8 +211,11 @@ fn spinner() -> ProgressStyle {
 /// 所以宿主不必为「本地跑的」与「远程跑的」记两套字段名。整条指令跑完（或失败）后
 /// 再追加一条 `result` / `error`，它们只是多了一个 `kind`，不属于进度本身。
 ///
-/// `seq` 只在 `step_start` 上递增，宿主据此给步骤编号；`step_progress` / `step_end`
-/// 靠 `step` + `action` 归属。
+/// 动作的输出（`step_output`）也走这条流，因此这个模式下的 stdout **始终是纯 NDJSON**：
+/// 子进程原文不会被混进去。
+///
+/// `seq` 只在 `step_start` 上递增，宿主据此给步骤编号；`step_progress` / `step_output` /
+/// `step_end` 靠 `step` + `action` 归属。
 pub(crate) struct Events {
     seq: AtomicU64,
 }
@@ -232,6 +260,15 @@ impl Observer for Events {
             done: mark.done,
             total: mark.total,
             unit: mark.unit,
+        });
+    }
+
+    fn output(&self, at: Spot<'_>, stream: Stream, text: &str) {
+        self.emit(&ProgressEvent::StepOutput {
+            step: at.id.to_string(),
+            action: at.action.to_string(),
+            stream,
+            text: text.to_string(),
         });
     }
 

@@ -1,15 +1,11 @@
-//! 指令步骤树的摊平与两道门。
+//! 指令步骤树的提纲。
 //!
-//! `if` / `repeat` / `parallel` 三种容器的展开方式**只写在这里一份**。`--dry-run` 的
-//! 提纲、未注册动作与运行时权限门检查都要走同一棵树，各写一份遍历迟早会走偏——
-//! 多加一种容器时只改这里。
-//!
-//! 「什么算未注册」「什么算被权限门拒」也只在这里定义：`corex run --dry-run` 与
-//! `corex validate` 因此给出同一个判定，也只有一个退出码。
+//! `if` / `repeat` / `parallel` 三种容器的展开方式只写在这里一份：`corex run --dry-run`
+//! 要靠它把「将要执行的步骤」按执行顺序印出来。**判定**（动作是否注册、权限够不够）
+//! 不在这里，它们由 [`corex_engine::validate_registered`] / [`corex_engine::validate_allowed`]
+//! 与引擎共用同一条遍历。
 
-use corex_core::{ActionError, EngineError};
-use corex_engine::definition::ActionStep;
-use corex_engine::{Permissions, Step};
+use corex_engine::{ActionStep, Step};
 use corex_registry::ActionRegistry;
 
 /// `--dry-run` 的提纲：带缩进的行，顺序与执行顺序一致。
@@ -17,51 +13,6 @@ use corex_registry::ActionRegistry;
 /// 动作行尾部附上它要求的权限类别：预览的一半价值就在「它会碰什么」。
 pub(crate) fn outline(steps: &[Step], registry: &ActionRegistry) -> Vec<String> {
     rows(steps).iter().map(|row| row.render(registry)).collect()
-}
-
-/// 步骤树里若有本进程注册表没有的动作就报错。
-///
-/// 用 [`EngineError::ActionNotRegistered`] 而不是裸 `bail!`：它对应退出码 2
-/// （调用方给的东西不对），而通用失败是 1。
-pub(crate) fn require_registered(
-    steps: &[Step],
-    registry: &ActionRegistry,
-) -> Result<(), EngineError> {
-    let missing: Vec<String> = rows(steps)
-        .iter()
-        .filter_map(Row::action)
-        .filter(|(_, action)| !registry.contains(action))
-        .map(|(id, action)| format!("{action} ({id})"))
-        .collect();
-    if missing.is_empty() {
-        return Ok(());
-    }
-    Err(EngineError::ActionNotRegistered(missing.join(", ")))
-}
-
-/// 步骤树里若有运行时会因权限声明不足而被拒的动作就报错（退出码 3）。
-///
-/// 查的是**运行时那道门**（[`Permissions::allows_action`]），不是 `validate --strict`
-/// 的企业门禁：后者额外要求“必须声明 permissions”，而真实运行并不要求。
-pub(crate) fn require_allowed(
-    steps: &[Step],
-    permissions: &Permissions,
-    registry: &ActionRegistry,
-) -> Result<(), ActionError> {
-    let denied: Vec<String> = rows(steps)
-        .iter()
-        .filter_map(Row::action)
-        .filter_map(|(id, action)| {
-            permissions
-                .allows_action(registry, action)
-                .err()
-                .map(|err| format!("{id}: {err}"))
-        })
-        .collect();
-    if denied.is_empty() {
-        return Ok(());
-    }
-    Err(ActionError::PermissionDenied(denied.join("；")))
 }
 
 /// 步骤树摊平后的一行。
@@ -78,14 +29,6 @@ enum Row<'a> {
 }
 
 impl Row<'_> {
-    /// 动作步骤的 `(id, action)`；容器行返回 `None`。
-    fn action(&self) -> Option<(&str, &str)> {
-        match self {
-            Self::Action { step, .. } => Some((step.id.as_str(), step.action.as_str())),
-            Self::Marker { .. } => None,
-        }
-    }
-
     fn render(&self, registry: &ActionRegistry) -> String {
         let pad = "  ".repeat(match self {
             Self::Action { depth, .. } | Self::Marker { depth, .. } => *depth,
@@ -111,7 +54,7 @@ impl Row<'_> {
 
 /// 动作要求的权限类别，形如 `  [filesystem、secret]`；不需要权限时是空串。
 ///
-/// 动作没注册时不添任何东西：那是 [`require_registered`] 的活儿，预览只管展示。
+/// 动作没注册时不添任何东西：那是 [`corex_engine::validate_registered`] 的活儿，预览只管展示。
 fn requires(registry: &ActionRegistry, action: &str) -> String {
     let Some(action) = registry.get(action) else {
         return String::new();
@@ -230,8 +173,9 @@ mod tests {
     }
 
     /// 两道门都要下到容器里去：`repeat` 里的步骤不该因为嵌了一层就被漏掉。
+    /// （判定本身在 `corex_engine`，这里只确认 CLI 拿到的提纲也下到了那一层。）
     #[test]
-    fn both_doors_reach_nested_steps() {
+    fn outline_reaches_nested_steps() {
         let directive = directive(concat!(
             "  - id: loop\n",
             "    repeat:\n",
@@ -240,11 +184,7 @@ mod tests {
             "      - id: inner\n",
             "        action: does.not.exist\n",
         ));
-        let registry = ActionRegistry::new();
-        let missing = require_registered(&directive.steps, &registry).expect_err("未注册");
-        assert!(missing.to_string().contains("inner"), "{missing}");
-
-        let allowed = require_allowed(&directive.steps, &Permissions::default(), &registry);
-        assert!(allowed.is_ok(), "没声明 permissions 就是不受限");
+        let rendered = outline(&directive.steps, &ActionRegistry::new()).join("\n");
+        assert!(rendered.contains("  inner  does.not.exist"), "{rendered}");
     }
 }

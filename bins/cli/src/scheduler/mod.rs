@@ -121,12 +121,15 @@ impl Paths {
     }
 
     /// 指令目录：给了 `--dir` 就用它，否则是 `<data-dir>/directives`。
+    ///
+    /// 默认目录为空时写入起步指令（见 [`corex_engine::starter`]）；`--dir` 是调用方自己
+    /// 指的目录，不碰。
     pub(crate) fn dir(override_dir: Option<&Path>) -> Result<PathBuf> {
         if let Some(d) = override_dir {
             return Ok(d.to_path_buf());
         }
         let d = data_dir()?.join("directives");
-        std::fs::create_dir_all(&d)?;
+        corex_engine::starter::seed(&d)?;
         Ok(d)
     }
 }

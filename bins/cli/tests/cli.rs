@@ -303,6 +303,57 @@ fn quiet_drops_the_progress_channel() {
     );
 }
 
+/// 子进程的输出要有去处：`--json-events` 下它是 `step_output` 帧（stdout 保持纯 NDJSON），
+/// 默认形态下它原样落在 stdout（与 v11 一致）。
+///
+/// 这条钉的是 daemon 场景的要害——本地跑时终端看得见不算数，见 `bins/daemon/tests/streaming.rs`。
+#[test]
+fn shell_output_has_a_channel() {
+    let body = concat!(
+        "name: probe\n",
+        "permissions:\n",
+        "  shell: true\n",
+        "steps:\n",
+        "  - id: echo\n",
+        "    action: shell.run\n",
+        "    params:\n",
+        "      command: \"echo corex-cli-output-probe\"\n",
+        "      host: cmd\n",
+    );
+    let (_dir, path) = directive("probe", body);
+    let path = path.to_str().expect("utf-8 path");
+
+    let out = run(&["run", path, "--json-events"]);
+    assert!(
+        out.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    // 每一行都必须是 JSON：子进程原文混进来就会在这里炸掉。
+    let events: Vec<serde_json::Value> = stdout
+        .lines()
+        .map(|line| serde_json::from_str(line).unwrap_or_else(|e| panic!("{line}: {e}")))
+        .collect();
+    let text: String = events
+        .iter()
+        .filter(|event| event["kind"] == "step_output" && event["stream"] == "stdout")
+        .filter_map(|event| event["text"].as_str())
+        .collect();
+    assert!(
+        text.contains("corex-cli-output-probe"),
+        "stdout 上应当有 step_output 帧: {stdout}"
+    );
+
+    let plain = run(&["run", path]);
+    assert!(plain.status.success());
+    assert!(
+        String::from_utf8_lossy(&plain.stdout).contains("corex-cli-output-probe"),
+        "默认形态下输出仍要落在 stdout: {}",
+        String::from_utf8_lossy(&plain.stdout)
+    );
+}
+
 /// `--json-events`：stdout 是 NDJSON，最后一条固定是 `result`。
 ///
 /// 每一行的负载就是 `corex_ipc::ProgressEvent`——与 daemon 在 `--remote` 下推回来的帧
@@ -498,19 +549,28 @@ fn actions_json_narrows_to_one_action_or_bucket() {
 }
 
 /// 终端/字体跟不上 Unicode 时，`COREX_ASCII=1` 换一套纯 ASCII 符号。
+///
+/// `doctor` 会碰数据目录（起步指令就写在那儿），所以钉在临时目录里跑：
+/// 测试不该动开发机上的真实数据目录。
 #[test]
 fn ascii_symbols_are_opt_in() {
-    let out = Command::new(COREX)
-        .arg("doctor")
-        .env("COREX_ASCII", "1")
-        .output()
-        .expect("corex doctor runs");
+    let dir = tempfile::tempdir().expect("temp dir");
+    let run_here = |args: &[&str], ascii: bool| {
+        Command::new(COREX)
+            .args(args)
+            .env("COREX_DATA_DIR", dir.path())
+            .env("COREX_ASCII", if ascii { "1" } else { "0" })
+            .output()
+            .expect("corex doctor runs")
+    };
+
+    let out = run_here(&["doctor"], true);
     let stdout = String::from_utf8_lossy(&out.stdout);
     assert!(stdout.contains("ok "), "stdout: {stdout}");
     assert!(!stdout.contains('✓'), "stdout: {stdout}");
 
     // 默认走 Unicode；非终端不上色，所以符号就是裸的 `✓`。
-    let plain = run(&["doctor"]);
+    let plain = run_here(&["doctor"], false);
     let stdout = String::from_utf8_lossy(&plain.stdout);
     assert!(stdout.contains('✓'), "stdout: {stdout}");
 }
@@ -751,12 +811,16 @@ fn completions_registers_a_callback() {
 ///
 /// bash 版的游标位置来自环境变量（PowerShell 版来自参数个数），这里补上它就是
 /// `corex ru<Tab>` 那一刻。
+///
+/// `run` 的候选来自数据目录里的指令，所以钉在临时目录里跑，别去翻开发机的真实目录。
 #[test]
 fn completion_callback_returns_candidates() {
+    let dir = tempfile::tempdir().expect("temp dir");
     let out = Command::new(COREX)
         .args(["--", "corex", "ru"])
         .env("COMPLETE", "bash")
         .env("_CLAP_COMPLETE_INDEX", "1")
+        .env("COREX_DATA_DIR", dir.path())
         .output()
         .expect("corex completes");
     assert!(
@@ -768,5 +832,146 @@ fn completion_callback_returns_candidates() {
     assert!(
         candidates.lines().any(|line| line.trim() == "run"),
         "candidates: {candidates:?}"
+    );
+}
+
+/// `corex paths --json` 是宿主的路径事实来源：每个值都必须是 corex 自己算的，
+/// 宿主据此读指令、连 daemon，不必复刻一遍平台规则。
+///
+/// `COREX_DATA_DIR` 与 `--config` 一起把这次运行钉在临时目录里：
+/// 既证明环境变量被尊重，也不让开发机上的真实数据目录与配置影响断言。
+#[test]
+fn paths_json_reports_the_effective_locations() {
+    let dir = tempfile::tempdir().expect("temp dir");
+    let config = dir.path().join("corex.toml");
+    std::fs::write(&config, "# 空配置：端点因此只能是平台默认\n").expect("write fixture");
+
+    let out = Command::new(COREX)
+        .args([
+            "--config",
+            config.to_str().expect("utf-8 path"),
+            "paths",
+            "--json",
+        ])
+        .env("COREX_DATA_DIR", dir.path())
+        .output()
+        .expect("corex paths runs");
+    assert!(
+        out.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+
+    let listing: serde_json::Value =
+        serde_json::from_slice(&out.stdout).expect("paths --json 打的是 JSON");
+    let text = |key: &str| {
+        listing[key]
+            .as_str()
+            .unwrap_or_else(|| panic!("{key} 必须是字符串: {listing}"))
+            .to_string()
+    };
+
+    assert_eq!(
+        std::path::PathBuf::from(text("data_dir")),
+        dir.path(),
+        "COREX_DATA_DIR 必须原样生效"
+    );
+    assert_eq!(
+        std::path::PathBuf::from(text("directives_dir")),
+        dir.path().join("directives"),
+        "指令目录就是数据目录下的 directives"
+    );
+    assert_eq!(
+        text("kind"),
+        if cfg!(windows) { "pipe" } else { "socket" },
+        "没有记录时按平台默认"
+    );
+    assert!(!text("endpoint").is_empty(), "端点必须给出来");
+    assert!(
+        listing["token_file"].is_null(),
+        "没有 daemon 就没有 token 文件: {listing}"
+    );
+    assert_eq!(
+        text("version"),
+        env!("CARGO_PKG_VERSION"),
+        "宿主靠版本判断对面支不支持某个字段"
+    );
+}
+
+/// 空数据目录第一次被 CLI 触碰时应该长出起步指令：这是「初始不该是空页面」那条约定的
+/// 落点，也是宿主要求用户去写第一条指令之前能看到的全部。
+///
+/// 断言落在这里而不是 `starter.rs` 的单元测试里，是因为真正的门槛是**接线**：
+/// `Paths::dir` 走的是新目录才播种的那条路，忘了接就没东西可跑。
+#[test]
+fn empty_data_directory_gets_starter_directives() {
+    let dir = tempfile::tempdir().expect("temp dir");
+    let run_here = |args: &[&str]| {
+        Command::new(COREX)
+            .args(args)
+            .env("COREX_DATA_DIR", dir.path())
+            .output()
+            .expect("corex runs")
+    };
+
+    let out = run_here(&["paths", "--json"]);
+    assert!(
+        out.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let listing: serde_json::Value =
+        serde_json::from_slice(&out.stdout).expect("paths --json 打的是 JSON");
+    let directives_dir = std::path::PathBuf::from(
+        listing["directives_dir"]
+            .as_str()
+            .expect("directives_dir 必须是字符串"),
+    );
+
+    let mut seeded: Vec<String> = std::fs::read_dir(&directives_dir)
+        .expect("指令目录应当已经建出来")
+        .map(|entry| {
+            entry
+                .expect("dir entry")
+                .file_name()
+                .to_string_lossy()
+                .into_owned()
+        })
+        .collect();
+    seeded.sort();
+
+    let mut expected: Vec<String> = corex_engine::starter::names()
+        .iter()
+        .map(|name| format!("{name}.yaml"))
+        .collect();
+    expected.sort();
+    assert_eq!(seeded, expected, "起步指令应当原样落进数据目录");
+
+    // 播种出来的东西就是指令，不是文案：每条都要过 CLI 那道门。
+    for name in &expected {
+        let path = directives_dir.join(name);
+        let out = run_here(&["validate", path.to_str().expect("utf-8 path"), "--strict"]);
+        assert!(
+            out.status.success(),
+            "{name} 不是一条能用的指令: {}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+    }
+
+    // 第二次进来不许再写一遍，也不许覆盖别人放进去的东西。
+    let mine = directives_dir.join("mine.yaml");
+    std::fs::write(&mine, "name: mine\nsteps: []\n").expect("写自己的指令");
+    let out = run_here(&["paths", "--json"]);
+    assert!(out.status.success());
+    assert_eq!(
+        std::fs::read_dir(&directives_dir)
+            .expect("读回指令目录")
+            .count(),
+        expected.len() + 1,
+        "已有指令的数据目录必须原样不动"
+    );
+    assert_eq!(
+        std::fs::read_to_string(&mine).expect("读回自己的指令"),
+        "name: mine\nsteps: []\n"
     );
 }
