@@ -17,14 +17,10 @@
             {
               "type": "null"
             }
-          ],
-          "default": null
+          ]
         },
-        "params": {
-          "default": null
-        },
+        "params": true,
         "retry": {
-          "default": null,
           "format": "uint32",
           "minimum": 0,
           "type": [
@@ -33,7 +29,6 @@
           ]
         },
         "save_to": {
-          "default": null,
           "description": "把步骤输出存进某个变量名。",
           "type": [
             "string",
@@ -48,8 +43,7 @@
             {
               "type": "null"
             }
-          ],
-          "default": null
+          ]
         }
       },
       "required": [
@@ -57,6 +51,17 @@
         "action"
       ],
       "type": "object"
+    },
+    "Bucket": {
+      "enum": [
+        "system",
+        "network",
+        "data",
+        "ui",
+        "logic",
+        "plugin"
+      ],
+      "type": "string"
     },
     "Condition": {
       "anyOf": [
@@ -180,7 +185,6 @@
     "IfStep": {
       "properties": {
         "else": {
-          "default": [],
           "items": {
             "$ref": "#/$defs/Step"
           },
@@ -209,9 +213,7 @@
     "InputDecl": {
       "description": "声明的指令输入。",
       "properties": {
-        "default": {
-          "default": null
-        },
+        "default": true,
         "description": {
           "default": "",
           "type": "string"
@@ -314,7 +316,6 @@
           "type": "string"
         },
         "count": {
-          "default": null,
           "format": "uint64",
           "minimum": 0,
           "type": [
@@ -323,7 +324,6 @@
           ]
         },
         "each": {
-          "default": null,
           "description": "能解析成数组的表达式，如 `\"{{items}}\"`。",
           "type": [
             "string",
@@ -399,6 +399,10 @@
     "StepsStep": {
       "description": "一组按顺序执行的步骤。\n\n`parallel` 的分支只能放**一个**步骤，而真实流程常常需要「算完摘要再 PATCH」\n这种两步一串的分支；把这组步骤收成一个步骤，语法上就装得下了。",
       "properties": {
+        "id": {
+          "description": "步骤 id。顺序块默认不写：块本身没有进度 / 引用，`{{steps.<id>}}` 指的是里面\n的步骤。带上它是为了让手写的分支「两条线各叫一个名字」，也免得编辑它的工具\n一保存就把名字抹掉（文档示例里带 id）。",
+          "type": "string"
+        },
         "steps": {
           "items": {
             "$ref": "#/$defs/Step"
@@ -520,12 +524,21 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "description": "YAML directive document executed by corex-engine",
   "properties": {
+    "bucket": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/Bucket"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "分类，取 [`Bucket`] 的写法（与 `corex actions` 的分组同一套）；缺省为未分类。"
+    },
     "description": {
-      "default": "",
       "type": "string"
     },
     "inputs": {
-      "default": [],
       "items": {
         "$ref": "#/$defs/InputDecl"
       },
@@ -535,21 +548,10 @@
       "type": "string"
     },
     "on_error": {
-      "$ref": "#/$defs/OnError",
-      "default": "abort"
+      "$ref": "#/$defs/OnError"
     },
     "permissions": {
-      "$ref": "#/$defs/Permissions",
-      "default": {
-        "capture": false,
-        "clipboard": false,
-        "filesystem": false,
-        "network": false,
-        "notifications": false,
-        "secret": false,
-        "shell": false,
-        "ui": false
-      }
+      "$ref": "#/$defs/Permissions"
     },
     "steps": {
       "items": {
@@ -558,7 +560,6 @@
       "type": "array"
     },
     "triggers": {
-      "default": [],
       "items": {
         "$ref": "#/$defs/Trigger"
       },
@@ -566,11 +567,9 @@
     },
     "variables": {
       "additionalProperties": true,
-      "default": {},
       "type": "object"
     },
     "version": {
-      "default": null,
       "type": [
         "string",
         "null"

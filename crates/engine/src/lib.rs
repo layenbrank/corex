@@ -11,6 +11,7 @@ pub mod resolver;
 pub mod run;
 #[cfg(feature = "schema")]
 pub mod schema;
+pub mod starter;
 pub mod supervisor;
 pub mod trigger;
 pub mod watch;
@@ -18,9 +19,10 @@ pub mod watch;
 pub use audit::{AuditEntry, ExecutionAudit};
 pub use corex_core::{PermissionKind, PermissionSet};
 pub use definition::{
-    Condition, Directive, InputDecl, OnError, Permissions, Step, Trigger, validate_permissions,
+    ActionStep, Condition, Directive, InputDecl, OnError, Permissions, Step, Trigger,
+    required_permissions, validate_allowed, validate_permissions, validate_registered,
 };
-pub use history::{ExecutionHistory, HistoryEntry};
+pub use history::{DirectiveHistory, ExecutionHistory, HistoryEntry};
 pub use inputs::{fill_input_defaults, is_input_unset};
 pub use pipeline::Pipeline;
 pub use resolver::Resolver;

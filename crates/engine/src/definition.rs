@@ -1,6 +1,6 @@
 //! 指令 YAML 定义。
 
-use corex_core::Value;
+use corex_core::{Bucket, Value};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::Path;
@@ -10,24 +10,28 @@ use std::path::Path;
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct Directive {
     pub name: String,
-    #[serde(default)]
+    /// 分类，取 [`Bucket`] 的写法（与 `corex actions` 的分组同一套）；缺省为未分类。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "schema", schemars(with = "Option<BucketName>"))]
+    pub bucket: Option<Bucket>,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
     pub description: String,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub version: Option<String>,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub inputs: Vec<InputDecl>,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
     #[cfg_attr(
         feature = "schema",
         schemars(with = "std::collections::HashMap<String, serde_json::Value>")
     )]
     pub variables: HashMap<String, Value>,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub triggers: Vec<Trigger>,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Permissions::is_unrestricted")]
     pub permissions: Permissions,
     pub steps: Vec<Step>,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "is_abort")]
     pub on_error: OnError,
 }
 
@@ -41,6 +45,46 @@ impl Directive {
         let text = std::fs::read_to_string(path)?;
         Self::from_yaml_str(&text)
     }
+
+    /// 写回 YAML 文本。
+    ///
+    /// 只覆盖模型里的字段：**注释与键序不会保留**，而模型已能表达默认值的字段
+    /// （空 `inputs`、未声明 `permissions` 等）一律省略。要改指令的编辑者拿到的
+    /// 是一份规范化的文档，不是原文的副本。
+    pub fn to_yaml_str(&self) -> Result<String, corex_core::EngineError> {
+        let mut text = serde_yml::to_string(self)
+            .map_err(|e| corex_core::EngineError::ParseError(format!("YAML 序列化失败: {e}")))?;
+        if !text.ends_with('\n') {
+            text.push('\n');
+        }
+        Ok(text)
+    }
+}
+
+/// 序列化时判断「这一步没写参数」，好把 `params: null` 省掉。
+fn is_null(value: &Value) -> bool {
+    matches!(value, Value::Null)
+}
+
+/// `bucket` 在 schema 里的形状。
+///
+/// [`Bucket`] 本身不派生 `JsonSchema`（corex-core 不依赖 schemars），所以这里按它
+/// 的写法复述一遍取值，供编辑指令的人补全；名字由 `Bucket::ALL` 生成，不另抄一份。
+#[cfg(feature = "schema")]
+struct BucketName;
+
+#[cfg(feature = "schema")]
+impl schemars::JsonSchema for BucketName {
+    fn schema_name() -> std::borrow::Cow<'static, str> {
+        "Bucket".into()
+    }
+
+    fn json_schema(_generator: &mut schemars::SchemaGenerator) -> schemars::Schema {
+        schemars::json_schema!({
+            "type": "string",
+            "enum": Bucket::ALL.iter().map(|bucket| bucket.as_str()).collect::<Vec<_>>(),
+        })
+    }
 }
 
 /// 声明的指令输入。
@@ -52,7 +96,7 @@ pub struct InputDecl {
     pub description: String,
     #[serde(default)]
     pub required: bool,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(feature = "schema", schemars(with = "Option<serde_json::Value>"))]
     pub default: Option<Value>,
 }
@@ -81,6 +125,11 @@ pub enum Step {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct StepsStep {
+    /// 步骤 id。顺序块默认不写：块本身没有进度 / 引用，`{{steps.<id>}}` 指的是里面
+    /// 的步骤。带上它是为了让手写的分支「两条线各叫一个名字」，也免得编辑它的工具
+    /// 一保存就把名字抹掉（文档示例里带 id）。
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub id: String,
     pub steps: Vec<Step>,
 }
 
@@ -90,17 +139,17 @@ pub struct ActionStep {
     pub id: String,
     /// 动作 id，如 `shell.run`、`file.write`。
     pub action: String,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "is_null")]
     #[cfg_attr(feature = "schema", schemars(with = "serde_json::Value"))]
     pub params: Value,
     /// 把步骤输出存进某个变量名。
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub save_to: Option<String>,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub when: Option<Condition>,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub on_error: Option<OnError>,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub retry: Option<u32>,
 }
 
@@ -111,7 +160,7 @@ pub struct IfStep {
     #[serde(rename = "if")]
     pub condition: Condition,
     pub then: Vec<Step>,
-    #[serde(default, rename = "else")]
+    #[serde(default, rename = "else", skip_serializing_if = "Vec::is_empty")]
     pub else_steps: Vec<Step>,
 }
 
@@ -140,10 +189,10 @@ pub struct RepeatStep {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct RepeatSpec {
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub count: Option<u64>,
     /// 能解析成数组的表达式，如 `"{{items}}"`。
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub each: Option<String>,
     /// 当前元素绑到哪个变量名；`count` 时绑的是序号。
     #[serde(default = "init_repeat_item", rename = "as")]
@@ -225,6 +274,11 @@ pub enum OnError {
     Skip,
 }
 
+/// `on_error` 的默认值不写进 YAML：`abort` 与省略是同一件事。
+fn is_abort(value: &OnError) -> bool {
+    *value == OnError::Abort
+}
+
 /// 指令可能需要的声明权限。
 ///
 /// 当**所有**标志都为 false（YAML 省略或为空）时，该指令被视为
@@ -264,21 +318,33 @@ impl Permissions {
             && !self.secret
     }
 
+    /// 该声明下执行 `action_id` 缺少的权限类别；齐全则为空。
+    ///
+    /// 拒绝信息的措辞只在这里落地，[`Self::allows_action`] 与 [`validate_allowed`] 共用，
+    /// 聚合多步时不会把「权限不足」这层前缀重复叠上。
+    fn missing_for(
+        &self,
+        store: &dyn corex_core::ActionStore,
+        action_id: &str,
+    ) -> Vec<&'static str> {
+        if self.is_unrestricted() {
+            return Vec::new();
+        }
+        store
+            .permissions_of(action_id)
+            .iter()
+            .filter(|kind| !self.grants(*kind))
+            .map(|kind| kind.name())
+            .collect()
+    }
+
     /// 检查该声明下是否允许 `action_id`。
     pub fn allows_action(
         &self,
         store: &dyn corex_core::ActionStore,
         action_id: &str,
     ) -> Result<(), corex_core::ActionError> {
-        if self.is_unrestricted() {
-            return Ok(());
-        }
-        let missing: Vec<_> = store
-            .permissions_of(action_id)
-            .iter()
-            .filter(|kind| !self.grants(*kind))
-            .map(|kind| kind.name())
-            .collect();
+        let missing = self.missing_for(store, action_id);
         if missing.is_empty() {
             Ok(())
         } else {
@@ -306,6 +372,91 @@ impl Permissions {
     }
 }
 
+/// 按执行顺序访问步骤树里的每个动作步骤，容器嵌套在这里展开。
+///
+/// 三道门——动作是否注册、运行时权限够不够、声明的权限覆盖没覆盖（企业 `--strict`）
+/// ——共用同一条遍历：容器种类只在这一处展开，加一种容器不必改三遍。
+fn walk_actions<'a>(steps: &'a [Step], visit: &mut impl FnMut(&'a ActionStep)) {
+    for step in steps {
+        match step {
+            Step::Action(action) => visit(action),
+            Step::If(branch) => {
+                walk_actions(&branch.then, visit);
+                walk_actions(&branch.else_steps, visit);
+            }
+            Step::Repeat(repeat) => walk_actions(&repeat.steps, visit),
+            Step::Parallel(parallel) => walk_actions(&parallel.parallel, visit),
+            Step::Steps(block) => walk_actions(&block.steps, visit),
+        }
+    }
+}
+
+/// Union of the permissions declared by every action in a directive.
+///
+/// This is intentionally based on the action declarations rather than on step
+/// ids or buckets, so callers that need to schedule a whole directive use the
+/// same source of truth as validation and the action catalog.
+pub fn required_permissions(
+    store: &dyn corex_core::ActionStore,
+    directive: &Directive,
+) -> corex_core::PermissionSet {
+    let mut permissions = corex_core::PermissionSet::NONE;
+    walk_actions(&directive.steps, &mut |step| {
+        permissions = permissions.union(store.permissions_of(&step.action));
+    });
+    permissions
+}
+
+/// 步骤树里若引用了 store 没有的动作就报错。
+///
+/// 用 [`corex_core::EngineError::ActionNotRegistered`] 而不是一句通用失败：它表示
+/// 「调用方给的东西不对」（CLI 退出码 2、IPC 400），不是运行期出错。
+pub fn validate_registered(
+    store: &dyn corex_core::ActionStore,
+    directive: &Directive,
+) -> Result<(), corex_core::EngineError> {
+    let mut missing = Vec::new();
+    walk_actions(&directive.steps, &mut |step| {
+        if store.find_action(&step.action).is_none() {
+            missing.push(format!("{} ({})", step.action, step.id));
+        }
+    });
+    if missing.is_empty() {
+        Ok(())
+    } else {
+        Err(corex_core::EngineError::ActionNotRegistered(
+            missing.join(", "),
+        ))
+    }
+}
+
+/// 步骤树里若有运行时会因权限声明不足而被拒的动作就报错。
+///
+/// 查的是**运行时那道门**（[`Permissions::allows_action`]），不是 [`validate_permissions`]
+/// 的企业门禁：后者额外要求「必须声明 permissions」，而真实运行并不要求。
+pub fn validate_allowed(
+    store: &dyn corex_core::ActionStore,
+    directive: &Directive,
+) -> Result<(), corex_core::ActionError> {
+    let mut denied = Vec::new();
+    walk_actions(&directive.steps, &mut |step| {
+        let missing = directive.permissions.missing_for(store, &step.action);
+        if !missing.is_empty() {
+            denied.push(format!(
+                "{}: {} 缺少权限 {}",
+                step.id,
+                step.action,
+                missing.join("+")
+            ));
+        }
+    });
+    if denied.is_empty() {
+        Ok(())
+    } else {
+        Err(corex_core::ActionError::PermissionDenied(denied.join("；")))
+    }
+}
+
 /// 校验声明的权限覆盖了全部动作步骤（企业 `--strict`）。
 pub fn validate_permissions(
     store: &dyn corex_core::ActionStore,
@@ -314,31 +465,12 @@ pub fn validate_permissions(
     if directive.permissions.is_unrestricted() {
         return Err("strict: 必须声明 permissions（当前为 unrestricted / allow-all）".into());
     }
-    fn walk(
-        steps: &[Step],
-        perms: &Permissions,
-        store: &dyn corex_core::ActionStore,
-        errs: &mut Vec<String>,
-    ) {
-        for step in steps {
-            match step {
-                Step::Action(a) => {
-                    if let Err(e) = perms.allows_action(store, &a.action) {
-                        errs.push(format!("{}: {e}", a.id));
-                    }
-                }
-                Step::If(i) => {
-                    walk(&i.then, perms, store, errs);
-                    walk(&i.else_steps, perms, store, errs);
-                }
-                Step::Repeat(r) => walk(&r.steps, perms, store, errs),
-                Step::Parallel(p) => walk(&p.parallel, perms, store, errs),
-                Step::Steps(s) => walk(&s.steps, perms, store, errs),
-            }
-        }
-    }
     let mut errs = Vec::new();
-    walk(&directive.steps, &directive.permissions, store, &mut errs);
+    walk_actions(&directive.steps, &mut |step| {
+        if let Err(e) = directive.permissions.allows_action(store, &step.action) {
+            errs.push(format!("{}: {e}", step.id));
+        }
+    });
     if errs.is_empty() {
         Ok(())
     } else {
@@ -355,6 +487,109 @@ mod tests {
         let mut registry = corex_registry::ActionRegistry::new();
         registry.register_builtins();
         registry
+    }
+
+    /// 覆盖每一种步骤与条件的指令：写回 YAML 再读一遍，模型必须一模一样。
+    const EVERYTHING: &str = r#"
+name: everything
+bucket: network
+description: 覆盖全部步骤种类
+version: '1.4'
+variables:
+  base: /tmp/corex
+inputs:
+  - name: target
+    description: 目标
+    required: true
+triggers:
+  - type: cron
+    expr: '0 3 * * *'
+  - type: watch
+    paths:
+      - '{{base}}'
+    debounce_ms: 500
+permissions:
+  filesystem: true
+  network: true
+steps:
+  - id: plain
+    action: shell.run
+    params:
+      command: echo hi
+    save_to: out
+    when: '{{inputs.target}}'
+    on_error: continue
+    retry: 2
+  - id: branch
+    if:
+      contains: ['{{out}}', hi]
+    then:
+      - id: inner
+        action: template.render
+        params:
+          template: '{{out}}'
+    else:
+      - steps:
+          - id: nested
+            action: template.render
+            params:
+              template: x
+  - id: loop
+    repeat:
+      each: '{{items}}'
+      as: entry
+      index: i
+    max_concurrency: 4
+    steps:
+      - id: per-item
+        action: shell.run
+        params:
+          command: echo '{{entry}}'
+  - id: fan-out
+    parallel:
+      - id: left
+        action: shell.run
+        params:
+          command: echo left
+      - id: right
+        action: shell.run
+        params:
+          command: echo right
+    max_concurrency: 2
+  - steps:
+      - id: block
+        action: template.render
+        params:
+          template: done
+on_error: skip
+"#;
+
+    #[test]
+    fn yaml_round_trip_keeps_the_model() {
+        let first = Directive::from_yaml_str(EVERYTHING).unwrap();
+        assert_eq!(first.bucket, Some(Bucket::Network));
+        let text = first.to_yaml_str().unwrap();
+        let second = Directive::from_yaml_str(&text).unwrap();
+
+        assert_eq!(
+            serde_json::to_string(&second).unwrap(),
+            serde_json::to_string(&first).unwrap(),
+            "写回的 YAML 读出来和原文不同：\n{text}"
+        );
+        assert_eq!(second.to_yaml_str().unwrap(), text, "第二次写回应当稳定");
+    }
+
+    #[test]
+    fn yaml_write_omits_what_the_model_already_defaults() {
+        let directive = Directive::from_yaml_str("name: bare\nsteps: []\n").unwrap();
+        let text = directive.to_yaml_str().unwrap();
+        assert_eq!(text, "name: bare\nsteps: []\n");
+    }
+
+    #[test]
+    fn unknown_bucket_is_rejected() {
+        let err = Directive::from_yaml_str("name: x\nbucket: 别的\nsteps: []\n").unwrap_err();
+        assert!(err.to_string().contains("expected one of"), "{err}");
     }
 
     #[test]
@@ -387,6 +622,67 @@ mod tests {
         };
         assert!(p.allows_action(&store(), "shell.run").is_ok());
         assert!(p.allows_action(&store(), "http.send").is_err());
+    }
+
+    /// 门禁要下到容器里去：`repeat` 里的动作不该因为嵌了一层就被漏掉。
+    #[test]
+    fn validate_registered_reaches_nested_steps() {
+        let yaml = r#"
+name: nested
+steps:
+  - id: loop
+    repeat:
+      count: 2
+    steps:
+      - id: inner
+        action: does.not.exist
+"#;
+        let directive = Directive::from_yaml_str(yaml).unwrap();
+        let err = validate_registered(&store(), &directive).unwrap_err();
+        assert!(err.to_string().contains("does.not.exist (inner)"), "{err}");
+    }
+
+    #[test]
+    fn required_permissions_reaches_nested_steps() {
+        let yaml = r#"
+name: resources
+steps:
+  - id: branch
+    parallel:
+      - id: screenshot
+        action: capture.screenshot
+      - id: ui
+        action: ui.window.list
+"#;
+        let directive = Directive::from_yaml_str(yaml).unwrap();
+        let permissions = required_permissions(&store(), &directive);
+        assert!(permissions.contains(corex_core::PermissionKind::Capture));
+        assert!(permissions.contains(corex_core::PermissionKind::Filesystem));
+        assert!(permissions.contains(corex_core::PermissionKind::Ui));
+    }
+
+    /// 运行时那道门只报被拒的步骤，并点名是谁。
+    #[test]
+    fn validate_allowed_names_the_offending_step() {
+        let mixed = r#"
+name: mixed
+permissions:
+  filesystem: true
+steps:
+  - id: write
+    action: file.write
+  - id: shell
+    action: shell.run
+"#;
+        let directive = Directive::from_yaml_str(mixed).unwrap();
+        let err = validate_allowed(&store(), &directive).unwrap_err();
+        let text = err.to_string();
+        assert_eq!(text, "权限不足: shell: shell.run 缺少权限 shell", "{text}");
+        assert!(!text.contains("write"), "{text}");
+
+        // 没声明 permissions 就是不受限。
+        let open = Directive::from_yaml_str("name: open\nsteps: []\n").unwrap();
+        assert!(validate_allowed(&store(), &open).is_ok());
     }
 
     #[test]

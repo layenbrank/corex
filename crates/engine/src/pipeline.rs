@@ -314,11 +314,16 @@ impl Pipeline {
             }
         };
 
-        let params = match Resolver::resolve_value(&step.params, ctx) {
-            Ok(p) => p,
-            Err(e) => {
-                self.record_step_audit(step, t0.elapsed().as_millis() as u64, Err(&e));
-                return Err(e);
+        // 原样参数的动作自己做模板解释，跳过预解析。
+        let params = if action.is_raw_params() {
+            step.params.clone()
+        } else {
+            match Resolver::resolve_value(&step.params, ctx) {
+                Ok(p) => p,
+                Err(e) => {
+                    self.record_step_audit(step, t0.elapsed().as_millis() as u64, Err(&e));
+                    return Err(e);
+                }
             }
         };
         if let Err(e) = action.validate(&params).await {
@@ -405,7 +410,9 @@ impl Pipeline {
         let concurrency = step.max_concurrency.unwrap_or(1).max(1);
         let last = if concurrency > 1 {
             // 并发：每个元素一份上下文副本，跑完按元素顺序合并回来。
+            // 这里的循环体是引擎自己合成的，不带 id。
             let body = Step::Steps(StepsStep {
+                id: String::new(),
                 steps: step.steps.clone(),
             });
             let values = self
