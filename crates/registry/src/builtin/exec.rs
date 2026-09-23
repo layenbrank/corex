@@ -66,7 +66,7 @@ impl Action for ExecRun {
         if let Some(cwd) = spec.cwd.take() {
             spec.cwd = Some(confine_path(ctx, &cwd)?);
         }
-        let result = launch(spec).await?;
+        let result = launch(spec, ctx.reporter()).await?;
         Ok(result.into_value())
     }
 }

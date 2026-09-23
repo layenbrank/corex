@@ -1,6 +1,6 @@
 //! `shell.run` 与 `exec.run` 共用的进程启动内核。
 
-use corex_core::{ActionError, Value};
+use corex_core::{ActionError, Reporter, Stream, Value};
 use encoding_rs::Encoding;
 use std::collections::BTreeMap;
 use std::io::Write;
@@ -294,7 +294,14 @@ fn has_console() -> bool {
 }
 
 /// 启动进程并映射成统一结果。会应用 `allow_nonzero`。
-pub async fn launch(spec: LaunchSpec) -> Result<LaunchResult, ActionError> {
+///
+/// `sink` 是**执行进度上报口**（见 [`Reporter`]）：给了它，子进程的 stdout / stderr 就在读到的
+/// 当下经 [`Observer::output`] 上报，宿主因此能在进程还跑着的时候把它们画出来——daemon 场景
+/// 下这是唯一的出路，因为那时子进程的流通向 daemon 自己的控制台，宿主一个字节也看不到。
+/// 没给（`--quiet`、或宿主压根没挂上报口）就退回原来的做法：直接写本进程的 stdout / stderr。
+///
+/// [`Observer::output`]: corex_core::Observer::output
+pub async fn launch(spec: LaunchSpec, sink: Option<Reporter>) -> Result<LaunchResult, ActionError> {
     // Windows 上被规范化成 `\\?\` 的路径会让 cmd.exe / 某些 shell 出错。
     let mut spec = LaunchSpec {
         program: corex_core::path::for_external_process(spec.program),
@@ -361,10 +368,12 @@ pub async fn launch(spec: LaunchSpec) -> Result<LaunchResult, ActionError> {
             }
         })
     });
-    let stdout_task =
-        tokio::spawn(async move { pump_process_stream(stdout_pipe, ProcessStream::Stdout).await });
+    let stdout_task = {
+        let sink = sink.clone();
+        tokio::spawn(async move { pump_process_stream(stdout_pipe, Stream::Stdout, sink).await })
+    };
     let stderr_task =
-        tokio::spawn(async move { pump_process_stream(stderr_pipe, ProcessStream::Stderr).await });
+        tokio::spawn(async move { pump_process_stream(stderr_pipe, Stream::Stderr, sink).await });
     let status = child
         .wait()
         .await
@@ -395,18 +404,15 @@ pub async fn launch(spec: LaunchSpec) -> Result<LaunchResult, ActionError> {
     Ok(result)
 }
 
-#[derive(Debug, Clone, Copy)]
-enum ProcessStream {
-    Stdout,
-    Stderr,
-}
-
-/// 分块读取进程输出，回显到终端，并收集起来作为动作结果。
+/// 分块读取进程输出，实时上报（或回显到终端），并收集起来作为动作结果。
 ///
 /// Windows 上管道字节经常是 OEM（中文 CP936/GBK），不能当 UTF-8 硬解，
 /// 也不能把原始字节直接 `write_all` 进控制台（Rust 走 `WriteConsoleW`，要合法 UTF-8）。
 /// 解码交给 [`PipeText`]：一块一块地解，不重解已经解过的部分。
-async fn pump_process_stream<R>(reader: Option<R>, stream: ProcessStream) -> String
+///
+/// 上报的粒度就是这里的读粒度（每次最多 8 KiB）：**切点在哪不重要**，因为收到的每一段都
+/// 按顺序追加即得完整输出——宿主不该指望一段是一行。
+async fn pump_process_stream<R>(reader: Option<R>, stream: Stream, sink: Option<Reporter>) -> String
 where
     R: AsyncRead + Unpin,
 {
@@ -423,25 +429,38 @@ where
             Err(_) => break,
         };
         collected.extend_from_slice(&buf[..n]);
-        echo(stream, text.feed(&buf[..n]));
+        forward(stream, text.feed(&buf[..n]), &sink);
     }
-    echo(stream, text.finish());
+    forward(stream, text.finish(), &sink);
     decode_process_output(&collected)
 }
 
-/// 把这一段解出来的文本回显出去。
+/// 把这一段解出来的文本交出去：有上报口就上报，没有就写自己的流。
 ///
-/// 写不进去只忽略：终端已经关了不该让动作失败（这正是 `let _ =` 而不是 `?` 的理由）。
-fn echo(stream: ProcessStream, text: &str) {
+/// 上报分支不写终端是有意的——同一条输出经 IPC 到宿主后再由宿主渲染（`corex_ipc::Replay`
+/// 之后落到 CLI 自己的 [`Observer`] 上），本地与远程因此不会一套一份地各写一次。
+///
+/// [`Observer`]: corex_core::Observer
+fn forward(stream: Stream, text: &str, sink: &Option<Reporter>) {
     if text.is_empty() {
         return;
     }
+    match sink {
+        Some(sink) => sink.output(stream, text),
+        None => echo(stream, text),
+    }
+}
+
+/// 把这一段解出来的文本回显到本进程的对应流上。
+///
+/// 写不进去只忽略：终端已经关了不该让动作失败（这正是 `let _ =` 而不是 `?` 的理由）。
+fn echo(stream: Stream, text: &str) {
     let _ = match stream {
-        ProcessStream::Stdout => {
+        Stream::Stdout => {
             let mut out = std::io::stdout().lock();
             out.write_all(text.as_bytes()).and_then(|()| out.flush())
         }
-        ProcessStream::Stderr => {
+        Stream::Stderr => {
             let mut err = std::io::stderr().lock();
             err.write_all(text.as_bytes()).and_then(|()| err.flush())
         }
@@ -942,7 +961,7 @@ mod tests {
             if_running: Default::default(),
             if_running_window: None,
         };
-        let out = launch(spec).await.expect("detach spawn");
+        let out = launch(spec, None).await.expect("detach spawn");
         assert!(out.detached);
         assert!(out.success);
     }
@@ -1017,7 +1036,7 @@ mod tests {
             if_running: Default::default(),
             if_running_window: None,
         };
-        let out = launch(spec).await.expect("stdin roundtrip");
+        let out = launch(spec, None).await.expect("stdin roundtrip");
         assert!(out.stdout.contains("corex-stdin"), "got: {}", out.stdout);
     }
 

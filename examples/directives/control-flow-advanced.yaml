@@ -61,5 +61,5 @@ steps:
   - id: merge
     action: template.render
     params:
-      template: "A={{para_a}} B={{para_b}} last={{last_color}} optional={{optional_content}}"
+      template: "A={{para_a}} B={{para_b}} last={{last_color}} optional={{ step.optional_read | default('none', true) }}"
     save_to: merged

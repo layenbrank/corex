@@ -122,7 +122,7 @@ scraper       = { workspace = true, optional = true }
 url           = { workspace = true, optional = true }
 arboard       = { workspace = true, optional = true }
 notify-rust   = { workspace = true, optional = true }
-minijinja     = { workspace = true, optional = true }
+minijinja     = { workspace = true, optional = true, features = ["urlencode"] }
 keyring       = { workspace = true, optional = true }
 wasmtime      = { workspace = true, optional = true }
 wasmtime-wasi = { workspace = true, optional = true }
