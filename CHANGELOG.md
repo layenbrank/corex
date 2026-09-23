@@ -8,6 +8,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 See also [Conventional Commits](https://www.conventionalcommits.org/).
 
 ---
+## [12.0.0](https://github.com/layenbrank/corex/compare/v11.0.0..v12.0.0) - 2026-09-23
+
+### 💥 Breaking Changes
+
+- **(engine)** 指令模型补 bucket 与规范化序列化，校验收进引擎 · ([`7fe05e4`](https://github.com/layenbrank/corex/commit/7fe05e4e989f99f323b346738597430c9dd1e634)) · layen
+
+- **(core,ipc)** 动作输出走帧，排队期间发心跳 · ([`21c0bcb`](https://github.com/layenbrank/corex/commit/21c0bcb39464f15adb880b9829d39a02fcfc7e22)) · layen
+
+- **(registry)** 子进程输出改走上报口，template.render 拿原始参数 · ([`6f92405`](https://github.com/layenbrank/corex/commit/6f9240559be7773e597c33ee89c4fb9c259c6a16)) · layen
+
+- **(daemon)** 指令读写闭环、运行历史与并行调度 · ([`fac9eda`](https://github.com/layenbrank/corex/commit/fac9eda91360f2da0ca86449a715be9088ee52d8)) · layen
+
+- **(cli)** corex paths 子命令，校验与历史改由引擎提供 · ([`017af09`](https://github.com/layenbrank/corex/commit/017af09b65aa2bf3f5618ee3476c243616082285)) · layen
+
+
+### 🚀 Features
+- 💥 **(cli)** corex paths 子命令，校验与历史改由引擎提供 — **breaking** · ([`017af09`](https://github.com/layenbrank/corex/commit/017af09b65aa2bf3f5618ee3476c243616082285)) · layen
+- 💥 **(core,ipc)** 动作输出走帧，排队期间发心跳 — **breaking** · ([`21c0bcb`](https://github.com/layenbrank/corex/commit/21c0bcb39464f15adb880b9829d39a02fcfc7e22)) · layen
+- 💥 **(daemon)** 指令读写闭环、运行历史与并行调度 — **breaking** · ([`fac9eda`](https://github.com/layenbrank/corex/commit/fac9eda91360f2da0ca86449a715be9088ee52d8)) · layen
+- 💥 **(engine)** 指令模型补 bucket 与规范化序列化，校验收进引擎 — **breaking** · ([`7fe05e4`](https://github.com/layenbrank/corex/commit/7fe05e4e989f99f323b346738597430c9dd1e634)) · layen
+- **(engine)** 空指令目录首次使用时落几条起步指令 · ([`bda9423`](https://github.com/layenbrank/corex/commit/bda9423f71f22fe0fb65c5316ef2fc0d837c393f)) · layen
+- 💥 **(registry)** 子进程输出改走上报口，template.render 拿原始参数 — **breaking** · ([`6f92405`](https://github.com/layenbrank/corex/commit/6f9240559be7773e597c33ee89c4fb9c259c6a16)) · layen
+
+
+### 📚 Documentation
+- v12 破坏性变更说明，接入与参考文档同步 · ([`7280d03`](https://github.com/layenbrank/corex/commit/7280d03bc429007ed09bbd19c9a1f46848151fde)) · layen
+- 版本标注同步到 v12.0.0，索引补上 v12 变更说明 · ([`4038d2e`](https://github.com/layenbrank/corex/commit/4038d2ef68963cd66d2aed3fb4045514ca20bc9a)) · layen
+
+
+### 📦 Release
+- **(release)** bump version to 12.0.0 · ([`bcb8334`](https://github.com/layenbrank/corex/commit/bcb833485af4b766fc83eb313a4f4c650c509299)) · layen
+
+---
 ## [11.0.0](https://github.com/layenbrank/corex/compare/v10.0.0..v11.0.0) - 2026-09-19
 
 ### 💥 Breaking Changes
@@ -29,10 +62,16 @@ See also [Conventional Commits](https://www.conventionalcommits.org/).
 ### 📚 Documentation
 - 修复内置 Action 目录表格损坏并统一版本标注到 v10 · ([`325cf36`](https://github.com/layenbrank/corex/commit/325cf360bedf648836168041726d63be4e5abce8)) · layen
 - 补全接入、参考与排障文档，修正索引与数据目录表述 · ([`ecefcb5`](https://github.com/layenbrank/corex/commit/ecefcb54c0da6566d997a911e4c42939aa1d1608)) · layen
+- 新增破坏性变更-v11 说明并同步版本标注与索引 · ([`a88bd0b`](https://github.com/layenbrank/corex/commit/a88bd0bbb811c1747b97d3151089b671daa5ab99)) · layen
 
 
 ### ♻️ Refactoring
 - 💥 **(ui)** ui.element.pick 改名 ui.element.inspect — **breaking** · ([`7780a05`](https://github.com/layenbrank/corex/commit/7780a05809d58d20a108afc74444efc8e21aaf5d)) · lh
+
+
+### 📦 Release
+- **(release)** bump version to 11.0.0 · ([`0200bfb`](https://github.com/layenbrank/corex/commit/0200bfb61401b58b3bc9401d99224e8fd35f5d94)) · layen
+- **(release)** 生成 11.0.0 的 CHANGELOG · ([`d20f522`](https://github.com/layenbrank/corex/commit/d20f5224bf5481bf0194a9713dc8caf632b79538)) · layen
 
 
 ### 🔧 Miscellaneous
@@ -629,6 +668,7 @@ See also [Conventional Commits](https://www.conventionalcommits.org/).
 - fluxor.yml · ([`322cb9c`](https://github.com/layenbrank/corex/commit/322cb9cb8c1e91f0b0a0b47e0014ae4c872fa846)) · layenbrank
 - Remove legacy notification examples and related files to streamline the project structure and focus on the updated notification system. This includes deleting old test files, configuration files, and XML templates that are no longer in use. · ([`fc89b31`](https://github.com/layenbrank/corex/commit/fc89b313725223dd1b0ce38ed5ad6b877f9a16e8)) · 李贺
 
+[12.0.0]: https://github.com/layenbrank/corex/compare/v11.0.0..v12.0.0
 [11.0.0]: https://github.com/layenbrank/corex/compare/v10.0.0..v11.0.0
 [10.0.0]: https://github.com/layenbrank/corex/compare/v9.0.0..v10.0.0
 [9.0.0]: https://github.com/layenbrank/corex/compare/v8.1.0..v9.0.0
