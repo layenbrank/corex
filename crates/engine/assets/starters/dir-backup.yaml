@@ -1,0 +1,39 @@
+# 起步指令 · 目录打包
+#
+#   corex run dir-backup -i source=D:\Documents\notes
+#   corex run dir-backup -i source=./docs -i archive=D:\backups\docs.zip
+#
+# 一条多步指令的样子：压缩 → 渲染摘要。`source` 必须由你给——不问就动文件不是起步指令
+# 该干的事——zip 默认落在源目录旁边，不另找地方。
+name: dir-backup
+bucket: data
+description: 把一个目录打包成 zip（默认放在它旁边）
+version: "1.0"
+
+inputs:
+  - name: source
+    description: 要打包的目录
+    required: true
+  - name: archive
+    description: 输出 zip 路径
+    required: false
+    default: "{{input.source}}.zip"
+
+permissions:
+  filesystem: true
+
+steps:
+  - id: compress
+    action: compression.compress
+    params:
+      from: "{{input.source}}"
+      to: "{{input.archive}}"
+      format: zip
+      level: 6
+    save_to: archive
+
+  - id: summary
+    action: template.render
+    params:
+      template: "已打包 {{ input.source }} → {{ archive }}"
+    save_to: summary

@@ -1,0 +1,29 @@
+# 起步指令 · 系统概况
+#
+#   corex run system-info
+#
+# 采集 OS / CPU / 内存后渲染成一行摘要 —— 验证「CLI / daemon / 宿主」整条链路是否通，
+# 跑这一条最快。想改成自己的第一张指令卡片，改 template 即可。
+name: system-info
+bucket: system
+description: 采集系统信息并渲染成一行摘要
+version: "1.0"
+
+# `scan.os` 与 `template.render` 都不需要权限，但企业 `strict_permissions` 要求指令至少
+# 显式声明一类（全 false / 省略会被当成 allow-all 拒掉）；这里与 `examples/directives/hello.yaml`
+# 一样声明 filesystem。
+permissions:
+  filesystem: true
+
+steps:
+  - id: scan
+    action: scan.os
+    save_to: os_info
+
+  - id: summary
+    action: template.render
+    params:
+      template: >-
+        {{ os_info.OS }} {{ os_info.version }} · {{ os_info.CPU.brand }} ×{{ os_info.CPU.cores }} 核 ·
+        内存 {{ os_info.memory.used }} / {{ os_info.memory.total }}
+    save_to: summary

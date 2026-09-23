@@ -30,8 +30,21 @@ impl State {
         registry.register_builtins();
         registry.remove_disabled(&config.plugins);
 
-        let directives_dir = directives.unwrap_or_else(|| data.join("directives"));
-        std::fs::create_dir_all(&directives_dir)?;
+        // 与 daemon 同一规则：默认目录为空时放入起步指令；`--directives` 是调用方自己指的
+        // 目录，不碰。
+        let directives_dir = match directives {
+            Some(dir) => {
+                std::fs::create_dir_all(&dir)?;
+                dir
+            }
+            None => {
+                let dir = data.join("directives");
+                if let Err(e) = corex_engine::starter::seed(&dir) {
+                    tracing::warn!(error = %e, dir = %dir.display(), "起步指令写入失败");
+                }
+                dir
+            }
+        };
 
         let history = open_history(data, &config)?;
         let audit = ExecutionAudit::under_data_dir(data).ok();

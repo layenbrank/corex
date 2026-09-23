@@ -1,0 +1,34 @@
+# 起步指令 · 目录结构
+#
+#   corex run dir-tree
+#   corex run dir-tree -i path=D:\Documents -i depth=2
+#
+# 默认只看当前目录一层：起步指令不猜你的文件在哪；条数也钉着，免得一个满是缓存的
+# 临时目录把输出撑爆。
+name: dir-tree
+bucket: data
+description: 列出一个目录的树形结构（默认当前目录）
+version: "1.0"
+
+inputs:
+  - name: path
+    description: 要查看的目录
+    required: false
+    default: "."
+  - name: depth
+    description: 展开深度
+    required: false
+    default: 1
+
+permissions:
+  filesystem: true
+
+steps:
+  - id: tree
+    action: dir.read
+    params:
+      path: "{{input.path}}"
+      mode: tree
+      max_depth: "{{input.depth}}"
+      max_entries: 200
+    save_to: tree

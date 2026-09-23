@@ -1,0 +1,41 @@
+# 起步指令 · 文本指纹
+#
+#   corex run text-fingerprint
+#   corex run text-fingerprint -i text=需要校验的一段文本
+#
+# 零副作用的纯计算示例。要算**文件**摘要，把下面 `text:` 换成 `path:` 即可
+# （同一个 `generate.hash`，文件走流式读取）。
+name: text-fingerprint
+bucket: data
+description: 算一段文本的 sha256 与 md5（零副作用）
+version: "1.0"
+
+inputs:
+  - name: text
+    description: 待摘要文本
+    required: false
+    default: "corex starter"
+
+permissions:
+  filesystem: true
+
+steps:
+  - id: sha
+    action: generate.hash
+    params:
+      text: "{{input.text}}"
+      algorithm: sha256
+    save_to: sha256
+
+  - id: md5
+    action: generate.hash
+    params:
+      text: "{{input.text}}"
+      algorithm: md5
+    save_to: md5
+
+  - id: summary
+    action: template.render
+    params:
+      template: "{{ sha256.size }} 字节 · sha256={{ sha256.hex }} · md5={{ md5.hex }}"
+    save_to: summary

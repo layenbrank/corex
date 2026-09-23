@@ -1,0 +1,37 @@
+# 起步指令 · 桌面提醒
+#
+#   corex run reminder
+#   corex run reminder -i text="18:00 收工" -i title=提醒
+#
+# 最小的一条 `ui` 指令：宿主点一下就弹通知，用来确认「指令 → 系统能力」这条路
+# （需要 notifications 权限）。
+name: reminder
+bucket: ui
+description: 往桌面推一条通知
+version: "1.0"
+
+inputs:
+  - name: title
+    description: 通知标题
+    required: false
+    default: "corex 提醒"
+  - name: text
+    description: 通知正文
+    required: false
+    default: "这条通知由起步指令 reminder 发出。"
+
+permissions:
+  notifications: true
+
+steps:
+  - id: ping
+    action: notify.send
+    params:
+      summary: "{{input.title}}"
+      body: "{{input.text}}"
+
+  - id: summary
+    action: template.render
+    params:
+      template: "已通知：{{ input.title }} — {{ input.text }}"
+    save_to: summary
