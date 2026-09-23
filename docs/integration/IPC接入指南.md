@@ -92,14 +92,24 @@ Token 不匹配 → 响应 `error`，code **401**。
 
 公共字段：`type`、`id`（可选，默认 0）、`auth_token`
 
-| type              | 用途            | 主要字段                           |
-| ----------------- | --------------- | ---------------------------------- |
-| `ping`            | 存活检测        | —                                  |
-| `list_directives` | 列出指令名      | `dir?`                             |
-| `list_actions`    | 列出 Action ID  | —                                  |
-| `run_directive`   | 执行指令        | `name`, `input?`（map）, `stream?` |
-| `invoke`          | 调用单个 Action | `action`, `params?`, `stream?`     |
-| `shutdown`        | 关闭 Daemon     | —                                  |
+| type              | 用途            | 主要字段                                              |
+| ----------------- | --------------- | ----------------------------------------------------- |
+| `ping`            | 存活检测        | —                                                     |
+| `list_directives` | 列出指令        | `dir?` → `{name, path, bucket, summary, last_run?}[]` |
+| `read_directive`  | 读一条指令      | `name`, `dir?`                                        |
+| `save_directive`  | 保存一条指令    | `name`, `definition`, `dir?`                          |
+| `list_runs`       | 最近执行记录    | `name?`, `limit?` → `{is_history_enabled, entries}`   |
+| `list_actions`    | 列出 Action ID  | —                                                     |
+| `run_directive`   | 执行指令        | `name`, `input?`（map）, `stream?`                    |
+| `invoke`          | 调用单个 Action | `action`, `params?`, `stream?`                        |
+| `shutdown`        | 关闭 Daemon     | —                                                     |
+
+指令的读 / 写是给宿主编辑器用的：路径与 YAML 解析都在 daemon 里，宿主拿到 `text` 展示、
+拿到 `definition` 编辑，改完原样交回即可（形状见 [IPC 协议](../reference/IPC协议.md)）。
+
+执行历史同样只有 daemon 一份：`list_runs` 回引擎自己写的记录（新 → 旧，含失败），
+`list_directives` 的条目顺带带上 `last_run`。宿主别再存一份「上次运行时间」——换台机器、
+清过数据目录就会与它对不上。
 
 ### 响应（Daemon → Client）
 
@@ -117,7 +127,9 @@ Token 不匹配 → 响应 `error`，code **401**。
 ```json
 {"type":"event","id":2,"progress":{"kind":"step_start","seq":1,"step":"copy","action":"file.copy"}}
 {"type":"event","id":2,"progress":{"kind":"step_progress","step":"copy","action":"file.copy","done":1048576,"total":41943040,"unit":"bytes"}}
+{"type":"event","id":2,"progress":{"kind":"step_output","step":"build","action":"shell.run","stream":"stdout","text":"$ vite build\n"}}
 {"type":"event","id":2,"progress":{"kind":"step_end","step":"copy","action":"file.copy","took_ms":31,"ok":true}}
+{"type":"event","id":2,"progress":{"kind":"heartbeat","is_queued":false,"waited_ms":6000}}
 ```
 
 要点：
@@ -127,6 +139,14 @@ Token 不匹配 → 响应 `error`，code **401**。
 - 帧是**尽力而为**的：每条连接的待写队列（64 帧）满时 daemon 丢帧而不是等——
   进度不该把执行拖慢。所以不要拿帧当成“执行到哪了”的权威依据，`step_end` 系列可能缺。
 - `unit` 为 `bytes` 或 `items`；`total` 未知时为 `null`。
+- `heartbeat` 是**唯一不属于步骤的帧**（每两秒一帧）：`is_queued` 说它还在队列里等执行名额
+  （见 `[daemon] max_jobs`），`waited_ms` 说等到现在多久了。**别用「总时长」判请求死没死**——
+  一段几分钟的排队足够撞穿任何超时，而超时之后请求其实还在队列里、之后照样执行。
+  用「静止期」判：收到任何帧（含心跳）就算它还活着。
+- `step_output` 是**动作的文本输出**（`shell.run` / `exec.run` 的子进程 stdout / stderr）：
+  `stream` 是 `stdout` / `stderr`，`text` 是**增量**原文——按到达顺序拼接才是完整输出，
+  它可能含多行也可能半行断开，别按行解析；要完整读一次用终帧里动作的 `stdout` / `stderr`。
+  没有这个帧，daemon 跑出来的指令输出就只留在 daemon 自己的控制台上（面板里只有步骤）。
 - Rust 侧：`Transport::send_events(&mut self, &request, &sink)` 帮你把帧路由到 `sink`；
   `corex_ipc::Replay` 是一个现成的落点，把帧重放进一个 `corex_core::progress::Observer`。
 

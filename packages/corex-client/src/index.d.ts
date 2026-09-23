@@ -15,10 +15,10 @@ export type CorexValue = unknown
 /**
  * 进度帧的载荷，与 Rust 侧 `corex_ipc::ProgressEvent` 一一对应。
  *
- * `kind` 的三种取值与 `corex run --json-events` 是**同一套词汇**，不必记两套字段名。
+ * `kind` 的四种取值与 `corex run --json-events` 是**同一套词汇**，不必记两套字段名。
  */
-export interface ProgressEvent {
-  kind: 'step_start' | 'step_progress' | 'step_end'
+export interface StepProgressEvent {
+  kind: 'step_start' | 'step_progress' | 'step_output' | 'step_end'
   /** 只有 `step_start` 有。 */
   seq?: number
   step: string
@@ -27,10 +27,35 @@ export interface ProgressEvent {
   done?: number
   total?: number | null
   unit?: 'bytes' | 'items'
+  /**
+   * 只有 `step_output` 有：这段文本来自哪个流。
+   */
+  stream?: 'stdout' | 'stderr'
+  /**
+   * 只有 `step_output` 有：已解码的原文，**增量**——按到达顺序拼接才是完整输出。
+   * 它可能含多行，也可能半行断开（切点由动作的读缓冲决定），不要按行解析。
+   */
+  text?: string
   /** 只有 `step_end` 有。 */
   took_ms?: number
   ok?: boolean
 }
+
+/**
+ * 排队等待的心跳：不推进任何步骤，只告诉宿主「还在等，前面有别的活在跑」。
+ *
+ * 它**不带 `step` / `action`**，所以处理进度帧时必须先按 `kind` 判窄，别直接取
+ * `progress.step`——排队的指令正是最可能被宿主先看到的那一条。
+ */
+export interface HeartbeatEvent {
+  kind: 'heartbeat'
+  /** 前面是否还有别的活占着（`max_jobs` / 互斥资源）。 */
+  is_queued: boolean
+  waited_ms: number
+}
+
+/** daemon 推来的一帧进度，按 `kind` 判别。 */
+export type ProgressEvent = StepProgressEvent | HeartbeatEvent
 
 /** 目录里的一个动作；与 `corex actions --json` 的元素**逐字同形**。 */
 export interface ActionEntry {

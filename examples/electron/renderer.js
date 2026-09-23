@@ -137,6 +137,11 @@ window.corex.onProgress((frame) => {
       ? `${frame.done}/${frame.total} ${frame.unit}`
       : ''
   const end = frame.kind === 'step_end' ? `${frame.took_ms}ms ${frame.ok ? '✓' : '✗'}` : ''
+  // 子进程输出是增量文本（可能半行断开），这里直接追加，不做按行解析。
+  if (frame.kind === 'step_output') {
+    log(`${frame.stream}: ${frame.text}`.trimEnd())
+    return
+  }
   log(`${frame.kind}  ${frame.action}  ${frame.step}  ${done} ${end}`.trimEnd())
 })
 

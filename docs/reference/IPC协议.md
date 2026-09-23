@@ -76,15 +76,20 @@ daemon 在开始服务**之前**把「它到底监听在哪」写成 **`<data-di
 
 连接与执行是两件事，规则不同——宿主据此决定要不要开多条连接：
 
-| 事项     | 行为                                                                     |
-| -------- | ------------------------------------------------------------------------ |
-| 建立连接 | **总是并发**：每条连接一个任务。一条慢请求不会让别的客户端连不上            |
-| 执行请求 | `run_directive` / `invoke` 受 **`[daemon] max_jobs`** 限制，超出的在队列里等 |
-| 控制请求 | `ping` / `shutdown` / `list_directives` / `list_actions` **不排队**，随时可答 |
+| 事项     | 行为                                                                                        |
+| -------- | ------------------------------------------------------------------------------------------- |
+| 建立连接 | **总是并发**：每条连接一个任务。一条慢请求不会让别的客户端连不上                            |
+| 执行请求 | `run_directive` / `invoke` 受 **`[daemon] max_jobs`** 限制，超出的在队列里等                |
+| 控制请求 | `ping` / `shutdown` / `list_directives` / `list_runs` / `list_actions` **不排队**，随时可答 |
 
-`max_jobs`：`1`（默认）串行 / `> 1` 最多同时这么多 / `0` 不限。默认取 `1` 是为了保住
-「两条指令不会同时驱鼠标键盘」这条 UI 自动化的前提——**并行是显式选择**，见
-[运行时配置](../guide/运行时配置.md)。
+`max_jobs`：`1` 串行 / `> 1`（默认 `4`）最多同时这么多 / `0` 不限。默认不串行是因为
+宿主的「多任务并跑」（构建、拷贝、压缩之类互不相干的重活）本就互不干扰，串起来只会让后面几条
+一直排队；要保住「两条指令不会同时驱鼠标键盘」这条 UI 自动化前提的宿主，**显式写
+`max_jobs = 1`**，见 [运行时配置](../guide/运行时配置.md)。
+
+排队中的请求**每两秒收到一帧心跳**（`stream: true` 时才有，见下）——排队期间流水线一帧不出，
+客户端分不清「在等」与「死了」，而排队久到撞穿请求时限时，请求会被误报成失败
+（它其实还在队列里，之后照样执行）。
 
 对请求本身的两条推论：
 
@@ -125,7 +130,10 @@ CLI / 宿主 / SDK 侧的 token 解析顺序（一处实现：`corex_ipc::find_t
 | ----------------- | -------------------------------------------------------- | ---------------------------------------------- |
 | `ping`            | `id`，`auth_token`                                       | 探活                                           |
 | `shutdown`        | `id`，`auth_token`                                       | 优雅退出 daemon                                |
-| `list_directives` | `id`，`auth_token`，`dir?`                               | 列出指令名（可选子目录；**路径沙箱**）         |
+| `list_directives` | `id`，`auth_token`，`dir?`                               | 列出指令（`{name, path, bucket, summary, last_run?}[]`；可选子目录；**路径沙箱**） |
+| `read_directive`  | `id`，`auth_token`，`name`，`dir?`                       | 读一条指令的原文与模型                         |
+| `save_directive`  | `id`，`auth_token`，`name`，`definition`，`dir?`         | 校验后写回，并回规范化之后的那份               |
+| `list_runs`       | `id`，`auth_token`，`name?`，`limit?`                    | 最近的执行记录（新 → 旧），可按指令过滤        |
 | `list_actions`    | `id`，`auth_token`                                       | 动作目录文档（参数表、权限与 `inputSchema`）   |
 | `run_directive`   | `id`，`auth_token`，`name`，`input?`，`path?`，`stream?` | 按名运行指令，或路径（限制在 directives 根下） |
 | `invoke`          | `id`，`auth_token`，`action`，`params?`，`stream?`       | 按 ID 调用单个 Action                          |
@@ -178,6 +186,94 @@ CLI / 宿主 / SDK 侧的 token 解析顺序（一处实现：`corex_ipc::find_t
 | `input_schema` | 同一批事实派生出的 JSON Schema，可直接当 MCP 工具的 `inputSchema` 用 |
 | `permissions` | 取自动作自己的声明（`Action::permissions`），不是另抄的一张表 |
 
+### 指令的列 / 读 / 写
+
+宿主编辑器要展示并改指令，但**不该自己拼路径，也不该自己解析 YAML**：写盘格式（键序、
+哪些默认值该省）只有引擎一份，解析口径也是。三条请求合起来就是完整的读写闭环：
+
+| 请求              | 字段                                             | 回什么                                            |
+| ----------------- | ------------------------------------------------ | ------------------------------------------------- |
+| `list_directives` | `id`，`auth_token`，`dir?`                       | `{name, path, bucket, summary, last_run?}[]`，按名字排序 |
+| `read_directive`  | `id`，`auth_token`，`name`，`dir?`               | `{name, path, text, definition}`                  |
+| `save_directive`  | `id`，`auth_token`，`name`，`definition`，`dir?` | 同上，但 `text` 是**刚写下去**的那一份            |
+
+```json
+[
+  {
+    "name": "hello",
+    "path": "C:\\Users\\Alice\\.corex\\directives\\hello.yaml",
+    "bucket": "data",
+    "summary": {
+      "description": "打个招呼",
+      "step_count": 2,
+      "input_count": 1,
+      "trigger_count": 0
+    }
+  }
+]
+```
+
+| 字段                   | 说明                                                                                                         |
+| ---------------------- | ------------------------------------------------------------------------------------------------------------ |
+| `path`                 | 可交给外部编辑器的路径（已去掉 `\\?\` 前缀，分隔符按平台）                                                   |
+| `bucket`               | 指令的分类，取 `system` / `network` / `data` / `ui` / `logic` / `plugin`；没写或**解析不了**时为 `null`      |
+| `summary`              | 画卡片用的元信息；**文件解析不了时为 `null`**                                                                |
+| `summary.description`  | 指令声明的描述，没写就是空串                                                                                 |
+| `summary.step_count`   | 顶层步骤数（含 `parallel` / `steps` 这类复合步骤各算一步）                                                   |
+| `summary.input_count`  | 声明的输入个数                                                                                               |
+| `summary.trigger_count`| 声明的触发器个数                                                                                             |
+| `last_run`             | 最近一次执行（`ok` / `duration_ms` / `error` / `run_count` / `failed_count`）；没跑过时不出现                |
+| `text`                 | 文件原文，供宿主展示、以及保留自己没改的字段                                                                 |
+| `definition`           | 解析后的 `Directive`（[指令 DSL](指令YAML.md)）；宿主编辑的就是它，改完原样交回 `save_directive`             |
+
+`bucket` 与 `summary` 得先解析文件才知道，所以**解析不了的指令照样列出来**（编辑器要靠它把
+文件打开去修），只是两者都为 `null`；`.yaml` / `.yml` 之外的同目录文件不是指令，不会出现在
+列表里。列目录那次解析顺手把 `summary` 一起算出来，宿主画卡片不必把每个文件再读一遍。
+
+`last_run` 也是这么顺出来的（见 [运行历史](#运行历史的只读出口)）：它没跑过、或 `[history]`
+关掉时**整个字段不出现**——「没跑过」与「历史没开」是两件事，别混成 `null`。
+
+`save_directive` 会先过一遍「动作是否注册」，再按引擎的序列化写盘：**被拒时一个字节也不写**
+（模型解析不了 / 动作没注册 / 名字不是裸名 → 400，`dir` 越界 → 403），成功时用临时文件 +
+原子替换，写坏一半的指令不会留在盘上。回给宿主的是规范化后的文本，与磁盘内容逐字节一致。
+
+读一条指令时 `.yaml` 优先于 `.yml`；写回**已有的 `.yml`** 时仍写那个文件，不会另生一个
+同名的 `.yaml`（否则谁生效就取决于扩展名先后了）。
+
+### 运行历史的只读出口
+
+宿主画「上次跑成什么样」不该自己攒一本账：历史文件（`history.jsonl`）由引擎在执行结束的
+当口写，路径与开关都来自 `[history]` 配置（见
+[数据目录与状态文件 § 目录内容](./数据目录与状态文件.md#2-目录内容)）。`list_runs` 把这份
+账本读成 JSON，而 `list_directives` 的每条指令顺带带上自己的 `last_run` —— 列一次目录就够
+画卡片，不必再逐条问一遍历史。
+
+```json
+{
+  "is_history_enabled": true,
+  "entries": [
+    {
+      "directive": "build-intern",
+      "started_at_ms": 1763818203123,
+      "ended_at_ms": 1763818204444,
+      "ok": false,
+      "error": "execution: 渲染失败: 变量 `missing` 未定义",
+      "duration_ms": 1321
+    }
+  ]
+}
+```
+
+| 字段                 | 说明                                                         |
+| -------------------- | ------------------------------------------------------------ |
+| `is_history_enabled` | `[history].enabled` 的现值                                   |
+| `entries`            | 执行记录，**新 → 旧**；与 `history.jsonl` 里那些行逐字段一致 |
+
+两个字段都得看：**关掉历史**与**一条都没跑过**都回空表，但卡片上一个该说「历史没开」，
+另一个才说「从未运行」。`name` 只看一条指令，`limit` 限条数（不给时用 daemon 的默认 50 条）；
+**失败也会记**，所以「上次失败成什么样」与 `corex history` 看到的是同一份事实。
+`list_directives` 条目里的 `last_run` 是同一形状，另加窗口内的 `run_count` / `failed_count`。
+
 ### 进度帧（`stream: true`）
 
 `run_directive` 与 `invoke` 多一个可选布尔 `stream`（默认 `false`）。置为 `true` 后，
@@ -186,7 +282,9 @@ daemon 会在**这条请求的终帧之前**插入零个或多个 `event` 帧：
 ```json
 {"type":"event","id":3,"progress":{"kind":"step_start","seq":1,"step":"copy","action":"file.copy"}}
 {"type":"event","id":3,"progress":{"kind":"step_progress","step":"copy","action":"file.copy","done":1048576,"total":41943040,"unit":"bytes"}}
+{"type":"event","id":3,"progress":{"kind":"step_output","step":"build","action":"shell.run","stream":"stdout","text":"vite v8.0.11 building client environment for production...\n"}}
 {"type":"event","id":3,"progress":{"kind":"step_end","step":"copy","action":"file.copy","took_ms":31,"ok":true}}
+{"type":"event","id":3,"progress":{"kind":"heartbeat","is_queued":false,"waited_ms":6000}}
 ```
 
 | 规则 | 说明                                                                                      |
@@ -197,8 +295,35 @@ daemon 会在**这条请求的终帧之前**插入零个或多个 `event` 帧：
 | 关闭 | 不置 `stream` 的请求一帧也不会收到——旧客户端拿到的线与从前完全一致                        |
 
 `unit` 为 `bytes`（复制 / 下载）或 `items`（递归删除）；`total` 未知时为 `null`。
-`kind` 的三种取值与 CLI 的 `corex run --json-events` 输出**同一套词汇**，宿主不必为
+`kind` 的四种步骤取值与 CLI 的 `corex run --json-events` 输出**同一套词汇**，宿主不必为
 本地与远程两条路径记两套字段名。
+
+`heartbeat` 是**第五种、也是唯一不属于步骤的帧**：从请求到达到它跑完，每两秒一帧。它只说一件事
+——**我还活着**，以及**在排队还是在跑**：
+
+| 字段        | 说明                                                                           |
+| ----------- | ------------------------------------------------------------------------------ |
+| `is_queued` | `true` = 还在队列里等执行名额（见 [并发模型](#并发模型)），`false` = 已经在跑   |
+| `waited_ms` | 从请求到发出这帧等了多久：排队与执行都算在内                                    |
+
+它存在是因为**排队与卡死在客户端看来一模一样**：两者都是「一段时间没有任何帧」，而一段几分钟的
+排队足够撞穿宿主的请求时限——超时被报成失败、请求其实还排在队列里、之后照样执行（副作用真的发生
+了）。所以判死该用**静止期**而不是总时长：收到**任何**帧都算它还活着，心跳尤其算。
+心跳不参与渲染，也不会被重放进上报口（CLI 的 `Steps` / `Events` 渲染器直接忽略它）。
+
+`step_output` 是**动作吐出来的文本**，目前只有 `shell.run` / `exec.run` 会产生：没有它，
+子进程的 stdout / stderr 就只留在 daemon 自己的控制台上，宿主（Studio 的运行面板）一个字节
+也看不到——面板里只会有步骤，没有命令输出。
+
+| 字段     | 说明                                                                             |
+| -------- | -------------------------------------------------------------------------------- |
+| `stream` | `stdout` 或 `stderr`；宿主据此决定给「普通」还是「错误」着色                       |
+| `text`   | **已解码**的原文，增量：按到达顺序拼接才是完整输出                                |
+
+`text` 的切点由动作的读缓冲决定（`process_launch` 每次最多 8 KiB），所以它可能含多行，
+也可能在半行处断开——**不要把它当「一行」**，更不要按行去解析。它不做去重、不补换行；
+队列满时与其余帧一样会被丢掉（所以任何按帧拼输出的展示都只应当作「尽力而为的实时回显」，
+要完整读取请用终帧里动作的返回值，如 `stdout` / `stderr` 字段）。
 
 ### 示例
 

@@ -276,6 +276,41 @@ IPC: `{"type":"invoke","action":"http.send","params":{"url":"https://httpbin.org
   save_to: message
 ```
 
+**参数不经过[占位符解析器](指令YAML.md#占位符解析器)**：`template` 与 `context` 原样交给
+MiniJinja，所以过滤器、`{% if %}` / `{% for %}`、`is defined` 都是完整可用的。
+
+```yaml
+- id: url
+  action: template.render
+  params:
+    template: >-
+      https://example.com/s?q={{ input.q | urlencode }}&n={{ items | length }}
+      {% if input.cp is defined and input.cp | length %} &cp={{ input.cp }}{% endif %}
+```
+
+上下文里的名字与占位符解析器**同一套**，裸名同样是「先变量后输入」：
+
+- 指令输入：`input.x`，或裸名 `x`
+- 变量：`variables.x` / `var.x`（`save_to` 写进去的）
+- 先前步骤的输出：`step.id.path` / `steps.id.path`
+- 环境变量：`env.NAME`
+- 整份文档 Directive 输入：`directive_input`
+- `context` 显式传入的键覆盖上面的同名项
+
+其余语义：
+
+- `context` 的**字符串值会先按模板渲染一次**（`context: { name: '{{input.who}}' }` 得到的是
+  替换后的值），非字符串值原样传下去。
+- **变量未定义即报错**（`UndefinedBehavior::Strict`），不会静默渲染成空串。想给默认值就写
+  `{{ x | default('y') }}`，想判存在就写 `{% if x is defined %}`。注意 `default` 默认只兜
+  未定义；`on_error: continue` 之类写进去的是 `null`（已定义），要兜住得写
+  `{{ x | default('y', true) }}`。
+- 渲染对象得到 **JSON 形状**（`{"path": "out.txt", "removed": 1}`，分隔符是 MiniJinja 自己
+  的 `", "`），不是解析器的 Rust 风格 `{path: out.txt}`；`null` 渲染成 MiniJinja 的
+  `None`；Bytes 渲染成 `<N bytes>`。
+- 过滤器按 MiniJinja 默认特性集提供（含 `urlencode`）；它与 `codec.url.encode` 的转义集
+  略有差别，要精确控制编码用后者。
+
 IPC: `{"type":"invoke","action":"template.render","params":{"template":"Hi","context":{"name":"x"}}}`
 
 ### 文件系统
@@ -738,6 +773,13 @@ IPC: `{"type":"invoke","action":"capture.screenshot","params":{"to":"C:/Temp/sho
 **输出编码（Windows）**：子进程 stdout/stderr 走管道时，老程序常按 OEM（中文 CP936/GBK）
 写字节。内核先按 UTF-8 解，失败再回退 OEM/GBK，实时回显也转成 UTF-8——这与 CLI 的
 `SetConsoleOutputCP` 是两层问题。
+
+**输出去向**：子进程的输出边读边交，交到哪取决于有没有**上报口**。有（`corex run`、
+经 daemon 的请求）就作为**文本输出事件**交出去——本地执行仍落在原来那个流上，远程执行变成
+`step_output` 帧回给调用方（见 [IPC 协议](../reference/IPC协议.md#进度帧-stream-true)），
+两边共用一份输出。没有（`--quiet`）就直接写自己的 stdout / stderr，与 v11 逐字节一致。
+不看帧就看不到 daemon 那侧的输出：它落在 daemon 自己的控制台上，不在返回值里——返回值里的
+`stdout` / `stderr` 是**跑完之后**的完整副本，适合做事后判断，不适合做实时回显。
 
 **GUI / 单实例**（可选）：
 

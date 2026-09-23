@@ -32,7 +32,7 @@ const copy = catalog.find((action) => action.id === 'file.copy')
 const result = await corex.invoke(
   'file.copy',
   { from: 'a.bin', to: 'b.bin' },
-  { onProgress: (frame) => console.log(frame.kind, frame.step, frame.done, frame.unit) }
+  { onProgress: (frame) => console.log(frame.kind, frame) }
 )
 
 await corex.run('hello', { input: { who: 'electron' } })
@@ -72,8 +72,16 @@ TOML 解析器。那种部署请把值显式传给 `connect({ token })` 或设 `
 **不能把第一个帧当成回答**；按 `id` 归位是唯一正确的读法。这件事已经在 `CorexClient` 里做掉了：
 给 `onProgress` 就替你分流，不给就一个字节的进度都不传（不置 `stream`，daemon 那边也省掉观察者）。
 
-`frame.kind` 是 `step_start` / `step_progress` / `step_end`，与 `corex run --json-events`
-**同一套词汇**，宿主不必为本地与远程两条路径记两套字段名。
+`frame.kind` 是 `step_start` / `step_progress` / `step_output` / `step_end` / `heartbeat`，与
+`corex run --json-events` **同一套词汇**，宿主不必为本地与远程两条路径记两套字段名。
+
+`heartbeat` 是排队等待的心跳：只带 `is_queued` 与 `waited_ms`，**没有 `step` / `action`**。
+按 `kind` 判窄再取字段（`step` 等只在另外四种帧上存在），否则排队的请求会在第一帧就炸。
+
+`step_output` 是动作吐出来的文本（`shell.run` / `exec.run` 的子进程 stdout / stderr），
+`stream` 告诉你是哪个流、`text` 是**增量**原文：按到达顺序拼接才是完整输出，它可能含多行、
+也可能半行断开，**不要按行解析**。它与别的帧一样是尽力而为的（队列满会丢），
+要完整读一次用终帧里动作的 `stdout` / `stderr` 字段。
 
 ## API
 

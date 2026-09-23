@@ -27,6 +27,7 @@ COREX_BLESS_SCHEMA=1 cargo test -p corex-engine --features schema --test directi
 name: hello # 必填
 description: '...' # 可选
 version: '1.0' # 可选
+bucket: data # 可选 — system | network | data | ui | logic | plugin
 inputs: [] # 可选 InputDecl 列表
 variables: {} # 可选 map → 播种到上下文
 triggers: [] # 可选（cron / watch）；手动执行用 corex run
@@ -34,6 +35,9 @@ permissions: {} # 可选 — 省略 = 全部允许（见下文）
 steps: [] # 必填
 on_error: abort # abort | continue | skip（默认 abort）
 ```
+
+`bucket` 只是**给人分组用**的标签（`corex actions` 的动作分类同一套写法，编辑器据此在侧栏归类），
+不影响执行；取值必须在这六个之内，写别的会在解析期被拒。
 
 ### 输入（Inputs）
 
@@ -61,7 +65,7 @@ inputs:
 | If       | `id`, `if`, `then`      | 可选 `else`                                                                                           |
 | Repeat   | `id`, `repeat`, `steps` | `repeat.count` **或** `repeat.each`；可选 `max_concurrency`（与 `repeat` 同级，见 [Repeat](#repeat)） |
 | Parallel | `id`, `parallel`        | 可选 `max_concurrency`（写死的分支列表）                                                              |
-| Steps    | `steps`                 | 顺序块：把多步收成一个步骤（好放进 `parallel` 的分支）                                                |
+| Steps    | `steps`                 | 顺序块：把多步收成一个步骤（好放进 `parallel` 的分支）；可选 `id`                                  |
 
 ### Action 步骤
 
@@ -238,6 +242,13 @@ repeat:
 | `{{directive_input}}`                 | 可选的整份文档 Directive 输入 Value |
 
 若字符串 **恰好** 是一个 `{{expr}}`，则保留 Value 类型；混合字符串会插值为字符串。
+
+它只做 **取值**：花括号内是变量名（可跟点分路径），**不认过滤器、函数调用和 `{% %}`**——
+写 `{{a | b}}` 只会得到「变量未定义: a | b」。要做拼接以外的加工（编码、格式化、条件、
+循环），用 [`template.render`](内置Action.md#templaterender)：它的参数**不经本解析器**，
+原样交给 MiniJinja，只是名字规则与上表一致。
+
+步骤级的 `when`、`if` 条件仍然是本解析器的表达式，不套 MiniJinja。
 
 ## 权限（Permissions）
 
