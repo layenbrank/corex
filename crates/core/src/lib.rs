@@ -18,6 +18,6 @@ pub use context::{
 };
 pub use error::{ActionError, EngineError};
 pub use permission::{PermissionKind, PermissionSet, check_runtime_allowed};
-pub use progress::{Mark, Observer, Reporter, Spot, Unit};
+pub use progress::{Mark, Observer, Reporter, Spot, Stream, Unit};
 pub use schema::SchemaType;
 pub use value::Value;

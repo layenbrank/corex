@@ -2,8 +2,10 @@
 //!
 //! 分支漏挂上报口时，CLI 侧表现是「parallel 里的步骤既没有 spinner 也没有 ✓ 结论行」，
 //! 引擎这边看不出异常——所以这条路径值得一个回归测试钉住。
+//!
+//! 另一件事是**动作吐出来的文本**：它同样只在挂了口子的时候才出得来（见最后一条用例）。
 
-use corex_core::{ExecutionContext, Mark, Observer, RuntimeConfig, Spot, Unit};
+use corex_core::{ExecutionContext, Mark, Observer, RuntimeConfig, Spot, Stream, Unit};
 use corex_engine::{Directive, Pipeline};
 use corex_registry::ActionRegistry;
 use std::sync::{Arc, Mutex};
@@ -12,17 +14,25 @@ use std::time::Duration;
 /// 一次分块记录：步骤 id、已完成量、总量与单位。
 type Chunk = (String, u64, Option<u64>, Unit);
 
+/// 一次文本输出：步骤 id、流与原文。
+type Output = (String, Stream, String);
+
 /// 只记事：步骤 id 与分块进度各存一份，断言用。
 #[derive(Debug, Default)]
 struct Recorder {
     began: Mutex<Vec<String>>,
     chunks: Mutex<Vec<Chunk>>,
+    outputs: Mutex<Vec<Output>>,
     ended: Mutex<Vec<String>>,
 }
 
 impl Recorder {
     fn began(&self) -> Vec<String> {
         self.began.lock().unwrap().clone()
+    }
+
+    fn outputs(&self) -> Vec<Output> {
+        self.outputs.lock().unwrap().clone()
     }
 
     fn ended(&self) -> Vec<String> {
@@ -40,6 +50,13 @@ impl Observer for Recorder {
             .lock()
             .unwrap()
             .push((at.id.to_string(), mark.done, mark.total, mark.unit));
+    }
+
+    fn output(&self, at: Spot<'_>, stream: Stream, text: &str) {
+        self.outputs
+            .lock()
+            .unwrap()
+            .push((at.id.to_string(), stream, text.to_string()));
     }
 
     fn end(&self, at: Spot<'_>, _took: Duration, _ok: bool) {
@@ -143,4 +160,52 @@ steps:
     );
 
     let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// 子进程的输出必须在**还在跑的时候**经上报口走，而不是只落回本进程的 stdout。
+///
+/// 后者在 daemon 场景等于丢失：子进程的流接的是 daemon 自己的控制台，宿主一个字节也看不到，
+/// 表现就是「指令日志里只有步骤，没有命令的输出」。`host: cmd` 让这条用例两边都能跑
+/// （Windows 走 `cmd /C`，别处走 `sh -c`）。
+#[tokio::test]
+async fn shell_output_reaches_the_observer() {
+    let yaml = r#"
+name: observer-output
+permissions:
+  shell: true
+steps:
+  - id: echo
+    action: shell.run
+    params:
+      command: "echo corex-output-probe"
+      host: cmd
+"#;
+    let directive = Directive::from_yaml_str(yaml).unwrap();
+    let recorder = Arc::new(Recorder::default());
+    let pipeline = Pipeline::new(registry()).with_observer(recorder.clone());
+
+    let result = pipeline
+        .execute(&directive, ExecutionContext::new(RuntimeConfig::default()))
+        .await
+        .expect("shell.run should succeed");
+
+    let text: String = recorder
+        .outputs()
+        .iter()
+        .filter(|(id, stream, _)| id == "echo" && *stream == Stream::Stdout)
+        .map(|(_, _, text)| text.as_str())
+        .collect();
+    assert!(
+        text.contains("corex-output-probe"),
+        "stdout 应当原文抵达上报口，实得: {:?}",
+        recorder.outputs()
+    );
+    // 上报不等于不再收集：动作的返回值仍是同一条输出。
+    assert!(
+        result
+            .find_path("stdout")
+            .and_then(|v| v.as_str())
+            .is_some_and(|stdout| stdout.contains("corex-output-probe")),
+        "动作结果里也该有这段输出: {result:?}"
+    );
 }

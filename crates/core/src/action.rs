@@ -146,6 +146,14 @@ pub trait Action: Send + Sync {
     /// 而不是悄悄不受限地跑起来。
     fn permissions(&self) -> PermissionSet;
 
+    /// 参数是否原样交给动作，跳过引擎的 `{{...}}` 预解析。
+    ///
+    /// 动作自己解释模板语法时置位：`template.render` 的模板由 MiniJinja 渲染，
+    /// 预解析会先把过滤器和 `{% %}` 吃掉。
+    fn is_raw_params(&self) -> bool {
+        false
+    }
+
     /// 执行前校验参数。默认实现：检查必填参数是否存在。
     async fn validate(&self, params: &Value) -> Result<(), ActionError> {
         let meta = self.meta();

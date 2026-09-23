@@ -43,6 +43,19 @@ pub enum Unit {
     Items,
 }
 
+/// 动作往外吐文本时走的那个流。
+///
+/// 它会过 IPC（`corex_ipc::ProgressEvent`），所以这里是线上契约的一部分：
+/// 两个变体的名字即 JSON 里的 `"stdout"` / `"stderr"`，改名就是协议变更。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Stream {
+    /// 标准输出
+    Stdout,
+    /// 标准错误
+    Stderr,
+}
+
 /// 执行进度的上报口。
 ///
 /// 实现必须线程安全：`parallel` 步骤会在并发任务里上报。
@@ -53,6 +66,13 @@ pub trait Observer: Send + Sync + std::fmt::Debug {
 
     /// 步骤内的分块进度。动作每完成一个分块调用一次，调用点决定粒度。
     fn chunk(&self, _at: Spot<'_>, _mark: Mark) {}
+
+    /// 动作产生的文本输出（`shell.run` / `exec.run` 的子进程 stdout / stderr）。
+    ///
+    /// `text` 是一段**已经解码**的原文，可能含多行也可能不含换行，**按调用顺序拼接就是
+    /// 完整输出**。切到哪是动作的事（`process_launch` 按每次读到的字节切），这里不做缓冲、
+    /// 不去重、也不补换行。
+    fn output(&self, _at: Spot<'_>, _stream: Stream, _text: &str) {}
 
     /// 动作步骤结束。`took` 是整步的墙钟耗时，`ok` 为假表示这一步以失败告终。
     fn end(&self, _at: Spot<'_>, _took: Duration, _ok: bool) {}
@@ -95,6 +115,21 @@ impl Reporter {
                 action: &self.action,
             },
             Mark { done, total, unit },
+        );
+    }
+
+    /// 上报一段文本输出，语义与 [`Observer::output`] 相同。
+    ///
+    /// 子进程的输出是在 `tokio::spawn` 出来的泵里读的，那里借不到
+    /// [`ExecutionContext`]，所以这个句柄才是唯一带得进去的上报方式。
+    pub fn output(&self, stream: Stream, text: &str) {
+        self.observer.output(
+            Spot {
+                id: &self.id,
+                action: &self.action,
+            },
+            stream,
+            text,
         );
     }
 }

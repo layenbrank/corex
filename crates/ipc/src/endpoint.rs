@@ -45,6 +45,22 @@ const fn kind() -> Kind {
     Kind::Socket
 }
 
+/// 连接方看到的端点形态：有记录就听记录的（那是 daemon 实际监听的形态），
+/// 没有记录就是各平台默认的那一种。
+pub fn kind_of(data: &Path) -> Kind {
+    discover(data).map_or_else(kind, |record| record.kind)
+}
+
+impl Kind {
+    /// 写进 JSON 与记录里的写法。
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Pipe => "pipe",
+            Self::Socket => "socket",
+        }
+    }
+}
+
 /// 一份端点记录。
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Record {
@@ -169,5 +185,41 @@ mod tests {
 
         retract(dir.path());
         assert!(!dir.path().join(FILE).exists());
+    }
+
+    /// 没有记录时退回平台默认——`corex paths` 在 daemon 没跑时也得给得出答案。
+    #[test]
+    fn kind_without_a_record_is_the_platform_default() {
+        let dir = temp();
+        assert_eq!(kind_of(dir.path()), kind());
+    }
+
+    /// 有记录时以记录为准：报的是 daemon 实际监听的形态，而不是平台默认。
+    #[test]
+    fn kind_follows_the_record() {
+        let dir = temp();
+        let recorded = match kind() {
+            Kind::Pipe => Kind::Socket,
+            Kind::Socket => Kind::Pipe,
+        };
+        std::fs::write(
+            dir.path().join(FILE),
+            format!(
+                r#"{{"version":{FORMAT},"pid":1,"endpoint":"x","kind":"{}"}}"#,
+                recorded.as_str()
+            ),
+        )
+        .expect("写记录");
+
+        assert_eq!(kind_of(dir.path()), recorded);
+    }
+
+    /// 记录里的名字就是 `as_str` 那两个字面量，读方不必再翻译一遍。
+    #[test]
+    fn kind_names_match_the_record() {
+        for kind in [Kind::Pipe, Kind::Socket] {
+            let json = serde_json::to_string(&kind).expect("序列化");
+            assert_eq!(json.trim_matches('"'), kind.as_str());
+        }
     }
 }

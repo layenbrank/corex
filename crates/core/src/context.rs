@@ -88,19 +88,23 @@ pub struct DaemonConfig {
     pub token: Option<String>,
     /// 同时**执行**的请求数上限：`run_directive` 与 `invoke` 排这个队。
     ///
-    /// - `1`（默认）= 串行。一条指令跑着的时候，别的执行请求在队列里等。这与旧版
-    ///   行为一致，也是 UI 自动化想要的——两条指令同时驱鼠标键盘必然互相踩。
-    /// - `> 1` = 最多同时跑这么多。
+    /// - `1` = 串行。一条指令跑着的时候，别的执行请求在队列里等——**送 `ui.*` /
+    ///   `capture.*` 的场景要的就是这个**：两条指令同时驱鼠标键盘必然互相踩。
+    /// - `> 1`（默认 `4`）= 最多同时跑这么多。宿主的「多任务并跑」（构建、拷贝、压缩
+    ///   之类互不相干的重活）靠它；默认串行会让后面几条一直排队，看起来像卡死。
     /// - `0` = 不限。
     ///
     /// 控制类请求（`ping` / `shutdown` / `list_*`）**不排这个队**：它们是宿主判断
     /// “daemon 还活着吗”的手段，被一条几分钟的指令堵住才是最糟的。
+    ///
+    /// 排队期间 daemon 每两秒推一帧 [`corex_ipc::ProgressEvent::Heartbeat`]（流式请求
+    /// 才有），客户端据此把“在队列里等”与“卡死”分开。
     #[serde(default = "init_max_jobs")]
     pub max_jobs: usize,
 }
 
 fn init_max_jobs() -> usize {
-    1
+    4
 }
 
 impl Default for DaemonConfig {

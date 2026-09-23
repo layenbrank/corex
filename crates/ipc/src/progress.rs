@@ -1,15 +1,16 @@
 //! 执行进度的帧格式与它的两个落点。
 //!
-//! 这里只做两件事：把 [`corex_core::progress::Observer`] 的三次回调变成能过线的
-//! [`ProgressEvent`]，再给它准备两个落点——服务端的 [`Outlet`]（写回连接）与客户端的
-//! [`Replay`]（重放进上报口）。
+//! 这里只做三件事：把 [`corex_core::progress::Observer`] 的四次回调变成能过线的
+//! [`ProgressEvent`]，再补一个不属于任何步骤的 [`ProgressEvent::Heartbeat`]（它证明
+//! “对面没死”，见该变体），最后给它们准备两个落点——服务端的 [`Outlet`]（写回连接）
+//! 与客户端的 [`Replay`]（重放进上报口）。
 //!
 //! **两边共用一套词汇**：`corex run --json-events` 打出的每一行就是 [`ProgressEvent`]
 //! 的 JSON。宿主因此不必为「本地」与「远程」记两套字段名，CLI 的渲染器也能在两条路径上
 //! 原样复用。
 
 use crate::protocol::Response;
-use corex_core::{Mark, Observer, Spot, Unit};
+use corex_core::{Mark, Observer, Spot, Stream, Unit};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use std::time::Duration;
@@ -17,7 +18,7 @@ use tokio::sync::mpsc;
 
 /// 一次进度的中间帧。
 ///
-/// 与 [`Observer`] 的三个方法一一对应，因此任何一侧都能无损地重放它。
+/// 与 [`Observer`] 的四个方法一一对应，因此任何一侧都能无损地重放它。
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum ProgressEvent {
@@ -35,12 +36,33 @@ pub enum ProgressEvent {
         total: Option<u64>,
         unit: Unit,
     },
+    /// 动作吐出来的一段文本（子进程 stdout / stderr）。
+    ///
+    /// 与 `step_progress` 一样是**增量**：`text` 按到达顺序拼接才是完整输出，它可能含多行、
+    /// 也可能在半行处断开（切点由动作的读缓冲决定）。宿主不该把它当「一行」。
+    StepOutput {
+        step: String,
+        action: String,
+        stream: Stream,
+        text: String,
+    },
     /// 动作步骤结束。`took_ms` 是整步（含重试）的墙钟耗时。
     StepEnd {
         step: String,
         action: String,
         took_ms: u64,
         ok: bool,
+    },
+    /// 执行请求的**心跳**：从请求到达到它跑完，每两秒一帧。
+    ///
+    /// 它不对应任何一步，只解决一件事：**排队与卡死在客户端看来是一样的**——两者都是
+    /// 「一段时间没有任何帧」，而一段几分钟的排队足够撞穿宿主的请求时限（超时被报成失败，
+    /// 请求其实还排在队列里，之后照样执行）。有心跳之后，「多久没有帧」才等于「对面是不是死了」。
+    Heartbeat {
+        /// 还在队列里等执行名额（`false` = 已经在跑了）
+        is_queued: bool,
+        /// 从请求到此刻等了多久：排队与执行都算在内
+        waited_ms: u64,
     },
 }
 
@@ -66,6 +88,12 @@ impl ProgressEvent {
                     unit: *unit,
                 },
             ),
+            Self::StepOutput {
+                step,
+                action,
+                stream,
+                text,
+            } => observer.output(Spot { id: step, action }, *stream, text),
             Self::StepEnd {
                 step,
                 action,
@@ -76,6 +104,9 @@ impl ProgressEvent {
                 Duration::from_millis(*took_ms),
                 *ok,
             ),
+            // 心跳不属于任何一步：它服务的是「连接的另一头别把我当卡死」，不是渲染器。
+            // 上报口没有它的位置，所以直接丢掉。
+            Self::Heartbeat { .. } => {}
         }
     }
 }

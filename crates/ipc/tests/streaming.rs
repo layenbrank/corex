@@ -4,7 +4,7 @@
 //! mock：帧与终帧的顺序、以及「一问一答的客户端拿到的线是否和从前一样」，都只有在真连接上
 //! 才验得准。
 
-use corex_core::Unit;
+use corex_core::{Mark, Observer, Spot, Stream, Unit};
 use corex_ipc::protocol::{Request, Response};
 use corex_ipc::{FrameSink, Outlet, ProgressEvent, Transport, ipc_connect, serve_ipc};
 use std::path::{Path, PathBuf};
@@ -82,6 +82,12 @@ fn spawn_server(endpoint: PathBuf) -> tokio::task::JoinHandle<()> {
                     total: Some(10),
                     unit: Unit::Items,
                 });
+                outlet.offer(ProgressEvent::StepOutput {
+                    step: "copy".into(),
+                    action: "file.copy".into(),
+                    stream: Stream::Stdout,
+                    text: "copied 7 items\n".into(),
+                });
                 outlet.offer(ProgressEvent::StepEnd {
                     step: "copy".into(),
                     action: "file.copy".into(),
@@ -138,6 +144,12 @@ async fn frames_arrive_before_the_final_response() {
                 done: 7,
                 total: Some(10),
                 unit: Unit::Items
+            },
+            ProgressEvent::StepOutput {
+                step: "copy".into(),
+                action: "file.copy".into(),
+                stream: Stream::Stdout,
+                text: "copied 7 items\n".into()
             },
             ProgressEvent::StepEnd {
                 step: "copy".into(),
@@ -211,4 +223,117 @@ fn a_frame_is_a_tagged_line() {
     assert_eq!(value["progress"]["kind"], "step_progress");
     assert_eq!(value["progress"]["unit"], "bytes");
     assert!(value["progress"]["total"].is_null());
+}
+
+/// 输出帧在线上就是 `kind: step_output` 加一个 `stream` 判别式；
+/// 解码回来必须与原值逐字段相等（宿主靠这些字段重建终端画面）。
+#[test]
+fn an_output_frame_keeps_its_stream_and_text() {
+    let original = ProgressEvent::StepOutput {
+        step: "build".into(),
+        action: "shell.run".into(),
+        stream: Stream::Stderr,
+        text: "warning: unused import\n".into(),
+    };
+    let line = serde_json::to_string(&Response::Event {
+        id: 3,
+        progress: original.clone(),
+    })
+    .expect("serialize frame");
+
+    let value: serde_json::Value = serde_json::from_str(&line).expect("frame is JSON");
+    assert_eq!(value["progress"]["kind"], "step_output");
+    assert_eq!(value["progress"]["stream"], "stderr");
+    assert_eq!(value["progress"]["text"], "warning: unused import\n");
+
+    let decoded: Response = serde_json::from_str(&line).expect("frame decode");
+    match decoded {
+        Response::Event { id, progress } => {
+            assert_eq!(id, 3);
+            assert_eq!(progress, original, "解码后应当与原帧逐字段一致");
+        }
+        other => panic!("应当解出事件帧: {other:?}"),
+    }
+}
+
+/// 记下每次回调的上报口，用来验证帧的重放顺序与内容。
+#[derive(Debug, Default)]
+struct CallLog {
+    seen: Mutex<Vec<String>>,
+}
+
+impl Observer for CallLog {
+    fn begin(&self, at: Spot<'_>) {
+        self.seen
+            .lock()
+            .expect("call log")
+            .push(format!("begin {}", at.id));
+    }
+
+    fn chunk(&self, at: Spot<'_>, mark: Mark) {
+        self.seen
+            .lock()
+            .expect("call log")
+            .push(format!("chunk {} {}/{:?}", at.id, mark.done, mark.total));
+    }
+
+    fn output(&self, at: Spot<'_>, stream: Stream, text: &str) {
+        self.seen
+            .lock()
+            .expect("call log")
+            .push(format!("output {} {stream:?} {text}", at.id));
+    }
+
+    fn end(&self, at: Spot<'_>, _took: Duration, ok: bool) {
+        self.seen
+            .lock()
+            .expect("call log")
+            .push(format!("end {} {ok}", at.id));
+    }
+}
+
+/// 帧重放进上报口时，四次回调的次数、顺序与载荷都按帧里写的来。
+/// 这是「本地执行」与「远程执行」共用一套渲染器的前提。
+#[test]
+fn replay_feeds_all_four_callbacks_in_order() {
+    let log = CallLog::default();
+    let frames = [
+        ProgressEvent::StepStart {
+            seq: 1,
+            step: "build".into(),
+            action: "shell.run".into(),
+        },
+        ProgressEvent::StepProgress {
+            step: "build".into(),
+            action: "shell.run".into(),
+            done: 1,
+            total: None,
+            unit: Unit::Bytes,
+        },
+        ProgressEvent::StepOutput {
+            step: "build".into(),
+            action: "shell.run".into(),
+            stream: Stream::Stderr,
+            text: "boom".into(),
+        },
+        ProgressEvent::StepEnd {
+            step: "build".into(),
+            action: "shell.run".into(),
+            took_ms: 5,
+            ok: false,
+        },
+    ];
+    for frame in &frames {
+        frame.replay(&log);
+    }
+
+    assert_eq!(
+        log.seen.lock().expect("call log").clone(),
+        vec![
+            "begin build".to_string(),
+            "chunk build 1/None".to_string(),
+            "output build Stderr boom".to_string(),
+            "end build false".to_string(),
+        ]
+    );
 }
