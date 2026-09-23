@@ -239,7 +239,7 @@ mod tests {
     #[test]
     fn bad_enum_values_are_rejected_in_either_mode() {
         assert!(matches!(
-            spec(&[("path", text("notepad")), ("wait", text("detatch"))]),
+            spec(&[("path", text("notepad")), ("wait", text("background"))]),
             Err(ActionError::InvalidParams(_))
         ));
         assert!(matches!(
