@@ -58,6 +58,8 @@ pub mod shell;
 pub mod sys;
 #[cfg(feature = "act-template")]
 pub mod template;
+#[cfg(feature = "act-text")]
+pub mod text;
 #[cfg(feature = "act-ui")]
 pub mod ui;
 
@@ -104,6 +106,8 @@ pub fn register_all(registry: &mut ActionRegistry) {
     bootstrap::register(registry);
     #[cfg(feature = "act-codec")]
     codec::register(registry);
+    #[cfg(feature = "act-text")]
+    text::register(registry);
     #[cfg(feature = "act-scan")]
     scan::register(registry);
     #[cfg(feature = "act-capture")]

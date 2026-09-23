@@ -35,6 +35,7 @@ all-actions = [
   "act-ui",
   "act-sys",
   "act-html",
+  "act-text",
 ]
 
 # 共享的 Windows feature 包（经 act-* 开启；保持 windows 可选 + default-features=false）。
@@ -90,6 +91,7 @@ act-codec = ["dep:base64", "dep:md-5", "dep:percent-encoding"]
 act-scan = ["dep:sysinfo"]
 act-capture = ["dep:image", "dep:base64", "dep:screenshots", "winrt-ocr"]
 act-morph = ["dep:lopdf", "dep:base64"]
+act-text = ["dep:regex"]
 act-ui = [
   "win32-base",
   "dep:uiautomation",

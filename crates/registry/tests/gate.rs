@@ -111,7 +111,16 @@ const LEGACY_GATE: &[(&str, PermissionKind)] = &[
     ("html.select", PermissionKind::None),
     ("html.text", PermissionKind::None),
     ("scan.os", PermissionKind::None),
+    // v12.1 新增：旧表里没有这些 id，登记的是它们各自声明的要求。
+    ("sys.sleep", PermissionKind::None),
     ("template.render", PermissionKind::None),
+    // 字符串变换只吃参数：不读文件、不联网。
+    ("text.case", PermissionKind::None),
+    ("text.join", PermissionKind::None),
+    ("text.match", PermissionKind::None),
+    ("text.replace", PermissionKind::None),
+    ("text.split", PermissionKind::None),
+    ("text.trim", PermissionKind::None),
 ];
 
 /// 刻意与旧表不同的声明，以及原因。
