@@ -4,7 +4,8 @@ use crate::ActionRegistry;
 
 pub mod util;
 
-#[cfg(any(feature = "act-shell", feature = "act-exec"))]
+// `app.launch` 是它的第三个门面，所以 `act-sys` 也要编进来。
+#[cfg(any(feature = "act-shell", feature = "act-exec", feature = "act-sys"))]
 pub mod process_launch;
 
 #[cfg(any(

@@ -18,7 +18,10 @@ use corex_registry::ActionRegistry;
 /// 动作 id → 已移除的 id 表当年为它报的权限类别。
 #[rustfmt::skip]
 const LEGACY_GATE: &[(&str, PermissionKind)] = &[
-    // Shell：派生进程、打开 URL，以及引导辅助。
+    // Shell：启动应用、派生进程、打开 URL，以及引导辅助。
+    // v12.1 新增 app.launch / sys.lock：旧表里没有这两个 id，
+    // 登记的是它们各自声明的要求。
+    ("app.launch", PermissionKind::Shell),
     ("bootstrap.env", PermissionKind::Shell),
     ("bootstrap.force", PermissionKind::Shell),
     ("bootstrap.inspect", PermissionKind::Shell),
@@ -26,6 +29,7 @@ const LEGACY_GATE: &[(&str, PermissionKind)] = &[
     ("process.kill", PermissionKind::Shell),
     ("process.list", PermissionKind::Shell),
     ("shell.run", PermissionKind::Shell),
+    ("sys.lock", PermissionKind::Shell),
     ("url.open", PermissionKind::Shell),
 
     // 网络。
@@ -46,9 +50,14 @@ const LEGACY_GATE: &[(&str, PermissionKind)] = &[
     ("capture.crop", PermissionKind::Filesystem),
 
     // UI.
+    // v12.1 新增 dialog.choice / dialog.open / dialog.save：旧表里没有这三个 id，
+    // 登记的是它们各自声明的要求。
     ("dialog.alert", PermissionKind::Ui),
+    ("dialog.choice", PermissionKind::Ui),
     ("dialog.confirm", PermissionKind::Ui),
+    ("dialog.open", PermissionKind::Ui),
     ("dialog.prompt", PermissionKind::Ui),
+    ("dialog.save", PermissionKind::Ui),
     ("ui.click", PermissionKind::Ui),
     ("ui.drag", PermissionKind::Ui),
     ("ui.element.click", PermissionKind::Ui),

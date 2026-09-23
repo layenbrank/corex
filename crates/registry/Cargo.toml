@@ -111,6 +111,12 @@ act-sys = [
   "win32-process",
   "windows/Win32_UI_Shell",
   "windows/Win32_System_Threading",
+  # 文件对话框（comdlg32）：GetOpenFileNameW / GetSaveFileNameW。
+  "windows/Win32_UI_Controls_Dialogs",
+  # 锁屏：LockWorkStation。
+  "windows/Win32_System_Shutdown",
+  # `app.launch` 复用 shell 的进程启动内核，输出解码同样要 encoding_rs。
+  "dep:encoding_rs",
 ]
 wasm = ["dep:wasmtime", "dep:wasmtime-wasi"]
 
