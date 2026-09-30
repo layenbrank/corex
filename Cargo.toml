@@ -149,14 +149,14 @@ lopdf = "0.45.0"
 windows = { version = "0.62.2", default-features = false }
 
 # WASM 插件（可选；经 corex-registry 的 `wasm` feature 开启）
-wasmtime = { version = "48.0.1", default-features = false, features = [
+wasmtime = { version = "48.0.3", default-features = false, features = [
   "component-model",
   "async",
   "cranelift",
   "runtime",
   "cache",
 ] }
-wasmtime-wasi = { version = "48.0.1" }
+wasmtime-wasi = { version = "48.0.3" }
 
 [profile.release]
 opt-level     = 3
