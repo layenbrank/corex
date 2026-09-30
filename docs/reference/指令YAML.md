@@ -14,12 +14,29 @@ COREX_BLESS_SCHEMA=1 cargo test -p corex-engine --features schema --test directi
 
 ### 让编辑器补全并校验指令
 
-三条路：在该目录跑一次 `corex create <名称>`（自动写好 modeline 并放一份 schema 副本）、
-`corex schema --write <路径>`（只落盘）、在编辑器设置里映射 schema。
+三条路：`corex directive new <名称> --file <目录>`（只写文件，自动写好 modeline 并放一份
+schema 副本）、`corex schema --write <路径>`（只落盘）、在编辑器设置里映射 schema。
 各自适用场合与 VS Code / JetBrains 的具体配法见 [编辑器集成](../integration/编辑器集成.md)。
+
+- **写库的指令**（`corex directive new <名称>`、导入、Studio 里新建）没有「同目录」，
+  schema 提示行与副本都不参与；编辑器补全靠编辑器自己的 schema 映射。
+- **`corex directive edit <名称>`** 是把库里的 YAML 写到 `<数据目录>/edit/<名称>.yaml` 再交给
+  编辑器，那份临时文件同样不会带 modeline。
 
 `schema` 子命令里的那份是**编译期内嵌**的副本，与仓库里的 `schemas/directive.schema.json` 同源
 （CLI 不能链接 `schemars`，内嵌是唯一不引入该依赖的拿法）。
+
+### 一条指令怎么进库
+
+| 入口                                   | 说明                                                             |
+| -------------------------------------- | ---------------------------------------------------------------- |
+| `corex directive new <名称>`           | 写进指令库（`<数据目录>/directives.db`），默认入口                |
+| `corex directive new --file <目录>`    | 只写文件，不入库（脚手架 / 要一份能提交的 YAML）                  |
+| `corex directive import <文件\|目录>`  | 把已有 YAML 收进库；目录递归，相对子目录成为分组                  |
+| Studio                                | 通过 IPC 的 `save_directive` / `import_directives`，形状见 [IPC 协议](./IPC协议.md) |
+
+进库前会过 `run` 走的那**两道门**（动作是否注册、权限声明够不够），所以库里的指令都是跑得起来的。
+想跑一份**不入库**的 YAML（CI、agent 生成的临时文件）用 `corex run <路径>` 或 `corex run --file <路径>`。
 
 ## 顶层结构
 

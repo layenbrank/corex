@@ -126,12 +126,24 @@ reg.remove_disabled(&config.plugins);  // 应用 disabled_actions 等
 ```rust
 use corex_engine::{ExecutionAudit, ExecutionHistory};
 
-let history = ExecutionHistory::open(path)?;
-pipeline = pipeline.with_history(history);
-
 let audit = ExecutionAudit::open(audit_path)?;
 pipeline = pipeline.with_audit(audit);
+
+// 执行日志的落点由你注入；不注入就是不记。
+// 想与 CLI / daemon 读同一份账本，注入指令库那一份（`corex_store::history_sink`）：
+let history = corex_store::history_sink(store, &config);
+if let Some(history) = history {
+    pipeline = pipeline.with_history(history);
+}
+
+// 不想引 SQLite 时，也可以是 JSONL：
+if let Some(history) = ExecutionHistory::open(path).ok() {
+    pipeline = pipeline.with_history(std::sync::Arc::new(history));
+}
 ```
+
+v13 起 `[history].file` 不再决定「记到哪」（CLI / daemon / MCP 一律记进指令库），
+见 [破坏性变更 v13](../changelog/破坏性变更-v13.md)。
 
 `AuditEntry` 由 typed error 填充：`denied`（权限拒绝）、`error_kind`，以及可选的 `error_code` / `selector_hint`。字段说明见 [运行时配置 — 审计日志](../guide/运行时配置.md#审计日志)。
 
@@ -145,9 +157,10 @@ CLI 参考：`bins/cli/src/main.rs` 中 `cmd_run`。
 
 | Crate | 用途 |
 |-------|------|
-| `corex-core` | `Value`、`Action` / `ActionStore`、`ExecutionContext`、`ActionError`/`EngineError`、权限 |
-| `corex-engine` | `Directive`、`Pipeline`、解析器、控制流、`AuditEntry` |
+| `corex-core` | `Value`、`Action` / `ActionStore`、`ExecutionContext`、`ActionError`/`EngineError`、权限、`RuntimeConfig` |
+| `corex-engine` | `Directive`、`Pipeline`、解析器、控制流、`AuditEntry`、`HistorySink` / `DirectiveSource` |
 | `corex-registry` | 内置 Action、`register_builtins`、WASM host |
+| `corex-store` | 指令库（`directives.db`）：指令的 CRUD、YAML 导入导出、执行日志；`SqliteHistory` / `StoreDirectiveSource` |
 | `corex-ipc` | Daemon 协议与传输（独立进程时用） |
 | `corex-plugin-sdk` | WASM 插件 WIT 契约 |
 

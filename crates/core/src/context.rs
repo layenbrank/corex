@@ -44,17 +44,20 @@ fn init_plugin_dir() -> PathBuf {
     PathBuf::from("plugins")
 }
 
-/// 只追加的执行历史设置。
+/// 执行日志与指令库的设置。
+///
+/// v13 起执行日志与指令同库（`<数据目录>/directives.db`），所以 `[history]` 只决定**记不记**，
+/// `file` 退成「旧 JSONL 账本在哪、要不要一次性导入」。
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct HistoryConfig {
-    /// 为真时记录流水线执行（v13 起写进指令库 `directives.db` 的 `runs` 表）。
-    #[serde(default = "init_history_enabled")]
+    /// 为真时记录流水线执行（写进 `directives.db` 的 `runs` 表）。
+    #[serde(default = "default_true")]
     pub enabled: bool,
     /// 旧版 JSONL 账本的位置（文件名，或相对数据目录的路径）。
     ///
-    /// v13 起执行日志与指令同库，这个字段**只用于首次打开指令库时把旧账本导入一次**——
-    /// 「上次执行时间」这类记录要是留在旧文件里，卡片上的时间会突然全空。
+    /// 只用于首次打开指令库时把旧账本导入一次——「上次执行时间」这类记录要是留在旧文件里，
+    /// 卡片上的时间会突然全空。
     #[serde(default = "init_history_file")]
     pub file: PathBuf,
 }
@@ -66,23 +69,23 @@ pub struct DirectivesConfig {
     /// 首次打开指令库时，把数据目录下 `directives/` 里的 YAML 一次性导入（v12 → v13 的迁移）。
     ///
     /// 原文件不删：导入只是把旧的那棵树搬进库，想回到文件形态随时 `corex directive export`。
-    #[serde(default = "init_history_enabled")]
+    #[serde(default = "default_true")]
     pub auto_import: bool,
     /// 库是空的时候写入起步指令。
-    #[serde(default = "init_history_enabled")]
+    #[serde(default = "default_true")]
     pub seed: bool,
 }
 
 impl Default for DirectivesConfig {
     fn default() -> Self {
         Self {
-            auto_import: init_history_enabled(),
-            seed: init_history_enabled(),
+            auto_import: true,
+            seed: true,
         }
     }
 }
 
-fn init_history_enabled() -> bool {
+fn default_true() -> bool {
     true
 }
 
@@ -93,7 +96,7 @@ fn init_history_file() -> PathBuf {
 impl Default for HistoryConfig {
     fn default() -> Self {
         Self {
-            enabled: init_history_enabled(),
+            enabled: true,
             file: init_history_file(),
         }
     }

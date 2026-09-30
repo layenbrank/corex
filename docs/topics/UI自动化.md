@@ -77,7 +77,7 @@ params:
 
 ## 指令输入
 
-YAML 中带 `default` 的可选输入：调用方省略该键，**或**传入空字符串时，会应用默认值。升级后请将 `%AppData%\corex\data\directives\` 与 `examples/directives/` 同步。
+YAML 中带 `default` 的可选输入：调用方省略该键，**或**传入空字符串时，会应用默认值。升级后请把 `examples/directives/` 里的示例收进指令库（`corex directive import examples/directives`），旧版留在 `%AppData%\corex\data\directives\` 里的 YAML 会在首次打开库时自动导入一次。
 
 ## 冒烟测试
 

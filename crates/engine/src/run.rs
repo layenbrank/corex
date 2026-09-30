@@ -2,7 +2,7 @@
 
 use crate::audit::ExecutionAudit;
 use crate::definition::Directive;
-use crate::history::{ExecutionHistory, HistorySink};
+use crate::history::HistorySink;
 use crate::pipeline::Pipeline;
 use corex_core::{ActionStore, EngineError, ExecutionContext, RuntimeConfig, Value};
 use std::collections::HashMap;
@@ -40,7 +40,12 @@ pub struct DirectiveRunner {
     pub store: Arc<dyn ActionStore>,
     pub runtime: RuntimeConfig,
     pub data_dir: PathBuf,
-    /// 执行历史的落点；没注入时按配置落到 JSONL（老行为）。
+    /// 执行历史的落点；`None` = 不记。
+    ///
+    /// **落点由注入决定，不再看配置**：`[history].file` 在 v13 里只剩「旧 JSONL 账本的位置」
+    /// 这一个用途（首次打开指令库时导入一次）。CLI / daemon / MCP 注入的都是指令库那一份，
+    /// 所以执行日志与指令同库；嵌入方不想引 SQLite 时可以自己注入
+    /// [`crate::ExecutionHistory`]。
     history: Option<Arc<dyn HistorySink>>,
     /// 按名字取指令的口；没注入时只能跑文件。
     source: Option<Arc<dyn DirectiveSource>>,
@@ -57,7 +62,8 @@ impl DirectiveRunner {
         }
     }
 
-    /// 换掉执行历史的落点：daemon / CLI / MCP 都传指令库那一份，执行日志才与指令同库。
+    /// 执行历史的落点：CLI / daemon / MCP 都传指令库那一份，执行日志才与指令同库。
+    /// 不传就是**不记**（`[history].enabled` 由调用方决定要不要注入）。
     pub fn with_history(mut self, history: Arc<dyn HistorySink>) -> Self {
         self.history = Some(history);
         self
@@ -99,32 +105,14 @@ impl DirectiveRunner {
     ) -> Result<Value, EngineError> {
         let ctx = ExecutionContext::new(self.runtime.clone()).with_input(inputs);
         let mut pipeline = Pipeline::new(Arc::clone(&self.store));
-        if let Some(history) = self.find_history() {
-            pipeline = pipeline.with_history(history);
+        if let Some(history) = &self.history {
+            pipeline = pipeline.with_history(Arc::clone(history));
         }
         let audit_path = self.data_dir.join("audit.jsonl");
         if let Ok(audit) = ExecutionAudit::open(audit_path) {
             pipeline = pipeline.with_audit(audit);
         }
         pipeline.execute(directive, ctx).await
-    }
-
-    /// 历史落点：显式注入的优先，否则按 `[history]` 配置开一份 JSONL。
-    fn find_history(&self) -> Option<Arc<dyn HistorySink>> {
-        if let Some(history) = &self.history {
-            return Some(Arc::clone(history));
-        }
-        if !self.runtime.history.enabled {
-            return None;
-        }
-        let path = if self.runtime.history.file.is_absolute() {
-            self.runtime.history.file.clone()
-        } else {
-            self.data_dir.join(&self.runtime.history.file)
-        };
-        ExecutionHistory::open(path)
-            .ok()
-            .map(|history| Arc::new(history) as Arc<dyn HistorySink>)
     }
 }
 

@@ -32,6 +32,8 @@ cargo build -p corex-mcp            # 或 --release
 
 外加 **`corex_run_directive`**：按名或路径跑一条指令（`name` / `path` / `input` 三个参数），
 返回结果 JSON。它对应 `corex run`，让 agent 既可用「一个动作」粒度、也可用「一条指令」粒度。
+`name` 查的是指令库（`<数据目录>/directives.db`），`path` 是调用方直接给的 ad-hoc YAML
+（不入库）；给 `path` 时忽略 `name`。
 
 ---
 
@@ -47,7 +49,7 @@ stdio 下客户端把 `corex-mcp` 当子进程拉起，**stdout 只放 MCP 消�
     "corex": {
       "type": "stdio",
       "command": "corex-mcp",
-      "args": ["--directives", "examples/directives"]
+      "args": ["--import", "examples/directives"]
     }
   }
 }
@@ -60,7 +62,7 @@ stdio 下客户端把 `corex-mcp` 当子进程拉起，**stdout 只放 MCP 消�
   "mcpServers": {
     "corex": {
       "command": "corex-mcp",
-      "args": ["--directives", "examples/directives"]
+      "args": ["--import", "examples/directives"]
     }
   }
 }
@@ -73,15 +75,16 @@ stdio 下客户端把 `corex-mcp` 当子进程拉起，**stdout 只放 MCP 消�
   "mcpServers": {
     "corex": {
       "command": "corex-mcp",
-      "args": ["--directives", "examples/directives"]
+      "args": ["--import", "examples/directives"]
     }
   }
 }
 ```
 
 > 各客户端的配置键名（`servers` / `mcpServers`）以其当前版本为准，命令与参数不变。
-> `--directives` 指向你的指令目录（默认 `<数据目录>/directives`，只在这一处按名查指令，
-> 与 daemon 一致——想用仓库示例就显式指过去）。
+> v13 起指令住在指令库里（`<数据目录>/directives.db`），`--import` 是**启动时把这个目录或
+> 文件里的 YAML 导入一次**（等价于 `corex directive import`），而不是「换一个指令根」——
+> 想用仓库示例就显式指过去，它们会进库，之后按名字就能跑。旧名 `--directives` 仍作别名可用。
 
 ---
 
@@ -113,7 +116,7 @@ MCP server **内嵌引擎**，执行路径与 `corex run` / daemon 相同，不�
 | `[plugins].disabled_actions` | 生效；被禁用的动作**不出现**在 `tools/list` 里                         |
 | `filesystem_roots`           | 生效；`file.*` / `exec.run` 的路径被沙箱约束                           |
 | `destructiveHint`            | 破坏性动作打上注解，客户端据此在调用前弹确认（「人在环」）             |
-| 审计 / 历史                  | `audit.jsonl`、`history.jsonl` 照常落盘；权限拒绝记 `denied: true`     |
+| 审计 / 历史                  | `audit.jsonl` 照常落盘；执行日志进指令库的 `runs` 表                   |
 | 结果                         | `structuredContent` 给结构化 JSON，`content[0]` 附一份文本（向后兼容） |
 
 错误语义：工具执行失败 → `isError: true`（消息带 `[kind]` 前缀，如 `[permission_denied]`）；

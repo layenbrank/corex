@@ -44,9 +44,16 @@ disabled = []
 # 禁用单个动作 id（如 "shell.run"）
 disabled_actions = []
 
+[directives]
+# 首次打开指令库时，把数据目录下 directives/ 里的 YAML 一次性导入（v12 → v13 迁移）
+auto_import = true
+# 库为空时写入起步指令
+seed = true
+
 [history]
-# 数据目录下的追加式 JSONL
+# 执行日志写进指令库（directives.db 的 runs 表）；关掉 = 不记
 enabled = true
+# 旧版 JSONL 账本的位置：只在首次打开指令库时导入一次，之后不再读
 file    = "history.jsonl"
 
 [logging]

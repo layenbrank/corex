@@ -13,6 +13,10 @@ use tracing::{debug, warn};
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct HistoryEntry {
     /// 指令名（或文件名主干）。
+    ///
+    /// `shortcut` 是 v5 之前的名字。旧账本（`history.jsonl`）里那段历史只在首次打开指令库时
+    /// 被导入一次，为几行改字段名不值得——所以这里认旧名，导入照旧能读。
+    #[serde(alias = "shortcut")]
     pub directive: String,
     /// 执行开始的 unix 毫秒时间戳。
     pub started_at_ms: u64,
@@ -165,7 +169,7 @@ const SCAN: usize = 512;
 ///
 /// 引擎只负责「跑完把这一条记下来」，**记在哪由调用方定**：v13 起指令库（SQLite）是唯一
 /// 真相源，daemon / CLI / MCP 都把记录写进库（`corex_store::SqliteHistory`）；JSONL 实现
-/// （[`ExecutionHistory`]）留着，供显式把 `[history] file` 指到文件的场景与测试使用。
+/// （[`ExecutionHistory`]）留着，供不想引 SQLite 的嵌入方与测试使用。
 ///
 /// 之所以放进引擎而不是直接让引擎依赖指令库：依赖方向是 `store → engine`（库要用引擎的
 /// `Directive`），反过来加边就成环了。

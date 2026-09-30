@@ -37,8 +37,8 @@ impl Pipeline {
 
     /// 每次 [`Self::execute`] 都记一条执行历史。
     ///
-    /// 记在哪由调用方通过 [`HistorySink`] 决定：daemon / CLI / MCP 传指令库那一份，
-    /// 显式把 `[history] file` 指到文件时才传 [`crate::ExecutionHistory`]。
+    /// 记在哪由调用方通过 [`HistorySink`] 决定：daemon / CLI / MCP 传指令库那一份；
+    /// 嵌入方不想引 SQLite 时可以传 [`crate::ExecutionHistory`]（JSONL）。不传就是**不记**。
     pub fn with_history(mut self, history: Arc<dyn HistorySink>) -> Self {
         self.history = Some(history);
         self

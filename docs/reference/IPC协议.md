@@ -130,12 +130,14 @@ CLI / 宿主 / SDK 侧的 token 解析顺序（一处实现：`corex_ipc::find_t
 | ----------------- | -------------------------------------------------------- | ---------------------------------------------- |
 | `ping`            | `id`，`auth_token`                                       | 探活                                           |
 | `shutdown`        | `id`，`auth_token`                                       | 优雅退出 daemon                                |
-| `list_directives` | `id`，`auth_token`，`dir?`                               | 列出指令（`{name, path, bucket, summary, last_run?}[]`；可选子目录；**路径沙箱**） |
-| `read_directive`  | `id`，`auth_token`，`name`，`dir?`                       | 读一条指令的原文与模型                         |
-| `save_directive`  | `id`，`auth_token`，`name`，`definition`，`dir?`         | 校验后写回，并回规范化之后的那份               |
+| `list_directives` | `id`，`auth_token`                                       | 列出指令库里的指令（`{name, folder, source, updated_at_ms, bucket, summary, last_run?}[]`） |
+| `read_directive`  | `id`，`auth_token`，`name`                               | 读一条指令的规范化 YAML 与模型                 |
+| `save_directive`  | `id`，`auth_token`，`name`，`definition`，`original_name?` | 校验后入库，并回规范化之后的那份（`original_name` 不同即改名） |
+| `delete_directive`| `id`，`auth_token`，`name`                               | 删掉一条指令                                   |
+| `import_directives`| `id`，`auth_token`，`path`，`folder?`，`overwrite?`，`dry_run?` | 从 YAML 文件或目录导入                |
 | `list_runs`       | `id`，`auth_token`，`name?`，`limit?`                    | 最近的执行记录（新 → 旧），可按指令过滤        |
 | `list_actions`    | `id`，`auth_token`                                       | 动作目录文档（参数表、权限与 `inputSchema`）   |
-| `run_directive`   | `id`，`auth_token`，`name`，`input?`，`path?`，`stream?` | 按名运行指令，或路径（限制在 directives 根下） |
+| `run_directive`   | `id`，`auth_token`，`name`，`input?`，`path?`，`stream?` | 按名运行指令库里的指令，或直接给一份 ad-hoc YAML 路径 |
 | `invoke`          | `id`，`auth_token`，`action`，`params?`，`stream?`       | 按 ID 调用单个 Action                          |
 
 ### `list_actions` 的动作目录
@@ -186,22 +188,28 @@ CLI / 宿主 / SDK 侧的 token 解析顺序（一处实现：`corex_ipc::find_t
 | `input_schema` | 同一批事实派生出的 JSON Schema，可直接当 MCP 工具的 `inputSchema` 用 |
 | `permissions` | 取自动作自己的声明（`Action::permissions`），不是另抄的一张表 |
 
-### 指令的列 / 读 / 写
+### 指令的列 / 读 / 写 / 删 / 导入
 
-宿主编辑器要展示并改指令，但**不该自己拼路径，也不该自己解析 YAML**：写盘格式（键序、
-哪些默认值该省）只有引擎一份，解析口径也是。三条请求合起来就是完整的读写闭环：
+宿主编辑器要展示并改指令，但**不该自己拼路径，也不该自己解析 YAML**：写出去的格式（键序、
+哪些默认值该省）只有引擎一份，解析口径也是。指令住在指令库里
+（`<数据目录>/directives.db`，见 [破坏性变更 v13](../changelog/破坏性变更-v13.md)），
+所以这些请求里**没有目录参数**：分组是条目自己的 `folder` 字段。
 
-| 请求              | 字段                                             | 回什么                                            |
-| ----------------- | ------------------------------------------------ | ------------------------------------------------- |
-| `list_directives` | `id`，`auth_token`，`dir?`                       | `{name, path, bucket, summary, last_run?}[]`，按名字排序 |
-| `read_directive`  | `id`，`auth_token`，`name`，`dir?`               | `{name, path, text, definition}`                  |
-| `save_directive`  | `id`，`auth_token`，`name`，`definition`，`dir?` | 同上，但 `text` 是**刚写下去**的那一份            |
+| 请求                | 字段                                                            | 回什么                                                     |
+| ------------------- | --------------------------------------------------------------- | ---------------------------------------------------------- |
+| `list_directives`   | `id`，`auth_token`                                              | `{name, folder, source, updated_at_ms, bucket, summary, last_run?}[]`，按名字排序 |
+| `read_directive`    | `id`，`auth_token`，`name`                                      | `{name, folder, source, created_at_ms, updated_at_ms, yaml, definition}` |
+| `save_directive`    | `id`，`auth_token`，`name`，`definition`，`original_name?`       | 同上，但 `yaml` 是**刚写下去**的那一份                      |
+| `delete_directive`  | `id`，`auth_token`，`name`                                      | `{name}`                                                   |
+| `import_directives` | `id`，`auth_token`，`path`，`folder?`，`overwrite?`，`dry_run?`  | `{entries[], created, updated, skipped, failed}`            |
 
 ```json
 [
   {
     "name": "hello",
-    "path": "C:\\Users\\Alice\\.corex\\directives\\hello.yaml",
+    "folder": "pack",
+    "source": "C:\\work\\yaml\\pack\\hello.yaml",
+    "updated_at_ms": 1763818203123,
     "bucket": "data",
     "summary": {
       "description": "打个招呼",
@@ -215,37 +223,57 @@ CLI / 宿主 / SDK 侧的 token 解析顺序（一处实现：`corex_ipc::find_t
 
 | 字段                   | 说明                                                                                                         |
 | ---------------------- | ------------------------------------------------------------------------------------------------------------ |
-| `path`                 | 可交给外部编辑器的路径（已去掉 `\\?\` 前缀，分隔符按平台）                                                   |
+| `folder`               | 分组（自由文本）。导入目录时取相对子目录；库里新建的、以及没分组的条目为 `null`                              |
+| `source`               | 导入来源（原 YAML 路径），只为对账与显示；库里新建的为 `null`                                                |
+| `updated_at_ms`        | 最后一次写库的时间（unix 毫秒），宿主显示「什么时候改的」用它                                                |
 | `bucket`               | 指令的分类，取 `system` / `network` / `data` / `ui` / `logic` / `plugin`；没写或**解析不了**时为 `null`      |
-| `summary`              | 画卡片用的元信息；**文件解析不了时为 `null`**                                                                |
+| `summary`              | 画卡片用的元信息；**模型解析不了时为 `null`**                                                                |
 | `summary.description`  | 指令声明的描述，没写就是空串                                                                                 |
 | `summary.step_count`   | 顶层步骤数（含 `parallel` / `steps` 这类复合步骤各算一步）                                                   |
 | `summary.input_count`  | 声明的输入个数                                                                                               |
 | `summary.trigger_count`| 声明的触发器个数                                                                                             |
 | `last_run`             | 最近一次执行（`ok` / `duration_ms` / `error` / `run_count` / `failed_count`）；没跑过时不出现                |
-| `text`                 | 文件原文，供宿主展示、以及保留自己没改的字段                                                                 |
+| `yaml`                 | 引擎序列化出来的**规范文档**，供宿主展示与「保留自己没改的字段」                                             |
 | `definition`           | 解析后的 `Directive`（[指令 DSL](指令YAML.md)）；宿主编辑的就是它，改完原样交回 `save_directive`             |
 
-`bucket` 与 `summary` 得先解析文件才知道，所以**解析不了的指令照样列出来**（编辑器要靠它把
-文件打开去修），只是两者都为 `null`；`.yaml` / `.yml` 之外的同目录文件不是指令，不会出现在
-列表里。列目录那次解析顺手把 `summary` 一起算出来，宿主画卡片不必把每个文件再读一遍。
+`bucket` 与 `summary` 得先解析模型才知道，所以**解析不了的条目照样列出来**（编辑器要靠它把
+条目打开去修），只是两者都为 `null`。列一次库就把 `summary` 一起算出来，宿主画卡片不必把每条
+再读一遍。
 
 `last_run` 也是这么顺出来的（见 [运行历史](#运行历史的只读出口)）：它没跑过、或 `[history]`
 关掉时**整个字段不出现**——「没跑过」与「历史没开」是两件事，别混成 `null`。
 
-`save_directive` 会先过一遍「动作是否注册」，再按引擎的序列化写盘：**被拒时一个字节也不写**
-（模型解析不了 / 动作没注册 / 名字不是裸名 → 400，`dir` 越界 → 403），成功时用临时文件 +
-原子替换，写坏一半的指令不会留在盘上。回给宿主的是规范化后的文本，与磁盘内容逐字节一致。
+`save_directive` 会先过「动作是否注册」与「权限声明够不够」两道门，再写库：**被拒时一行都不写**
+（模型解析不了 / 动作没注册 / 名字不是裸名 → 400，权限不够 → 403）。回给宿主的是规范化后的
+`yaml` 与落库后的元信息，两者与 `read_directive` 读回来的完全一致。
 
-读一条指令时 `.yaml` 优先于 `.yml`；写回**已有的 `.yml`** 时仍写那个文件，不会另生一个
-同名的 `.yaml`（否则谁生效就取决于扩展名先后了）。
+`original_name` 与 `name` 不同就是**改名**：库在一个事务里删旧键、写新键，并沿用 `folder` /
+`source`。目标名字已被占用时回 **409**，此时两边都保持原样——不会出现「两个名字各有一半」。
+
+`delete_directive` 删不存在的指令回 404（而不是静默成功）。`import_directives` 的 `path` 是
+**文件或目录**（目录递归，相对子目录成为 `folder`），逐条报告：
+
+```json
+{
+  "entries": [
+    { "name": "hello", "path": "C:\\work\\yaml\\hello.yaml", "status": "created" },
+    { "name": "old", "path": "C:\\work\\yaml\\old.yaml", "status": "skipped" },
+    { "name": "broken", "path": "C:\\work\\yaml\\broken.yaml", "status": "failed",
+      "error": "解析失败: expected ']', found <eof>" }
+  ],
+  "created": 1, "updated": 0, "skipped": 1, "failed": 1
+}
+```
+
+`status` 取 `created` / `updated` / `skipped` / `failed`，只有 `failed` 带 `error`；
+`overwrite` 为真时同名条目变成 `updated`，`dry_run` 为真时只报告、不写库。
 
 ### 运行历史的只读出口
 
-宿主画「上次跑成什么样」不该自己攒一本账：历史文件（`history.jsonl`）由引擎在执行结束的
-当口写，路径与开关都来自 `[history]` 配置（见
+宿主画「上次跑成什么样」不该自己攒一本账：这份账本（即 `runs` 表）与指令**同库**，由引擎在
+执行结束的当口写，开关来自 `[history]` 配置（见
 [数据目录与状态文件 § 目录内容](./数据目录与状态文件.md#2-目录内容)）。`list_runs` 把这份
-账本读成 JSON，而 `list_directives` 的每条指令顺带带上自己的 `last_run` —— 列一次目录就够
+账本读成 JSON，而 `list_directives` 的每条指令顺带带上自己的 `last_run` —— 列一次库就够
 画卡片，不必再逐条问一遍历史。
 
 ```json
@@ -267,7 +295,7 @@ CLI / 宿主 / SDK 侧的 token 解析顺序（一处实现：`corex_ipc::find_t
 | 字段                 | 说明                                                         |
 | -------------------- | ------------------------------------------------------------ |
 | `is_history_enabled` | `[history].enabled` 的现值                                   |
-| `entries`            | 执行记录，**新 → 旧**；与 `history.jsonl` 里那些行逐字段一致 |
+| `entries`            | 执行记录，**新 → 旧**；与 `corex history` 读到的是同一份     |
 
 两个字段都得看：**关掉历史**与**一条都没跑过**都回空表，但卡片上一个该说「历史没开」，
 另一个才说「从未运行」。`name` 只看一条指令，`limit` 限条数（不给时用 daemon 的默认 50 条）；
@@ -376,11 +404,15 @@ daemon 会在**这条请求的终帧之前**插入零个或多个 `event` 帧：
 
 | Code | Helper         | 典型用途                |
 | ---- | -------------- | ----------------------- |
-| 400  | `invalid`      | 参数/请求错误           |
+| 400  | `invalid`      | 参数/请求错误、名字非法、定义解析不了、动作没注册 |
 | 401  | `unauthorized` | 缺少或错误的 auth token |
-| 403  | `forbidden`    | 拒绝                    |
+| 403  | `forbidden`    | 拒绝、权限声明不够      |
 | 404  | `not_found`    | 未知指令 / Action       |
+| 409  | `conflict`     | 名字已被占用（改名 / 导入） |
 | 500  | `internal`     | 未预期失败              |
+
+409 与 400 分开是因为调用方能做的事不一样：400 要改自己发的内容，409 得换个名字或先删旧的
+（见 [`save_directive`](#指令的列--读--写--删--导入)）。
 
 ### 示例
 
@@ -402,7 +434,18 @@ daemon 会在**这条请求的终帧之前**插入零个或多个 `event` 帧：
 
 ## 路径沙箱
 
-对带 `path` 的 `run_directive` 与带 `dir` 的 `list_directives`，daemon 在配置的 directives 根下解析路径，并**拒绝**逃逸（`confine_under`）。指令 `name` 必须是裸名（无 `..`、`/`、`\` 或绝对路径）。
+v13 起指令住在库里，`list_directives` / `read_directive` / `save_directive` 已经**没有路径参数**：
+指令名只是一把键，非裸名（含 `..`、`/`、`\` 或绝对路径）一律 400。
+
+两个仍与磁盘打交道的地方：
+
+| 地方                              | 规则                                                                                                     |
+| --------------------------------- | -------------------------------------------------------------------------------------------------------- |
+| `run_directive.path`              | **ad-hoc 文件**：调用方明确给的路径照读，不再要求它落在某个「指令根」下（见 [威胁模型](../ops/威胁模型.md)） |
+| `import_directives.path`          | 调用方给的信任路径：能读多少就导入多少，判定只作用于「能不能入库」（动作已注册 + 权限声明够）             |
+
+需要隔离环境时用文件系统权限（或 `[runtime].filesystem_roots`）限制 daemon 能读到的范围，
+而不是指望 daemon 自己猜哪个目录是「允许的」。
 
 ## 相关文档
 

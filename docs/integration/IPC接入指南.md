@@ -244,7 +244,7 @@ Tauri 等桌面壳：**推荐 Daemon sidecar 模式**。
 | ---------- | -------------------------------------------- |
 | 连接拒绝   | `corex daemon status`；检查 pipe/socket 路径 |
 | 401        | 对齐 `COREX_TOKEN` 或 `token` 文件           |
-| 指令未找到 | `list_directives`；确认 `directives/` 目录   |
+| 指令未找到 | `list_directives` 看库里有什么；名字必须是裸名（不含 `/`、`\`、`..`） |
 | 行过大     | 拆分结果或避免在单步返回超大 body            |
 
 ---

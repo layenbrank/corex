@@ -44,8 +44,14 @@ fn shell_command(spec: &str, path: &Path) -> Command {
     let quoted = path.display().to_string();
     #[cfg(windows)]
     {
+        // 这里必须用 `raw_arg` 而不是 `arg`：`cmd` 只认**原始命令行**里 `/C` 之后的那串，而
+        // `Command::arg` 会按 MSVC 的规则给含引号的参数加转义（`\"`）——`cmd` 看不懂那个转义，
+        // 报的是「文件名、目录名或卷标语法不正确」。路径里有空格时必踩，不能靠运气。
+        use std::os::windows::process::CommandExt;
+
         let mut command = Command::new("cmd");
-        command.args(["/C", &format!("{spec} \"{quoted}\"")]);
+        command.arg("/C");
+        command.raw_arg(format!("{spec} \"{quoted}\""));
         command
     }
     #[cfg(not(windows))]

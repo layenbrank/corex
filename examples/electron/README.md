@@ -78,8 +78,10 @@ Electron API 调用**——本仓库的 CI 装不了 Electron，但上面这些�
 
 ## 指令列表是空的？
 
-`directives()` 列的是 `<数据目录>/directives/*.yaml`。新装的机器上它是空的，可以：
+新装的机器上指令库是空的，不过 corex 会在第一次打开它时写入几条起步指令，通常一上来就有东西可跑。
+自己加一条：
 
 ```powershell
-corex create hello          # 或把 examples/directives/ 里的一条复制过去
+corex directive new hello          # 写进指令库
+corex directive import examples/directives   # 或把示例收进库
 ```

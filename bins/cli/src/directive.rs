@@ -218,7 +218,12 @@ fn edit(name: &str) -> Result<()> {
 
     editor::edit_and_wait(&path)?;
 
-    let text = std::fs::read_to_string(&path)?;
+    let text = std::fs::read_to_string(&path).with_context(|| {
+        format!(
+            "无法读取 {}（编辑器写回的文件得是 UTF-8；改动还在，改好编码再重来）",
+            path.display()
+        )
+    })?;
     if text == record.yaml {
         let _ = std::fs::remove_file(&path);
         outln!("未修改 {}", record.name);

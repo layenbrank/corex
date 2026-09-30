@@ -26,12 +26,13 @@ corex actions file.copy        # 某个动作的参数表 + 可直接粘的步�
 | `corex run <名称> --remote`             | 交给 `corex-daemon` 执行（插件 Action 只在它那里可用），进度按帧流回                                         |
 | `corex run <名称> --timeout 30`         | 只本次运行覆盖单步超时（秒）；`--jobs N` 覆盖并行度                                                          |
 | `corex history`                         | 最近的执行记录（`-n` 条数、`--failed` 只看失败、可跟指令名）                                                 |
-| `corex schedule`                        | 列出指令                                                                                                     |
+| `corex schedule`                        | 列出指令名（库里的 + 回退目录里的）                                                                          |
 | `corex watch …` / `corex cron …`        | 文件监听 / 定时守护                                                                                          |
 | `corex actions [id]`                    | 按 bucket 分组列出 Action（`--bucket ui` 过滤）；给 id 则打印参数表、权限与步骤片段；`--json` 给机器可读目录 |
 | `corex validate <path>`                 | 校验 YAML；`--watch` 存一次盘重校一次                                                                        |
-| `corex create [名称]`                   | 指令脚手架（交互向导，或 `-t hello\|http\|file\|shell\|cron\|watch`）                                        |
-| `corex edit <名称>` / `corex repl`      | 用编辑器打开 / 交互式 REPL                                                                                   |
+| `corex directive …`                     | 指令库：`list` / `show` / `new` / `edit` / `rm` / `rename` / `import` / `export`                              |
+| `corex create [名称]`                   | `directive new` 的别名：指令脚手架（交互向导，或 `-t hello\|http\|file\|shell\|cron\|watch`）               |
+| `corex edit <名称>` / `corex repl`      | 用编辑器打开并写回 / 交互式 REPL                                                                              |
 | `corex schema`                          | 输出指令 YAML 的 JSON Schema，供编辑器补全与校验                                                             |
 | `corex completions <shell>`             | 打印 shell 补全注册脚本（候选由 corex 现算）                                                                 |
 | `corex doctor`                          | 自检数据目录、配置、守护进程、动作与指令                                                                     |
