@@ -25,6 +25,7 @@ corex-engine     = { path = "crates/engine" }
 corex-registry   = { path = "crates/registry" }
 corex-ipc        = { path = "crates/ipc" }
 corex-plugin-sdk = { path = "crates/plugin-sdk" }
+corex-store      = { path = "crates/store" }
 corex-updater    = { path = "crates/updater" }
 
 # 异步 / 运行时
@@ -54,6 +55,12 @@ toml       = "1.1.5"
 # 1.x 输出 draft 2020-12（用 `$defs` 而非 `definitions`），因此已发布的
 # `schemas/directive.schema.json` 从 draft-07 往上走了一版——这是有意为之且已记录的变化。
 schemars = "1.2.2"
+
+# 存储
+# 指令库（`crates/store`）：SQLite 是指令的唯一真相源。
+# `bundled` 把 SQLite 源码一起编译进来 —— 不让「本地装没装 sqlite3」决定 corex 能不能跑，
+# 也不让三平台的链接方式各说各话（Windows 上尤其没有系统 sqlite 可链接）。
+rusqlite = { version = "0.40", features = ["bundled"] }
 
 # 错误 / 日志
 anyhow = "1.0"

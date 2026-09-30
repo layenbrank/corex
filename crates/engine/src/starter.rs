@@ -38,6 +38,14 @@ pub fn names() -> Vec<&'static str> {
     STARTERS.iter().map(|(name, _)| *name).collect()
 }
 
+/// 起步指令的 `(名字, YAML)` 表。
+///
+/// 指令库（`crates/store`）直接把它们写进库，而不是先落成文件再导入：那条路要先把文件写到
+/// 数据目录、再读回来解析，凭空多出一次「磁盘上的中间态」。
+pub fn entries() -> &'static [(&'static str, &'static str)] {
+    STARTERS
+}
+
 /// 往 `directory` 写入起步指令，返回写了几条。
 ///
 /// 目录里已经有 `*.yaml` / `*.yml`（大小写不敏感）就原样返回 0——那是用户的指令目录，
