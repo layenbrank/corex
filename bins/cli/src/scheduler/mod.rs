@@ -1,156 +1,27 @@
-//! `watch` / `cron` 共用的指令查找与作业登记。
+//! `watch` / `cron` 共用的作业登记。
 //!
 //! 两族的机制完全一致——解析指令、每个指令最多保留一个 supervisor、通过控制套接字与
 //! 它通信——因此共用一套实现，只在传入的 [`JobKind`] 上不同。
+//!
+//! 指令从**库**里取：v13 起真相在 `<数据目录>/directives.db`，supervisor 每次触发也按名字
+//! 从库读（[`Jobs::io`]），于是「用户改的是库里那份、跑的还是磁盘上那份」不会再发生。
 
 mod control;
 mod logs;
 mod start;
 
-use crate::fuzzy;
+use crate::library::Library;
 use anyhow::{Result, bail};
-use corex_core::EngineError;
-use corex_engine::{Directive, JobKind, JobMeta};
+use corex_engine::{Directive, JobKind, JobMeta, SupervisorIo};
 use corex_ipc::data_dir;
 use corex_registry::ActionRegistry;
-use std::path::{Path, PathBuf};
+use corex_store::directives_db_path;
+use std::path::Path;
 use std::sync::Arc;
 
 pub(crate) use control::{ps, restart, send, stop};
 pub(crate) use logs::{attach, logs};
 pub(crate) use start::{Spec, run};
-
-/// 仓库自带的演示指令目录，也是解析失败前的最后一站。
-const EXAMPLES: &str = "examples/directives";
-
-/// 一条可运行的指令：名字与它来自哪里。
-pub(crate) struct Named {
-    pub(crate) name: String,
-    pub(crate) path: PathBuf,
-    /// 来自 `examples/directives`（仓库自带），而不是用户的指令目录。
-    pub(crate) example: bool,
-}
-
-impl Named {
-    /// 列在选单 / `schedule` 里的一行。
-    pub(crate) fn label(&self) -> String {
-        if self.example {
-            format!("{}  (examples)", self.name)
-        } else {
-            self.name.clone()
-        }
-    }
-}
-
-/// 指令文件所在位置，`run` / `validate` / `schedule` 与两个调度器共用。
-pub(crate) struct Paths;
-
-impl Paths {
-    /// 把 CLI 目标变成文件：已存在的路径、`<dir>/<target>.yaml|yml`，或 examples 里的指令。
-    pub(crate) fn resolve(target: &str, dir: Option<&Path>) -> Result<PathBuf> {
-        let as_path = PathBuf::from(target);
-        if as_path.exists() {
-            return Ok(as_path);
-        }
-        let base = Self::dir(dir)?;
-        for ext in ["yaml", "yml"] {
-            let p = base.join(format!("{target}.{ext}"));
-            if p.exists() {
-                return Ok(p);
-            }
-        }
-        let examples = PathBuf::from("examples/directives");
-        for ext in ["yaml", "yml"] {
-            let p = examples.join(format!("{target}.{ext}"));
-            if p.exists() {
-                return Ok(p);
-            }
-        }
-        // 复用引擎的错误，使“指令不存在”在本地和走引擎的路径上报同样的退出码。
-        Err(anyhow::Error::new(EngineError::DirectiveNotFound(
-            target.to_string(),
-        )))
-    }
-
-    /// 像 [`Self::resolve`] 一样解析，但失败时把最接近的名字一并说出来。
-    ///
-    /// 手敲名字必然会有错别字，而“指令不存在”本身并不告诉用户拼错了哪个字母。
-    pub(crate) fn resolve_near(target: &str, dir: Option<&Path>) -> Result<PathBuf> {
-        if let Ok(path) = Self::resolve(target, dir) {
-            return Ok(path);
-        }
-        let near = Self::nearby(target, dir).unwrap_or_default();
-        // 报错文本只写「哪条指令 + 最接近的候选」：`EngineError` 的 Display 已经说了
-        // 「指令未找到」，这里再写一遍前缀就成了双层前缀。
-        let hint = if near.is_empty() {
-            format!("{target}（`corex schedule` 看全部）")
-        } else {
-            format!("{target}（最接近的: {}）", near.join("、"))
-        };
-        Err(anyhow::Error::new(EngineError::DirectiveNotFound(hint)))
-    }
-
-    /// 指令目录与 `examples/directives` 里的全部指令，按名字排序。
-    ///
-    /// 同名时以自有目录为准：用户自己的指令不应该被仓库里的演示遮住。
-    pub(crate) fn names(dir: Option<&Path>) -> Result<Vec<Named>> {
-        let mut found: Vec<Named> = Vec::new();
-        for (base, example) in [(Self::dir(dir)?, false), (PathBuf::from(EXAMPLES), true)] {
-            for path in yaml_files(&base)? {
-                let Some(name) = path.file_stem().and_then(|s| s.to_str()) else {
-                    continue;
-                };
-                if found.iter().any(|n| n.name == name) {
-                    continue;
-                }
-                found.push(Named {
-                    name: name.to_string(),
-                    path,
-                    example,
-                });
-            }
-        }
-        found.sort_by(|a, b| a.name.cmp(&b.name));
-        Ok(found)
-    }
-
-    /// 最像 `target` 的几个指令名（不区分大小写）。
-    pub(crate) fn nearby(target: &str, dir: Option<&Path>) -> Result<Vec<String>> {
-        let names: Vec<String> = Self::names(dir)?.into_iter().map(|n| n.name).collect();
-        Ok(fuzzy::nearest(target, &names))
-    }
-
-    /// 指令目录：给了 `--dir` 就用它，否则是 `<data-dir>/directives`。
-    ///
-    /// 默认目录为空时写入起步指令（见 [`corex_engine::starter`]）；`--dir` 是调用方自己
-    /// 指的目录，不碰。
-    pub(crate) fn dir(override_dir: Option<&Path>) -> Result<PathBuf> {
-        if let Some(d) = override_dir {
-            return Ok(d.to_path_buf());
-        }
-        let d = data_dir()?.join("directives");
-        corex_engine::starter::seed(&d)?;
-        Ok(d)
-    }
-}
-
-/// `base` 下的 `*.yaml` / `*.yml`（不递归）；目录不存在就是空列表。
-fn yaml_files(base: &Path) -> Result<Vec<PathBuf>> {
-    let mut found = Vec::new();
-    if !base.exists() {
-        return Ok(found);
-    }
-    for entry in std::fs::read_dir(base)? {
-        let path = entry?.path();
-        if matches!(
-            path.extension().and_then(|e| e.to_str()),
-            Some("yaml") | Some("yml")
-        ) {
-            found.push(path);
-        }
-    }
-    Ok(found)
-}
 
 /// `watch` 与 `cron` 共用的登记逻辑；两者只在 [`JobKind`] 上不同。
 pub(crate) struct Jobs;
@@ -160,6 +31,18 @@ impl Jobs {
     pub(crate) fn store() -> Arc<ActionRegistry> {
         // 整个二进制只有一个注册表构造器：`corex run` 与调度器不能在“注册了哪些内置动作 / 生效配置”上产生分歧。
         Arc::new(crate::build_registry())
+    }
+
+    /// supervisor 要接的两个口：按名取指令（库）与记执行日志（库里的 `runs` 表）。
+    ///
+    /// 两者总是同时给（有库就都接库）：触发器每次触发都重新取一次指令，所以库里的改动会
+    /// 从**下一次**触发开始生效，而账本与 `corex history` 读的是同一份。
+    pub(crate) fn io() -> Result<SupervisorIo> {
+        let library = Library::open()?;
+        Ok(SupervisorIo {
+            source: Some(library.source()),
+            history: library.history(),
+        })
     }
 
     /// 子命令名，用于面向用户的提示。
@@ -196,5 +79,16 @@ impl Jobs {
     /// 该指令当前已在运行的作业（若有）。
     pub(crate) fn running(data: &Path, kind: JobKind, directive: &str) -> Option<JobMeta> {
         JobMeta::find_running_by_directive(data, kind, directive)
+    }
+
+    /// 作业的 `directive_path`：指令住在库里的哪个文件。
+    ///
+    /// 这个字段只剩「这条指令从哪来」的展示用途——真有回退文件（`examples/` 那种）时给文件，
+    /// 否则给库自己的路径：`watch ps` 打出来的是实话，而不是一个装了样子的空值。
+    pub(crate) fn origin(file: Option<&Path>, data: &Path) -> std::path::PathBuf {
+        match file {
+            Some(file) => file.to_path_buf(),
+            None => directives_db_path(data),
+        }
     }
 }

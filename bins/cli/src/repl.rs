@@ -10,8 +10,8 @@
 use crate::build_registry;
 use crate::cli::Cli;
 use crate::history;
+use crate::library::Library;
 use crate::output::{errln, outln};
-use crate::scheduler::Paths;
 use anyhow::Result;
 use clap::Parser;
 use corex_ipc::data_dir;
@@ -41,13 +41,12 @@ pub(crate) async fn run(dir: Option<PathBuf>) -> Result<()> {
 fn banner(dir: Option<&Path>) {
     outln!("corex {} · repl", corex_core::VERSION);
     let actions = build_registry().len();
-    match Paths::names(dir) {
+    match Library::open().and_then(|library| library.names(dir)) {
         Ok(names) => {
-            let own = names.iter().filter(|n| !n.example).count();
+            let stored = names.iter().filter(|named| named.file.is_none()).count();
             outln!(
-                "指令 {} 条（自有 {own} / examples {}）   动作 {actions} 个",
-                names.len(),
-                names.len() - own
+                "指令 {stored} 条（examples 另有 {}）   动作 {actions} 个",
+                names.len() - stored
             );
         }
         Err(err) => outln!("指令: 无法枚举（{err}）   动作 {actions} 个"),
@@ -182,12 +181,20 @@ async fn forward(line: &str, dir: &Option<PathBuf>) -> Result<()> {
 /// 只敲指令名时补上 `run`：REPL 里最高频的动作，不该要求先打三个字母再打名字。
 fn run_shorthand(words: &[String], dir: &Option<PathBuf>) -> Vec<String> {
     let is_command = commands().iter().any(|c| c == &words[0]);
-    if !is_command && Paths::resolve(&words[0], dir.as_deref()).is_ok() {
+    if !is_command && resolves(words[0].clone(), dir) {
         let mut with_run = vec!["run".to_string()];
         with_run.extend(words.iter().cloned());
         return with_run;
     }
     words.to_vec()
+}
+
+/// 「这个词是一条指令吗」——库里有、或回退目录里有同名 YAML，都算。
+fn resolves(word: String, dir: &Option<PathBuf>) -> bool {
+    // 库打不开时也照样试回退：REPL 的补全不该因为数据目录暂时读不动就整个失效。
+    Library::open()
+        .map(|library| library.find(&word, dir.as_deref()).is_ok())
+        .unwrap_or(false)
 }
 
 /// 顶层子命令名，直接从 clap 定义里取，不再维护第二份列表。
@@ -220,7 +227,8 @@ help / ?       显示本帮助
   schedule              列出指令
   actions file.copy     看某个动作的参数表与步骤片段
   run <名称> -i k=v     带输入运行
-  create / edit         新建 / 打开指令
+  directive new <名称>  新建一条指令
+  directive edit <名称> 用编辑器改
   validate <路径> --strict
   doctor                自检数据目录、配置与守护进程"
     );
@@ -269,7 +277,8 @@ impl Names {
         words.extend(commands());
         words.sort();
         words.dedup();
-        let directives = Paths::names(dir)
+        let directives = Library::open()
+            .and_then(|library| library.names(dir))
             .map(|named| named.into_iter().map(|n| n.name).collect())
             .unwrap_or_default();
         Self { words, directives }

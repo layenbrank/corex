@@ -8,23 +8,25 @@
 //! 执行有两条路：默认在**本进程内**跑（只有内置 Action），`--remote` 则交给
 //! `corex-daemon`（插件 Action 只在它那里可用）。两条路共用同一个 [`Channel`]——
 //! daemon 推回来的帧经 [`Replay`] 重放进同一个上报口，所以进度与结论只写一份。
+//!
+//! 指令一律从**指令库**取（回退只认显式给的路径与 `--dir` / `examples` 里的同名 YAML）。
 
+use crate::library::{Library, Located, Named};
 use crate::output::outln;
 use crate::progress::{self, Events};
-use crate::scheduler::{Named, Paths};
 use crate::steps;
-use crate::{ask, build_registry, parse_inputs, usage};
-use anyhow::{Context, Result};
+use crate::{ask, parse_inputs, usage};
+use anyhow::Result;
 use corex_core::{EngineError, ExecutionContext, Observer, RuntimeConfig, Value};
 use corex_engine::{
-    Directive, ExecutionAudit, ExecutionHistory, InputDecl, Pipeline, is_input_unset,
-    validate_allowed, validate_registered,
+    Directive, ExecutionAudit, InputDecl, Pipeline, is_input_unset, validate_allowed,
+    validate_registered,
 };
 use corex_ipc::protocol::{Request, Response, RpcError};
 use corex_ipc::{Replay, Transport, data_dir, ipc_connect};
 use corex_registry::ActionRegistry;
 use std::collections::HashMap;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::sync::Arc;
 
 /// `corex run` 的开关。
@@ -166,16 +168,24 @@ pub(crate) async fn directive(
         return remote(target, opts).await;
     }
 
-    let path = match target {
-        Some(target) => Paths::resolve_near(target, dir)?,
-        None => choose_directive(dir, opts.yes)?,
+    let library = Library::open()?;
+    let located = match target {
+        Some(target) => library.find_or_near(target, dir)?,
+        None => choose_directive(&library, dir, opts.yes)?,
     };
-    let directive = Directive::from_yaml_file(&path)?;
+    if let Some(file) = &located.file {
+        // 回退路径要说清「跑的是哪一份」：库里有同名指令时用户会以为跑的是库里那条。
+        crate::output::error_line(&format!(
+            "警告: 库里没有这条指令，按文件执行 {}",
+            file.display()
+        ));
+    }
+    let directive = located.directive;
     let mut input = parse_inputs(&opts.inputs)?;
     report_unknown_inputs(&directive, &input);
     fill_missing(&directive, &mut input, opts.yes)?;
 
-    let registry = Arc::new(build_registry());
+    let registry = library.registry();
     let channel = Channel::pick(opts);
     if opts.dry_run {
         // 预览的输入要和真正开跑时看到的一致：默认值是引擎在开跑前填的，
@@ -193,17 +203,13 @@ pub(crate) async fn directive(
         apply_overrides(&mut config, opts);
         config
     };
-    let ctx = ExecutionContext::new(config.clone()).with_input(input);
+    let ctx = ExecutionContext::new(config).with_input(input);
     let mut pipeline = Pipeline::new(registry);
 
-    if config.history.enabled {
-        let hist_path = if config.history.file.is_absolute() {
-            config.history.file.clone()
-        } else {
-            data_dir()?.join(&config.history.file)
-        };
-        pipeline =
-            pipeline.with_history(ExecutionHistory::open(hist_path).context("无法打开执行历史")?);
+    // 执行日志与 daemon、宿主读的是**同一份**（库里的 `runs` 表）：谁存谁的「上次执行时间」
+    // 都会与它对不上。
+    if let Some(history) = library.history() {
+        pipeline = pipeline.with_history(history);
     }
     {
         let audit_path = data_dir()?.join("audit.jsonl");
@@ -278,11 +284,11 @@ fn from_rpc(error: RpcError) -> anyhow::Error {
 }
 
 /// 没给名字时在终端里挑一条；不交互就问不出答案。
-fn choose_directive(dir: Option<&Path>, yes: bool) -> Result<PathBuf> {
-    let named = Paths::names(dir)?;
+fn choose_directive(library: &Library, dir: Option<&Path>, yes: bool) -> Result<Located> {
+    let named = library.names(dir)?;
     if named.is_empty() {
         return Err(usage(
-            "没有可用指令（`corex create <名称>` 先建一条，或用 `--dir` 指定目录）",
+            "没有可用指令（`corex directive new <名称>` 先建一条）",
         ));
     }
     if yes || !ask::is_interactive() {
@@ -290,7 +296,16 @@ fn choose_directive(dir: Option<&Path>, yes: bool) -> Result<PathBuf> {
     }
     let labels: Vec<String> = named.iter().map(Named::label).collect();
     let chosen = ask::select("要运行哪条指令？", &labels)?;
-    Ok(named[chosen].path.clone())
+    let picked = &named[chosen];
+    // 回退来源（`examples/` 等）直接给出文件；库里的条目得按名再取一次模型。
+    library.find(
+        picked
+            .file
+            .as_deref()
+            .and_then(|file| file.to_str())
+            .unwrap_or(&picked.name),
+        dir,
+    )
 }
 
 /// 声明里没见过的输入键：多半是笔误，只提醒不拦。

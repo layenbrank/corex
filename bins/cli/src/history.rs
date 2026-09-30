@@ -1,15 +1,15 @@
-//! `corex history`：读数据目录里那份只追加的执行历史。
+//! `corex history`：读指令库里的执行日志。
 //!
-//! 历史从 v5 起就在写（`corex_engine::ExecutionHistory`），但此前只有 REPL 首屏在用，
-//! 想查「昨天那条指令跑了多久」只能去 `cat` JSONL。这里把它变成一条命令；读取逻辑则全在
-//! 引擎里（`recent` / `recent_names` / `by_directive`），daemon 与宿主读的是同一份实现，
-//! CLI 只负责回答「读哪个文件」。
+//! 历史从 v5 起就在写，但落点换过一次：v12 及以前是一个只追加的 JSONL 文件，v13 起与指令
+//! 同库（`<数据目录>/directives.db` 的 `runs` 表）——「上次执行时间」这类记录必须与指令放在
+//! 一起，否则宿主显示的时间与账本会各说各话。读取逻辑仍在引擎/库里（`recent` /
+//! `recent_names` / `by_directive`），CLI 只负责把它打出来。
 
+use crate::library::Library;
 use crate::output::{Role, outln, paint};
-use crate::settings;
 use anyhow::Result;
-use corex_engine::{ExecutionHistory, HistoryEntry};
-use corex_ipc::data_dir;
+use corex_engine::{HistoryEntry, HistorySink};
+use std::sync::Arc;
 
 /// 一次查询的条件。
 pub(crate) struct Query {
@@ -80,11 +80,11 @@ fn elapsed(ms: u64) -> String {
     }
 }
 
-/// 最近几次执行，新的在前；`name` 与 `limit` 都交给引擎，CLI 不再自己扫文件。
+/// 最近几次执行，新的在前；`name` 与 `limit` 都交给库里那份账本，CLI 不再自己扫文件。
 ///
-/// 打不开（历史被关掉 / 文件读不动）就是空列表：还没跑过指令不是错误。
+/// 打不开（历史被关掉 / 库读不动）就是空列表：还没跑过指令不是错误。
 pub(crate) fn recent(name: Option<&str>, limit: usize) -> Vec<HistoryEntry> {
-    open()
+    sink()
         .map(|history| history.recent(name, limit))
         .unwrap_or_default()
 }
@@ -93,24 +93,15 @@ pub(crate) fn recent(name: Option<&str>, limit: usize) -> Vec<HistoryEntry> {
 ///
 /// REPL 首屏用它回答「这里有什么是刚跑过的」——读取逻辑与 `corex history` 共用。
 pub(crate) fn recent_names(limit: usize) -> Vec<String> {
-    open()
+    sink()
         .map(|history| history.recent_names(limit))
         .unwrap_or_default()
 }
 
-/// 生效的那份历史；历史被关掉、或文件开不了时为 `None`。
+/// 生效的那份账本；`[history] enabled = false` 时是 `None`。
 ///
-/// 路径解析留在 CLI：`data_dir()` 与 `corex.toml` 是**进程自己**看到的那些，交给 daemon
-/// 猜就会与用户敲下这条命令时的心智不一致。
-fn open() -> Option<ExecutionHistory> {
-    let config = settings::effective();
-    if !config.history.enabled {
-        return None;
-    }
-    let path = if config.history.file.is_absolute() {
-        config.history.file.clone()
-    } else {
-        data_dir().ok()?.join(&config.history.file)
-    };
-    ExecutionHistory::open(path).ok()
+/// 打开指令库这件事本身失败（数据目录不可写、库损坏）也当「没有历史」：`history` 是只读的
+/// 辅助命令，为它让整条命令失败不值当——真正的失败会在 `run` / `directive` 那几条命令上暴露。
+fn sink() -> Option<Arc<dyn HistorySink>> {
+    Library::open().ok()?.history()
 }

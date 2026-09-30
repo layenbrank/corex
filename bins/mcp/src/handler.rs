@@ -79,6 +79,13 @@ impl CorexHandler {
             return CallToolResult::error(vec![ContentBlock::text("缺少必填参数: name")]);
         };
         let path = args.get("path").and_then(|v| v.as_str());
+        // 名字先过库的裸名规则：`a/b` 这种在库里压根不是键，早一步说清比让 `run_directive`
+        // 在库里查一遍再报「未找到」更好懂。
+        if path.is_none()
+            && let Err(error) = crate::exec::check_name(name)
+        {
+            return CallToolResult::error(vec![ContentBlock::text(error.to_string())]);
+        }
         let input = args
             .get("input")
             .cloned()

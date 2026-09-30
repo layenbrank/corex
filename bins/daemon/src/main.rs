@@ -16,7 +16,7 @@ use corex_ipc::{FrameSink, Outlet, ProgressEvent, config_paths, data_dir, serve_
 use corex_registry::ActionRegistry;
 use corex_store::{
     BootstrapOptions, DirectiveRecord, DirectiveStore, ImportEntry, ImportOptions, ImportReport,
-    ImportStatus, SqliteHistory, StoreDirectiveSource, StoreError,
+    ImportStatus, StoreDirectiveSource, StoreError, history_sink,
 };
 use fs2::FileExt;
 use rand::RngExt;
@@ -111,15 +111,13 @@ async fn main() -> Result<()> {
     }
 
     let registry = Arc::new(registry);
-    // 指令库要过注册表这道门才写：写进一条引用未注册动作的指令，用户要到跑的时候才发现。
-    let bootstrap = BootstrapOptions {
-        is_auto_import: config.directives.auto_import,
-        is_seed: config.directives.seed,
-        history_jsonl: history_ledger(&data, &config),
-    };
     let validate = admission(Arc::clone(&registry));
-    let (store, report) =
-        DirectiveStore::open_in_data_dir(&data, bootstrap, &validate).context("无法打开指令库")?;
+    let (store, report) = DirectiveStore::open_in_data_dir(
+        &data,
+        BootstrapOptions::from_config(&data, &config),
+        &validate,
+    )
+    .context("无法打开指令库")?;
     let store = Arc::new(store);
     if !report.is_quiet() {
         info!(
@@ -153,7 +151,7 @@ async fn main() -> Result<()> {
         }
     }
 
-    let history = open_history(Arc::clone(&store), &config);
+    let history = history_sink(Arc::clone(&store), &config);
     let audit = ExecutionAudit::under_data_dir(&data).ok();
 
     // `max_jobs = 0` 表示不限：拿信号量的最大许可数当“无限”。
@@ -938,35 +936,6 @@ fn acquire_singleton(lock_path: &Path) -> Result<File> {
     file.try_lock_exclusive()
         .with_context(|| "corex-daemon 已在运行（无法获取单例锁）")?;
     Ok(file)
-}
-
-/// 执行日志的落点：与指令同库（`directives.db` 的 `runs` 表）。
-///
-/// `[history] enabled = false` 时给 `None`——那是不记账，不是换个地方记账。
-fn open_history(
-    store: Arc<DirectiveStore>,
-    config: &RuntimeConfig,
-) -> Option<Arc<dyn HistorySink>> {
-    if !config.history.enabled {
-        return None;
-    }
-    Some(Arc::new(SqliteHistory::new(store)))
-}
-
-/// 旧版 JSONL 账本的位置；只在它真的还在时才去导入。
-///
-/// `[history] file` 在 v13 里只剩这一个用途（一次性搬家）：账本搬进库以后，卡片上的
-/// 「上次执行时间」才不会在升级当天集体变空。
-fn history_ledger(data: &Path, config: &RuntimeConfig) -> Option<PathBuf> {
-    if !config.history.enabled {
-        return None;
-    }
-    let path = if config.history.file.is_absolute() {
-        config.history.file.clone()
-    } else {
-        data.join(&config.history.file)
-    };
-    path.is_file().then_some(path)
 }
 
 /// 本次运行实际使用的 IPC 端点。

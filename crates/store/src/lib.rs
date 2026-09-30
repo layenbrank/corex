@@ -22,7 +22,7 @@ mod schema;
 mod store;
 
 pub use error::StoreError;
-pub use history::{SqliteHistory, StoreDirectiveSource};
+pub use history::{SqliteHistory, StoreDirectiveSource, history_sink};
 pub use record::{
     DIRECTIVES_DB_FILE, DirectiveMeta, DirectiveRecord, DirectiveSummary, ImportEntry,
     ImportOptions, ImportReport, ImportStatus,

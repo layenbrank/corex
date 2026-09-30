@@ -94,6 +94,36 @@ pub struct BootstrapReport {
     pub history_imported: Option<usize>,
 }
 
+impl BootstrapOptions {
+    /// 按生效配置算出启动时要做的几件事。
+    ///
+    /// 三个入口（CLI / daemon / MCP）打开的都是同一个库，也就必须算出同一份选项：各自写一遍
+    /// 「旧目录在哪、旧账本在哪、要不要播种」的话，同一台机器上换条命令启动就会迁移出两样结果。
+    pub fn from_config(data_dir: &Path, config: &corex_core::RuntimeConfig) -> Self {
+        Self {
+            is_auto_import: config.directives.auto_import,
+            is_seed: config.directives.seed,
+            history_jsonl: legacy_ledger(data_dir, config),
+        }
+    }
+}
+
+/// 旧版 JSONL 账本的位置；只在它真的还在时才去导入。
+///
+/// `[history] file` 在 v13 里只剩这一个用途（一次性搬家）：账本搬进库以后，卡片上的
+/// 「上次执行时间」才不会在升级当天集体变空。历史被关掉时也不看它——那是不记账。
+fn legacy_ledger(data_dir: &Path, config: &corex_core::RuntimeConfig) -> Option<PathBuf> {
+    if !config.history.enabled {
+        return None;
+    }
+    let path = if config.history.file.is_absolute() {
+        config.history.file.clone()
+    } else {
+        data_dir.join(&config.history.file)
+    };
+    path.is_file().then_some(path)
+}
+
 impl BootstrapReport {
     /// 值不值得跟用户说一句。
     pub fn is_quiet(&self) -> bool {

@@ -15,6 +15,7 @@ corex-core     = { workspace = true }
 corex-engine   = { workspace = true }
 corex-registry = { workspace = true }
 corex-ipc      = { workspace = true }
+corex-store    = { workspace = true }
 anyhow         = { workspace = true }
 serde          = { workspace = true }
 serde_json     = { workspace = true }

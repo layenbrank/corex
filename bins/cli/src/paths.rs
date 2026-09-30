@@ -7,17 +7,17 @@
 //!
 //! 这里交出的是同一批事实的机器可读形态（`--json`），值全部由 corex 自己算：
 //! 数据目录用 [`data_dir`]，端点走连接方的发现顺序（[`crate::resolve_endpoint`]），
-//! 指令目录与 `run` / `schedule` 用的是同一处 [`Paths::dir`]。
+//! 指令库的文件位置与 daemon / CLI 打开的是**同一个**（[`directives_db_path`]）。
 //!
 //! 这里只报**位置**，不报 token 本身：路径可以随便贴进 issue，密钥不行。
 
 use crate::output::outln;
 use crate::resolve_endpoint;
-use crate::scheduler::Paths;
 use anyhow::Result;
 use corex_core::VERSION;
 use corex_ipc::data_dir;
 use corex_ipc::endpoint;
+use corex_store::directives_db_path;
 use serde::Serialize;
 use std::path::{Path, PathBuf};
 
@@ -27,7 +27,8 @@ struct Listing {
     /// corex 版本；宿主据此判断对面支不支持某个命令或字段。
     version: &'static str,
     data_dir: PathBuf,
-    directives_dir: PathBuf,
+    /// 指令库（SQLite）文件；v13 起指令与执行日志都在这里面。
+    directives_db: PathBuf,
     endpoint: PathBuf,
     /// 端点的形态：`pipe`（Windows 命名管道）或 `socket`（Unix 域套接字）。
     kind: &'static str,
@@ -37,12 +38,12 @@ struct Listing {
 }
 
 /// `json` 为真时打机器可读的 JSON，否则打给人看的一行一项。
-pub(crate) fn run(json: bool, dir: Option<&Path>) -> Result<()> {
+pub(crate) fn run(json: bool) -> Result<()> {
     let data = data_dir()?;
     let endpoint = resolve_endpoint()?;
     let listing = Listing {
         version: VERSION,
-        directives_dir: Paths::dir(dir)?,
+        directives_db: directives_db_path(&data),
         kind: endpoint::kind_of(&data).as_str(),
         token_file: token_file(&data),
         data_dir: data,
@@ -53,7 +54,7 @@ pub(crate) fn run(json: bool, dir: Option<&Path>) -> Result<()> {
         return emit(&listing);
     }
     outln!("{:<10} {}", "数据目录", listing.data_dir.display());
-    outln!("{:<10} {}", "指令目录", listing.directives_dir.display());
+    outln!("{:<10} {}", "指令库", listing.directives_db.display());
     outln!(
         "{:<10} {} ({})",
         "IPC 端点",

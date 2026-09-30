@@ -5,11 +5,13 @@ mod ask;
 mod cli;
 mod create;
 mod cron;
+mod directive;
 mod doctor;
 mod editor;
 mod exit;
 mod fuzzy;
 mod history;
+mod library;
 mod output;
 mod paths;
 mod progress;
@@ -25,8 +27,8 @@ mod validate;
 mod watch;
 
 use crate::cli::{Cli, Commands, DaemonCmd};
+use crate::library::Library;
 use crate::output::{Role, errln, outln, paint_err};
-use crate::scheduler::Paths;
 use anyhow::{Context, Result, bail};
 use clap::Parser;
 use corex_core::Value;
@@ -135,14 +137,15 @@ pub(crate) async fn dispatch(cli: Cli) -> Result<()> {
             name,
             template,
             force,
-            dir,
+            file,
         } => create::run(
             name.as_deref(),
             template.as_deref(),
             force,
-            dir.or(cli.dir).as_deref(),
+            file.or(cli.dir).as_deref(),
         ),
-        Commands::Edit { name, dir } => edit(&name, dir.or(cli.dir).as_deref()),
+        Commands::Edit { name } => directive::run(directive::DirectiveCmd::Edit { name }),
+        Commands::Directive { command } => directive::run(command),
         Commands::Validate {
             path,
             strict,
@@ -160,7 +163,7 @@ pub(crate) async fn dispatch(cli: Cli) -> Result<()> {
             limit,
         }),
         Commands::Doctor => doctor::run().await,
-        Commands::Paths { json } => paths::run(json, cli.dir.as_deref()),
+        Commands::Paths { json } => paths::run(json),
         Commands::Repl => repl::run(cli.dir).await,
         Commands::Watch { command } => watch::run(command, cli.dir.as_deref()).await,
         Commands::Cron { command } => cron::run(command, cli.dir.as_deref()).await,
@@ -263,10 +266,10 @@ pub(crate) fn parse_inputs(pairs: &[String]) -> Result<HashMap<String, Value>> {
 
 /// 列出可用指令名。
 ///
-/// 自有指令与 `examples/directives` 里的演示一起列，后者带 `(examples)` 后缀；
-/// 枚举与选单共用 [`Paths::names`]，两处不会走偏。
+/// 库里的在前，`--dir` 与 `examples/directives` 里还没进库的带 `(examples)` 后缀跟在后头；
+/// 枚举与选单共用 [`Library::names`]，两处不会走偏。
 pub(crate) fn schedule(dir: Option<&Path>) -> Result<()> {
-    let named = Paths::names(dir)?;
+    let named = Library::open()?.names(dir)?;
     if named.is_empty() {
         outln!("(无指令)");
         return Ok(());
@@ -274,13 +277,6 @@ pub(crate) fn schedule(dir: Option<&Path>) -> Result<()> {
     for entry in named {
         outln!("{}", entry.label());
     }
-    Ok(())
-}
-
-pub(crate) fn edit(name: &str, dir: Option<&Path>) -> Result<()> {
-    let path = Paths::resolve(name, dir)?;
-    editor::open_in_editor(&path)?;
-    outln!("已打开 {}", path.display());
     Ok(())
 }
 

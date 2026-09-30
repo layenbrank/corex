@@ -23,13 +23,7 @@ pub async fn supervise_watch_job(
         Some(source) => source.load(&meta.directive_name)?,
         None => Directive::from_yaml_file(&meta.directive_path)?,
     };
-    let engine = WatchEngine::new(
-        data_dir.to_path_buf(),
-        store,
-        runtime.clone(),
-        io.source.clone(),
-        io.history.clone(),
-    );
+    let engine = WatchEngine::new(data_dir.to_path_buf(), store, runtime.clone(), io.clone());
     let watch_raw = find_watch_trigger(&directive.triggers)?.ok_or_else(|| {
         corex_core::EngineError::other(format!("指令 {} 未声明 watch 触发器", meta.directive_name))
     })?;

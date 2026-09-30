@@ -1,13 +1,14 @@
 //! 一条指令在库里的形状，以及导入的设置与结果。
 
 use corex_engine::Directive;
+use serde::Serialize;
 use std::path::PathBuf;
 
 /// 指令库文件名，放在数据目录下（`<数据目录>/directives.db`）。
 pub const DIRECTIVES_DB_FILE: &str = "directives.db";
 
 /// 列目录用的元信息：不含模型，卡片只需要这些。
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct DirectiveMeta {
     pub name: String,
     /// 分组（自由文本；导入时取相对子目录）。`None` = 未分组。
@@ -22,7 +23,7 @@ pub struct DirectiveMeta {
 }
 
 /// 卡片要用的几个数：宿主列目录时不该为了显示它们把每条模型再解析一遍。
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct DirectiveSummary {
     pub description: String,
     /// 动作分类（`system` / `network` / `data` / `ui` / `logic` / `plugin`）。

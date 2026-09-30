@@ -78,11 +78,11 @@ fn directive_tool() -> Tool {
         "properties": {
             "name": {
                 "type": "string",
-                "description": "指令名（不含 .yaml 后缀），在 <数据目录>/directives 下按名查找"
+                "description": "指令名，在指令库（<数据目录>/directives.db）里按名查找"
             },
             "path": {
                 "type": "string",
-                "description": "可选：指令 YAML 路径（限 directives 根目录之内），给 path 时忽略 name"
+                "description": "可选：直接给一份指令 YAML 的路径（ad-hoc，不入库），给 path 时忽略 name"
             },
             "input": {
                 "type": "object",

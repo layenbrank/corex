@@ -20,6 +20,7 @@ corex-engine = { workspace = true, features = ["triggers"] }
 # 依赖树里不含 wasmtime。
 corex-registry = { workspace = true }
 corex-ipc      = { workspace = true }
+corex-store    = { workspace = true }
 corex-updater  = { workspace = true }
 anyhow         = { workspace = true }
 chrono         = { workspace = true }

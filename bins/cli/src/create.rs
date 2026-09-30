@@ -9,12 +9,13 @@
 use crate::actions;
 use crate::ask;
 use crate::build_registry;
+use crate::library::Library;
 use crate::output::outln;
-use crate::scheduler::Paths;
 use crate::schema;
 use crate::usage;
 use anyhow::{Context, Result, bail};
 use corex_core::{ActionMeta, ParamSchema, PermissionSet, SchemaType};
+use corex_engine::Directive;
 use std::path::{Path, PathBuf};
 
 /// 模板正文里的指令名占位符。
@@ -241,14 +242,17 @@ steps:
     },
 ];
 
-/// 生成一条指令；`name` / `template` 省略时在终端里问。
+/// 生成一条指令。
+///
+/// 两个落点，共用同一套模板与向导：
+/// - `out = None`：写进指令库（默认，指令的真相在那）；
+/// - `out = Some(dir)`：只写文件（脚手架 / 要一份能提交进仓库的 YAML），不入库。
 pub(crate) fn run(
     name: Option<&str>,
     template: Option<&str>,
     force: bool,
-    dir: Option<&Path>,
+    out: Option<&Path>,
 ) -> Result<()> {
-    let base = Paths::dir(dir)?;
     let name = match name {
         Some(name) => name.trim().to_string(),
         None if ask::is_interactive() => ask::text("指令名？", None)?.trim().to_string(),
@@ -257,8 +261,17 @@ pub(crate) fn run(
     if name.is_empty() {
         return Err(usage("指令名不能为空"));
     }
+    // 文件模式才写 schema 提示行：库里没有「同目录」可言，那行注释在库中就只是垃圾。
+    let body = compose(&name, template, out.is_some())?;
+    match out {
+        Some(dir) => write_file(dir, &name, &body, force),
+        None => write_library(&name, &body, force),
+    }
+}
 
-    let path = base.join(format!("{name}.yaml"));
+/// 写文件（脚手架）：同名文件已存在时按 `--force` / 交互确认处置。
+fn write_file(dir: &Path, name: &str, body: &str, force: bool) -> Result<()> {
+    let path = dir.join(format!("{name}.yaml"));
     if path.exists() && !force {
         if !ask::is_interactive() {
             bail!("已存在: {}（要覆盖加 --force）", path.display());
@@ -268,27 +281,51 @@ pub(crate) fn run(
             return Ok(());
         }
     }
-
-    let body = compose(&name, template)?;
+    std::fs::create_dir_all(dir)?;
     // 先落 schema 副本：它写不进去就什么都别建，免得留下一个引用了空路径的文件。
-    schema::seed(&base)?;
+    schema::seed(dir)?;
     std::fs::write(&path, body).with_context(|| format!("无法写入 {}", path.display()))?;
 
     outln!("已创建 {}", path.display());
-    outln!("  corex edit {name}        用编辑器打开");
-    outln!("  corex run {name}         立刻跑一遍");
+    outln!("  corex directive import {}   收进指令库", path.display());
     outln!("  corex validate {} --strict", path.display());
     Ok(())
 }
 
+/// 写指令库：解析 + 过 `run` 的两道门，再落库。
+fn write_library(name: &str, body: &str, force: bool) -> Result<()> {
+    let library = Library::open()?;
+    let directive =
+        Directive::from_yaml_str(body).with_context(|| format!("生成的指令没能解析: {name}"))?;
+    if library.exists(name)? && !force {
+        if !ask::is_interactive() {
+            return Err(usage(format!(
+                "指令库里已有 {name}（要覆盖加 --force，或换个名字）"
+            )));
+        }
+        if !ask::confirm(&format!("指令库里已有 {name}，覆盖它？"), false)? {
+            outln!("已取消，未改动 {name}");
+            return Ok(());
+        }
+    }
+    // 与 `run` 同一个判定：写进库的指令必须跑得起来。
+    library.admission()(&directive).map_err(usage)?;
+    library.save(None, name, &directive)?;
+
+    outln!("已写入指令库 {name}");
+    outln!("  corex directive edit {name}   用编辑器改");
+    outln!("  corex run {name}              立刻跑一遍");
+    Ok(())
+}
+
 /// 决定正文：`-t` 指名了就照着来，否则在终端里问。
-fn compose(name: &str, template: Option<&str>) -> Result<String> {
+fn compose(name: &str, template: Option<&str>, with_schema_hint: bool) -> Result<String> {
     if let Some(spec) = template {
-        return blueprint(spec, name);
+        return blueprint(spec, name, with_schema_hint);
     }
     if !ask::is_interactive() {
         // 非交互时用第一个模板：脚本与 CI 不该被问题卡住。
-        return blueprint(BLUEPRINTS[0].name, name);
+        return blueprint(BLUEPRINTS[0].name, name, with_schema_hint);
     }
 
     let mut labels: Vec<String> = BLUEPRINTS
@@ -298,15 +335,15 @@ fn compose(name: &str, template: Option<&str>) -> Result<String> {
     labels.push(ONE_ACTION.to_string());
     let chosen = ask::select("从哪个起点开始？", &labels)?;
     match BLUEPRINTS.get(chosen) {
-        Some(found) => blueprint(found.name, name),
-        None => wizard(name),
+        Some(found) => blueprint(found.name, name, with_schema_hint),
+        None => wizard(name, with_schema_hint),
     }
 }
 
 /// 按内置模板名或一个 YAML 路径取正文。
-fn blueprint(spec: &str, name: &str) -> Result<String> {
+fn blueprint(spec: &str, name: &str, with_schema_hint: bool) -> Result<String> {
     match BLUEPRINTS.iter().find(|b| b.name == spec) {
-        Some(found) => Ok(header() + &found.body.replace(NAME_TOKEN, name)),
+        Some(found) => Ok(head(with_schema_hint) + &found.body.replace(NAME_TOKEN, name)),
         None => copied(spec, name),
     }
 }
@@ -331,7 +368,7 @@ fn copied(spec: &str, name: &str) -> Result<String> {
 }
 
 /// 向导：挑一个动作，逐个问必填参数，并把权限写对。
-fn wizard(name: &str) -> Result<String> {
+fn wizard(name: &str, with_schema_hint: bool) -> Result<String> {
     let registry = build_registry();
     let actions = registry.actions();
     let labels: Vec<String> = actions
@@ -341,7 +378,7 @@ fn wizard(name: &str) -> Result<String> {
     let chosen = ask::select("用什么动作起头？", &labels)?;
     let meta = &actions[chosen];
 
-    let mut out = header();
+    let mut out = head(with_schema_hint);
     out.push_str(&format!("name: {name}\n"));
     out.push_str("description: \"\"\n");
     out.push_str(&permissions(&registry, &meta.id));
@@ -424,9 +461,14 @@ fn scalar(answer: &str, ty: SchemaType) -> String {
     }
 }
 
-/// 生成的 YAML 顶部那行 schema 提示，让编辑器直接拿到补全与校验。
-fn header() -> String {
-    format!("{}\n", schema::HINT)
+/// 生成的 YAML 顶部那行 schema 提示，让编辑器直接拿到补全与校验；写进库时没有「同目录」，
+/// 于是什么都不加。
+fn head(with_schema_hint: bool) -> String {
+    if with_schema_hint {
+        format!("{}\n", schema::HINT)
+    } else {
+        String::new()
+    }
 }
 
 fn builtin_names() -> String {

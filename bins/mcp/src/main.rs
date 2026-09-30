@@ -37,9 +37,9 @@ struct Args {
     #[arg(long, default_value_t = 3000)]
     port: u16,
 
-    /// 指令目录（默认 <数据目录>/directives）
-    #[arg(long)]
-    directives: Option<PathBuf>,
+    /// 启动时把该目录（或文件）的 YAML 导入指令库，等价于 `corex directive import`
+    #[arg(long = "import", alias = "directives")]
+    import: Option<PathBuf>,
 
     /// 配置文件（toml）
     #[arg(long)]
@@ -76,8 +76,16 @@ async fn main() -> Result<()> {
         tracing::warn!(key = issue.key, "{}", issue.message);
     }
 
-    let state = Arc::new(exec::State::build(resolved.config, &data, args.directives)?);
-    tracing::info!(actions = state.registry.len(), "内置动作已注册");
+    let state = Arc::new(exec::State::build(
+        resolved.config,
+        &data,
+        args.import.as_deref(),
+    )?);
+    tracing::info!(
+        actions = state.registry.len(),
+        directives = state.directive_count(),
+        "内置动作已注册"
+    );
 
     match args.transport {
         Transport::Stdio => serve_stdio(state).await,

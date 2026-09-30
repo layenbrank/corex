@@ -4,11 +4,12 @@
 //! daemon / CLI / MCP 拿到的就是这两个值：指令、执行日志、上次执行时间从此都只有库里一处真相。
 
 use crate::store::{DirectiveStore, RUNS_SCAN};
-use corex_core::EngineError;
+use corex_core::{EngineError, RuntimeConfig};
 use corex_engine::{Directive, DirectiveHistory, DirectiveSource, HistoryEntry, HistorySink};
 use std::collections::BTreeMap;
 use std::sync::Arc;
 use tracing::warn;
+
 /// 指令库里的执行日志。
 #[derive(Debug, Clone)]
 pub struct SqliteHistory {
@@ -19,6 +20,20 @@ impl SqliteHistory {
     pub fn new(store: Arc<DirectiveStore>) -> Self {
         Self { store }
     }
+}
+
+/// 执行日志按 `[history]` 配置接上库里那份：关掉就是 `None`（不记账，而不是换个地方记）。
+///
+/// CLI、daemon、MCP 读写的必须是同一份账本——各自开一个落点的话，「上次执行时间」在不同入口
+/// 会给出不同答案，而这正是这次要收掉的问题。
+pub fn history_sink(
+    store: Arc<DirectiveStore>,
+    config: &RuntimeConfig,
+) -> Option<Arc<dyn HistorySink>> {
+    config
+        .history
+        .enabled
+        .then(|| Arc::new(SqliteHistory::new(store)) as Arc<dyn HistorySink>)
 }
 
 impl HistorySink for SqliteHistory {

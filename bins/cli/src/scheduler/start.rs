@@ -1,18 +1,18 @@
 //! 启动作业：要么拉起一个脱离终端的 supervisor，要么在本进程里充当 supervisor
 //! （`--supervised` / `--foreground`）。
 
+use crate::library::Library;
 use crate::output::{errln, outln};
 use anyhow::{Context, Result, bail};
 use corex_core::EngineError;
 use corex_engine::{
-    ControlMsg, Directive, JobKind, JobMeta, child_supervisor_identity,
-    current_supervisor_identity, send_control, spawn_detached, supervise_cron_job,
-    supervise_watch_job,
+    ControlMsg, JobKind, JobMeta, child_supervisor_identity, current_supervisor_identity,
+    send_control, spawn_detached, supervise_cron_job, supervise_watch_job,
 };
 use corex_ipc::data_dir;
 use std::path::Path;
 
-use super::{Jobs, Paths};
+use super::Jobs;
 
 pub(crate) async fn start_job(
     kind: JobKind,
@@ -20,8 +20,9 @@ pub(crate) async fn start_job(
     dir: Option<&Path>,
     immediate: bool,
 ) -> Result<()> {
-    let path = Paths::resolve(target, dir)?;
-    let directive = Directive::from_yaml_file(&path).context("解析指令")?;
+    let library = Library::open()?;
+    let located = library.find_or_near(target, dir)?;
+    let directive = located.directive;
     Jobs::ensure(kind, &directive)?;
     let data = data_dir()?;
     if let Some(existing) = Jobs::running(&data, kind, &directive.name) {
@@ -40,7 +41,6 @@ pub(crate) async fn start_job(
     std::fs::create_dir_all(&job_dir)?;
     let log_path = JobMeta::supervisor_log_path(&data, kind, &id);
     let exe = std::env::current_exe()?;
-    let dir_arg = Paths::dir(dir)?.to_string_lossy().to_string();
     let mut args = vec![
         sub.to_string(),
         "run".to_string(),
@@ -48,8 +48,6 @@ pub(crate) async fn start_job(
         "--supervised".to_string(),
         "--job-id".to_string(),
         id.clone(),
-        "--dir".to_string(),
-        dir_arg,
     ];
     if immediate && kind == JobKind::Watch {
         args.push("--immediate".to_string());
@@ -64,7 +62,7 @@ pub(crate) async fn start_job(
         id: id.clone(),
         kind,
         directive_name: directive.name.clone(),
-        directive_path: path,
+        directive_path: Jobs::origin(located.file.as_deref(), &data),
         pid,
         expr: None,
         paths: Vec::new(),
@@ -144,12 +142,13 @@ async fn supervised(
     let meta = JobMeta::read(&data, kind, job_id).context("读取 job meta")?;
     let _dir = dir;
     let store = Jobs::store();
+    let io = Jobs::io()?;
     let runtime = crate::settings::effective().clone();
     match kind {
-        JobKind::Watch => supervise_watch_job(&meta, store, runtime, &data, immediate)
+        JobKind::Watch => supervise_watch_job(&meta, store, runtime, &data, immediate, &io)
             .await
             .map_err(anyhow::Error::new)?,
-        JobKind::Cron => supervise_cron_job(&meta, store, runtime, &data)
+        JobKind::Cron => supervise_cron_job(&meta, store, runtime, &data, &io)
             .await
             .map_err(anyhow::Error::new)?,
     }
@@ -162,8 +161,9 @@ async fn foreground(
     dir: Option<&Path>,
     immediate: bool,
 ) -> Result<()> {
-    let path = Paths::resolve(target, dir)?;
-    let directive = Directive::from_yaml_file(&path)?;
+    let library = Library::open()?;
+    let located = library.find_or_near(target, dir)?;
+    let directive = located.directive;
     Jobs::ensure(kind, &directive)?;
     let data = data_dir()?;
     if Jobs::running(&data, kind, &directive.name).is_some() {
@@ -181,7 +181,7 @@ async fn foreground(
         id: id.clone(),
         kind,
         directive_name: directive.name.clone(),
-        directive_path: path,
+        directive_path: Jobs::origin(located.file.as_deref(), &data),
         pid: std::process::id(),
         expr: None,
         paths: Vec::new(),
@@ -190,14 +190,15 @@ async fn foreground(
     };
     meta.write(&data)?;
     let store = Jobs::store();
+    let io = Jobs::io()?;
     let runtime = crate::settings::effective().clone();
     tokio::select! {
         res = async {
             match kind {
                 JobKind::Watch => {
-                    supervise_watch_job(&meta, store, runtime, &data, immediate).await
+                    supervise_watch_job(&meta, store, runtime, &data, immediate, &io).await
                 }
-                JobKind::Cron => supervise_cron_job(&meta, store, runtime, &data).await,
+                JobKind::Cron => supervise_cron_job(&meta, store, runtime, &data, &io).await,
             }
         } => res.map_err(anyhow::Error::new)?,
         _ = tokio::signal::ctrl_c() => {
@@ -211,27 +212,23 @@ async fn foreground(
     Ok(())
 }
 
+/// `--all`：把库里声明了本族触发器的指令全部登记一遍。
 async fn start_all(kind: JobKind, dir: Option<&Path>, immediate: bool) -> Result<()> {
-    let base = Paths::dir(dir)?;
-    if !base.exists() {
-        return Ok(());
-    }
-    for entry in std::fs::read_dir(&base)? {
-        let entry = entry?;
-        let path = entry.path();
-        if !matches!(
-            path.extension().and_then(|e| e.to_str()),
-            Some("yaml") | Some("yml")
-        ) {
-            continue;
-        }
-        let directive = Directive::from_yaml_file(&path)?;
+    let library = Library::open()?;
+    for named in library.names(dir)? {
+        // 回退来源（`--dir` / `examples` 里的 YAML）按名字再解析一次；库里那份直接从库取。
+        let target = named
+            .file
+            .as_deref()
+            .and_then(|file| file.to_str())
+            .unwrap_or(&named.name);
+        let directive = library.find(target, dir)?.directive;
         let declares = match kind {
             JobKind::Watch => corex_engine::find_watch_trigger(&directive.triggers)?.is_some(),
             JobKind::Cron => corex_engine::find_cron_trigger(&directive.triggers)?.is_some(),
         };
         if declares {
-            start_job(kind, &directive.name, dir, immediate).await?;
+            start_job(kind, target, dir, immediate).await?;
         }
     }
     Ok(())

@@ -61,8 +61,9 @@ pub(crate) enum Commands {
         #[arg(long, value_name = "N", conflicts_with = "remote")]
         jobs: Option<usize>,
     },
-    /// 列出可用指令名
+    /// 列出指令库里的指令名（`corex directive list` 的简版，一行一个）
     Schedule {
+        /// 额外的指令文件搜索目录（只读；库之外的 YAML）
         #[arg(long)]
         dir: Option<PathBuf>,
     },
@@ -77,24 +78,26 @@ pub(crate) enum Commands {
         #[arg(long)]
         json: bool,
     },
-    /// 生成新的指令骨架（交互向导，或 -t 选模板）
+    /// 生成新的指令骨架并写进指令库（交互向导，或 -t 选模板；`--file` 只写文件）
     Create {
         /// 指令名；省略则在交互里问
         name: Option<String>,
         /// 模板：内置名（blank / hello / http / file / cron / watch / ui）、目录或 YAML 路径
         #[arg(short, long)]
         template: Option<String>,
-        /// 目标文件已存在时覆盖
+        /// 库里已有同名指令时覆盖
         #[arg(short, long)]
         force: bool,
-        #[arg(long)]
-        dir: Option<PathBuf>,
+        /// 只写文件到这个目录，不入库
+        #[arg(long, value_name = "DIR")]
+        file: Option<PathBuf>,
     },
-    /// 用 $COREX_EDITOR / $EDITOR 或系统默认程序打开指令 YAML
-    Edit {
-        name: String,
-        #[arg(long)]
-        dir: Option<PathBuf>,
+    /// 用 $COREX_EDITOR / $VISUAL / $EDITOR 打开库里的指令，退出时校验并写回
+    Edit { name: String },
+    /// 指令库：列、看、建、改、删、改名、导入、导出
+    Directive {
+        #[command(subcommand)]
+        command: crate::directive::DirectiveCmd,
     },
     /// 校验指令 YAML；不给路径时校验配置
     Validate {

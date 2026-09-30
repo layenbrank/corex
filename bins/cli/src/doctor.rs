@@ -4,8 +4,8 @@
 //! 于是 `if ! corex doctor` 这种写法能直接当健康检查用。
 //! 提示项（比如守护进程没起来）不算问题——不启动它不是错误。
 
+use crate::library;
 use crate::output::{self, Role, outln};
-use crate::scheduler::Paths;
 use crate::schema;
 use crate::{build_registry, daemon_state, settings};
 use anyhow::{Result, bail};
@@ -70,24 +70,25 @@ pub(crate) async fn run() -> Result<()> {
 
     report.ok("已注册动作", format!("{} 个", build_registry().len()));
 
-    match Paths::names(None) {
-        Ok(names) => {
-            let own = names.iter().filter(|n| !n.example).count();
-            let detail = format!(
-                "{} 条（自有 {own} / examples {}）",
-                names.len(),
-                names.len() - own
-            );
-            if own == 0 {
-                report.note(
-                    "可用指令",
-                    format!("{detail}；corex create <名称> 建一条自己的"),
-                );
-            } else {
-                report.ok("可用指令", detail);
+    match library::Library::open() {
+        Ok(library) => match library.names(None) {
+            Ok(names) => {
+                let stored = names.iter().filter(|named| named.file.is_none()).count();
+                let examples = names.len() - stored;
+                let detail = format!("{stored} 条（examples 另有 {examples} 条）");
+                if stored == 0 {
+                    report.note(
+                        "可用指令",
+                        format!("{detail}；corex directive new <名称> 建一条自己的"),
+                    );
+                } else {
+                    report.ok("可用指令", detail);
+                }
             }
-        }
-        Err(err) => report.bad("可用指令", err.to_string()),
+            Err(err) => report.bad("可用指令", err.to_string()),
+        },
+        // 库打不开是 doctor 最该报出来的那种问题：`run` / `create` 到那一步都会失败。
+        Err(err) => report.bad("指令库", err.to_string()),
     }
 
     outln!("");

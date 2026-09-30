@@ -877,9 +877,9 @@ fn paths_json_reports_the_effective_locations() {
         "COREX_DATA_DIR 必须原样生效"
     );
     assert_eq!(
-        std::path::PathBuf::from(text("directives_dir")),
-        dir.path().join("directives"),
-        "指令目录就是数据目录下的 directives"
+        std::path::PathBuf::from(text("directives_db")),
+        dir.path().join("directives.db"),
+        "指令库就是数据目录下的 directives.db"
     );
     assert_eq!(
         text("kind"),
@@ -902,9 +902,9 @@ fn paths_json_reports_the_effective_locations() {
 /// 落点，也是宿主要求用户去写第一条指令之前能看到的全部。
 ///
 /// 断言落在这里而不是 `starter.rs` 的单元测试里，是因为真正的门槛是**接线**：
-/// `Paths::dir` 走的是新目录才播种的那条路，忘了接就没东西可跑。
+/// 库在新环境里第一次被打开时才播种，忘了接就没东西可跑。
 #[test]
-fn empty_data_directory_gets_starter_directives() {
+fn empty_library_gets_starter_directives() {
     let dir = tempfile::tempdir().expect("temp dir");
     let run_here = |args: &[&str]| {
         Command::new(COREX)
@@ -914,64 +914,237 @@ fn empty_data_directory_gets_starter_directives() {
             .expect("corex runs")
     };
 
-    let out = run_here(&["paths", "--json"]);
+    let out = run_here(&["directive", "list", "--json"]);
     assert!(
         out.status.success(),
         "stderr: {}",
         String::from_utf8_lossy(&out.stderr)
     );
-    let listing: serde_json::Value =
-        serde_json::from_slice(&out.stdout).expect("paths --json 打的是 JSON");
-    let directives_dir = std::path::PathBuf::from(
-        listing["directives_dir"]
-            .as_str()
-            .expect("directives_dir 必须是字符串"),
-    );
-
-    let mut seeded: Vec<String> = std::fs::read_dir(&directives_dir)
-        .expect("指令目录应当已经建出来")
-        .map(|entry| {
-            entry
-                .expect("dir entry")
-                .file_name()
-                .to_string_lossy()
-                .into_owned()
-        })
+    let listed: serde_json::Value =
+        serde_json::from_slice(&out.stdout).expect("directive list --json 打的是 JSON");
+    let mut seeded: Vec<String> = listed
+        .as_array()
+        .expect("该回一串条目")
+        .iter()
+        .map(|entry| entry["name"].as_str().expect("name").to_string())
         .collect();
     seeded.sort();
 
     let mut expected: Vec<String> = corex_engine::starter::names()
         .iter()
-        .map(|name| format!("{name}.yaml"))
+        .map(|name| name.to_string())
         .collect();
     expected.sort();
-    assert_eq!(seeded, expected, "起步指令应当原样落进数据目录");
+    assert_eq!(seeded, expected, "起步指令应当原样落进指令库");
 
-    // 播种出来的东西就是指令，不是文案：每条都要过 CLI 那道门。
+    // 播种出来的东西就是指令，不是文案：每条都要能取出来。
     for name in &expected {
-        let path = directives_dir.join(name);
-        let out = run_here(&["validate", path.to_str().expect("utf-8 path"), "--strict"]);
+        let out = run_here(&["directive", "show", name]);
         assert!(
             out.status.success(),
-            "{name} 不是一条能用的指令: {}",
+            "{name} 取不出来: {}",
             String::from_utf8_lossy(&out.stderr)
+        );
+        assert!(
+            String::from_utf8_lossy(&out.stdout).contains(name),
+            "{name} 的 YAML 里该有它自己的名字"
         );
     }
 
-    // 第二次进来不许再写一遍，也不许覆盖别人放进去的东西。
-    let mine = directives_dir.join("mine.yaml");
-    std::fs::write(&mine, "name: mine\nsteps: []\n").expect("写自己的指令");
-    let out = run_here(&["paths", "--json"]);
+    // 删掉一条不会在下次启动时长回来：播种的门槛是「库是空的」，不是「少了哪条」。
+    assert!(
+        run_here(&["directive", "rm", &expected[0], "--yes"])
+            .status
+            .success()
+    );
+    let out = run_here(&["directive", "list", "--json"]);
     assert!(out.status.success());
+    let listed: serde_json::Value = serde_json::from_slice(&out.stdout).expect("JSON");
     assert_eq!(
-        std::fs::read_dir(&directives_dir)
-            .expect("读回指令目录")
-            .count(),
-        expected.len() + 1,
-        "已有指令的数据目录必须原样不动"
+        listed.as_array().expect("该回一串条目").len(),
+        expected.len() - 1,
+        "删掉的那条不该自己回来"
     );
+}
+
+/// v12 留在 `<数据目录>/directives` 里的 YAML：第一次打开库时一次性收进来，原文件不动。
+///
+/// 这是升级当天的唯一一件事：不收的话用户的指令在界面上会集体消失。
+#[test]
+fn a_legacy_directives_directory_is_imported_once() {
+    let dir = tempfile::tempdir().expect("temp dir");
+    let legacy = dir.path().join("directives");
+    std::fs::create_dir_all(legacy.join("pack")).expect("mkdir");
+    std::fs::write(
+        legacy.join("pack").join("inner.yaml"),
+        "name: inner\nsteps:\n  - id: a\n    action: template.render\n",
+    )
+    .expect("write fixture");
+
+    let run_here = |args: &[&str]| {
+        Command::new(COREX)
+            .args(args)
+            .env("COREX_DATA_DIR", dir.path())
+            .output()
+            .expect("corex runs")
+    };
+    let out = run_here(&["directive", "list", "--json"]);
+    assert!(
+        out.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let listed: serde_json::Value = serde_json::from_slice(&out.stdout).expect("JSON");
+    let inner = listed
+        .as_array()
+        .expect("该回一串条目")
+        .iter()
+        .find(|entry| entry["name"] == "inner")
+        .unwrap_or_else(|| panic!("旧目录里的指令该被收进库: {listed}"));
     assert_eq!(
-        std::fs::read_to_string(&mine).expect("读回自己的指令"),
-        "name: mine\nsteps: []\n"
+        inner["folder"].as_str(),
+        Some("pack"),
+        "相对子目录成为分组: {inner}"
     );
+    assert!(
+        inner["source"]
+            .as_str()
+            .is_some_and(|source| source.ends_with("inner.yaml")),
+        "来源记的是原文件: {inner}"
+    );
+    assert!(
+        legacy.join("pack").join("inner.yaml").is_file(),
+        "原文件不该被删"
+    );
+
+    // 收过一次就不再收：之后往旧目录里加文件不会自己冒出来（要显式 import）。
+    std::fs::write(
+        legacy.join("later.yaml"),
+        "name: later\nsteps:\n  - id: a\n    action: template.render\n",
+    )
+    .expect("write later");
+    let out = run_here(&["directive", "list", "--json"]);
+    assert!(out.status.success());
+    let listed: serde_json::Value = serde_json::from_slice(&out.stdout).expect("JSON");
+    assert!(
+        !listed
+            .as_array()
+            .expect("该回一串条目")
+            .iter()
+            .any(|entry| entry["name"] == "later"),
+        "迁移只做一次: {listed}"
+    );
+}
+
+/// `run <名字>` 靠库，不靠 `--dir`：库里有就能跑。
+///
+/// `--dir` 在 v13 里只剩「库之外的 YAML 回退搜索目录」这个意思，所以不带它的运行路径必须通。
+#[test]
+fn run_reads_the_library_without_a_search_directory() {
+    let data = tempfile::tempdir().expect("temp dir");
+    let fixture = tempfile::tempdir().expect("fixture dir");
+    let yaml = fixture.path().join("probe.yaml");
+    std::fs::write(&yaml, TWO_STEPS).expect("write fixture");
+    let run_here = |args: &[&str]| {
+        Command::new(COREX)
+            .args(args)
+            .env("COREX_DATA_DIR", data.path())
+            .output()
+            .expect("corex runs")
+    };
+
+    let imported = run_here(&["directive", "import", yaml.to_str().expect("utf-8 path")]);
+    assert!(
+        imported.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&imported.stderr)
+    );
+    let out = run_here(&["run", "probe"]);
+    assert!(
+        out.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+}
+
+/// `corex directive` 那一族走一遍：建、看、改名、导出、删、再导入。
+///
+/// 一条链测下来是因为它们共用同一个库，任何一环把库写坏都会在下一环露出来。
+#[test]
+fn directive_family_round_trips_through_the_library() {
+    let data = tempfile::tempdir().expect("temp dir");
+    let exports = tempfile::tempdir().expect("export dir");
+    let run_here = |args: &[&str]| {
+        Command::new(COREX)
+            .args(args)
+            .env("COREX_DATA_DIR", data.path())
+            .output()
+            .expect("corex runs")
+    };
+    let ok = |args: &[&str]| {
+        let out = run_here(args);
+        assert!(
+            out.status.success(),
+            "{args:?} 失败了: {}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+        out
+    };
+
+    // 非交互时 `new` 用第一个模板（hello）；库是空的，不必 --force。
+    ok(&["directive", "new", "greet"]);
+    let shown = ok(&["directive", "show", "greet"]);
+    assert!(
+        String::from_utf8_lossy(&shown.stdout).contains("name: greet"),
+        "show 该给出规范化的 YAML"
+    );
+
+    let model: serde_json::Value =
+        serde_json::from_slice(&ok(&["directive", "show", "greet", "--json"]).stdout)
+            .expect("--json 打的是模型 JSON");
+    assert_eq!(model["name"], "greet");
+    assert!(
+        model["steps"]
+            .as_array()
+            .is_some_and(|steps| !steps.is_empty()),
+        "{model}"
+    );
+
+    // 改名之后旧名字就不该再存在——库里是一次搬行，不留第二份。
+    ok(&["directive", "rename", "greet", "hello"]);
+    assert_eq!(
+        run_here(&["directive", "show", "greet"]).status.code(),
+        Some(2),
+        "旧名字该报「指令未找到」（用法错误码 2）"
+    );
+
+    // 导出成文件，删掉，再从那份文件导回来：YAML 是进出库的门，来回都要完整。
+    ok(&[
+        "directive",
+        "export",
+        "hello",
+        "--out",
+        exports.path().to_str().expect("utf-8 path"),
+    ]);
+    let exported = exports.path().join("hello.yaml");
+    assert!(exported.is_file(), "导出该写出 hello.yaml");
+
+    ok(&["directive", "rm", "hello", "--yes"]);
+    let removed = run_here(&["directive", "list", "--json"]);
+    let listed: serde_json::Value = serde_json::from_slice(&removed.stdout).expect("JSON");
+    assert!(
+        !listed
+            .as_array()
+            .expect("该回一串条目")
+            .iter()
+            .any(|entry| entry["name"] == "hello"),
+        "删掉的不该还在: {listed}"
+    );
+
+    ok(&[
+        "directive",
+        "import",
+        exported.to_str().expect("utf-8 path"),
+    ]);
+    ok(&["directive", "show", "hello"]);
 }
