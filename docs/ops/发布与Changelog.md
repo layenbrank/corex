@@ -33,26 +33,35 @@ cargo install cargo-deny typos-cli --locked
 # 1) 预览自上一 tag 以来的变更
 git-cliff -l
 
-# 2) 按 cliff [bump] 规则查看建议版本号
-git-cliff --bumped-version
+# 2) 按 cliff [bump] 规则查看建议版本号（-o 见「注意事项」）
+git-cliff --bumped-version -o $env:TEMP\cliff-bump.md
 # 例: 6.1.0  （feat → minor；breaking → major；chore/docs 等不抬版本）
 
 # 3) 对齐 workspace 版本（与即将打的 tag 去掉 v 后一致）
 #    编辑 Cargo.toml → [workspace.package] version = "X.Y.Z"
+#    顺带同步 README.md / docs/README.md 的「当前版本」与示例里的版本字段
 
-# 4) 生成 / 覆盖根目录 CHANGELOG.md（cliff.toml 已设 output）
-git-cliff -o CHANGELOG.md
-# 等价: git-cliff   （配置了 output = "CHANGELOG.md"）
+# 4) 生成 CHANGELOG：--tag 决定新段标题，不打会写成 [Unreleased]
+git-cliff --tag vX.Y.Z -o CHANGELOG.md
 
-# 5) 提交版本与 changelog
-git add Cargo.toml Cargo.lock CHANGELOG.md
+# 5) 提交版本
+git add Cargo.toml Cargo.lock
 git commit -m "chore(release): bump version to X.Y.Z"
 
-# 6) 打 tag 并推送（触发 Publish Release）
+# 6) 提交 changelog：本仓惯例是 tag 打在 changelog 提交上，保证 tag 内含成品
+git add CHANGELOG.md
+git commit -m "chore(release): 生成 X.Y.Z 的 CHANGELOG"
+
+# 7) 打 tag 并推送（触发 Publish Release）
 git tag vX.Y.Z
 git push origin HEAD
 git push origin vX.Y.Z
 ```
+
+> **注意事项（三条都真踩过）**
+> - **`--bumped-version` 与 `-p/--prepend` 都会写 `cliff.toml` 里的 `output = "CHANGELOG.md"`**：前者只打印版本号，`CHANGELOG.md` 被清空；`-p` 会把「只含新段」的内容写进去，整个文件被截断。用这两个命令务必配 `-o <临时文件>`。误改后（未提交时）`git checkout -- CHANGELOG.md` 复原。
+> - **`--tag vX.Y.Z` 不能省**：不打时未发布段渲染成 `## [Unreleased]`，与本仓历史标题风格不符。
+> - **全量 `-o` 会按当前 tag 集合重排老段落**：某个老 tag 被判成空区间时，它的段会并进上一段（v13.0.0 发版时 `## [0.2.5]` 段就并进了 0.2.4）。只想加一段时：先生成到临时文件，`git diff CHANGELOG.md <临时文件>` 比对，必要时只把 `## [X.Y.Z]` 段拼回原位，让 diff 保持纯新增。
 
 预发布渠道（与 CI 约定一致）：
 
@@ -95,9 +104,9 @@ git push origin v7.0.0-beta.1
 |------|------|
 | 预览上一 tag → HEAD | `git-cliff -l` |
 | 仅未发布提交 | `git-cliff -u` |
-| 写出 `CHANGELOG.md` | `git-cliff -o CHANGELOG.md` |
-| 未发布段前置追加 | `git-cliff -u -p CHANGELOG.md` |
-| 建议下一 SemVer | `git-cliff --bumped-version` |
+| 写出 `CHANGELOG.md` | `git-cliff --tag vX.Y.Z -o CHANGELOG.md` |
+| 未发布段前置追加 | `git-cliff -u -p CHANGELOG.md`（会覆盖 `output` 指向的文件，慎用） |
+| 建议下一 SemVer | `git-cliff --bumped-version -o <临时文件>`（否则清空 `CHANGELOG.md`） |
 | 本地默认（不调 GitHub API） | 已在 `cliff.toml`：`[remote] offline = true` |
 | 拉取 PR / 新贡献者元数据 | 见下节 |
 
@@ -120,9 +129,11 @@ git-cliff -o CHANGELOG.md
 - 条目含短 hash 链接；有 token 时可显示 `@user` / PR 号
 - 页脚为 Keep a Changelog 风格的版本对照链接
 
-重新全量生成：
+重新全量生成（**打 tag 之前**要带 `--tag vX.Y.Z`，否则未发布段写成 `[Unreleased]`；见第 2 节「注意事项」）：
 
 ```powershell
+git-cliff --tag vX.Y.Z -o CHANGELOG.md
+# tag 已存在（如事后补生成）可省 --tag
 git-cliff -o CHANGELOG.md
 ```
 
