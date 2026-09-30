@@ -4,6 +4,7 @@ use corex_core::{Bucket, Value};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::Path;
+use std::sync::Arc;
 
 /// 顶层指令文档。
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -454,6 +455,24 @@ pub fn validate_allowed(
         Ok(())
     } else {
         Err(corex_core::ActionError::PermissionDenied(denied.join("；")))
+    }
+}
+
+/// 「这条指令能不能入库」：把 `run` 走的那**两道门**收成一个判定。
+///
+/// `corex-store` 刻意不认识动作注册表，导入 / 保存时得把判决从外面传进去（见它那边的
+/// `Validator`）。判定只回一句原因文本——哪一种错误码由各入口按自己的词汇决定（CLI 的退出码、
+/// daemon 的 IPC 码），所以三个入口共用这一个构造器，而不是各写一遍两道门。
+///
+/// 闭包**握着**注册表（而不是借一层）：调用方往往在判完之后就把注册表交给别处，
+/// 借来的话「判一次」和「交出注册表」两件事会互相卡住。
+pub fn admission<S: corex_core::ActionStore>(
+    store: Arc<S>,
+) -> impl Fn(&Directive) -> Result<(), String> {
+    move |directive| {
+        validate_registered(&*store, directive).map_err(|error| error.to_string())?;
+        validate_allowed(&*store, directive).map_err(|error| error.to_string())?;
+        Ok(())
     }
 }
 

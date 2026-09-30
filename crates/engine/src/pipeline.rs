@@ -5,7 +5,7 @@ use crate::control_flow::evaluate_condition;
 use crate::definition::{
     ActionStep, Directive, IfStep, OnError, ParallelStep, Permissions, RepeatStep, Step, StepsStep,
 };
-use crate::history::{ExecutionHistory, HistoryEntry};
+use crate::history::{HistoryEntry, HistorySink};
 use crate::inputs::fill_input_defaults;
 use crate::resolver::Resolver;
 use corex_core::{ActionError, ActionStore, EngineError, ExecutionContext, Observer, Spot, Value};
@@ -16,7 +16,7 @@ use tracing::{debug, error, info, warn};
 /// 针对一个 [`ActionStore`] 执行 [`Directive`]。
 pub struct Pipeline {
     store: Arc<dyn ActionStore>,
-    history: Option<ExecutionHistory>,
+    history: Option<Arc<dyn HistorySink>>,
     audit: Option<ExecutionAudit>,
     /// 步骤进度的上报口；`None` 时引擎只走日志。
     observer: Option<Arc<dyn Observer>>,
@@ -35,8 +35,11 @@ impl Pipeline {
         }
     }
 
-    /// 为每次 [`Self::execute`] 开启只追加的 JSONL 记录。
-    pub fn with_history(mut self, history: ExecutionHistory) -> Self {
+    /// 每次 [`Self::execute`] 都记一条执行历史。
+    ///
+    /// 记在哪由调用方通过 [`HistorySink`] 决定：daemon / CLI / MCP 传指令库那一份，
+    /// 显式把 `[history] file` 指到文件时才传 [`crate::ExecutionHistory`]。
+    pub fn with_history(mut self, history: Arc<dyn HistorySink>) -> Self {
         self.history = Some(history);
         self
     }

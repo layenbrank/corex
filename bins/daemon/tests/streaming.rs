@@ -8,7 +8,7 @@ mod harness;
 use corex_core::{Stream, Value};
 use corex_ipc::protocol::{Request, Response};
 use corex_ipc::{FrameSink, ProgressEvent, Transport, ipc_connect};
-use harness::{authed, start, start_with, strings};
+use harness::{authed, import_yaml, start, start_with, strings};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
@@ -378,9 +378,10 @@ async fn invoke_streams_the_action_chunk_progress() {
 #[tokio::test]
 async fn run_directive_streams_every_step() {
     let (dir, _daemon, endpoint) = start("directive").await;
-    let directives = dir.path().join("directives");
-    std::fs::write(
-        directives.join("probe.yaml"),
+    import_yaml(
+        &endpoint,
+        dir.path(),
+        "probe",
         concat!(
             "name: probe\n",
             "permissions:\n",
@@ -398,7 +399,7 @@ async fn run_directive_streams_every_step() {
             "      content: \"{{message}}\"\n",
         ),
     )
-    .expect("write directive");
+    .await;
 
     let recorder = Recorder::default();
     let response = ipc_connect(&endpoint)
@@ -438,10 +439,11 @@ async fn run_directive_streams_every_step() {
 #[tokio::test]
 async fn run_directive_streams_shell_output() {
     let (dir, _daemon, endpoint) = start("output").await;
-    let directives = dir.path().join("directives");
     // `host: cmd`：Windows 走 `cmd /C`，别处走 `sh -c`，两边都能 echo。
-    std::fs::write(
-        directives.join("probe.yaml"),
+    import_yaml(
+        &endpoint,
+        dir.path(),
+        "probe",
         concat!(
             "name: probe\n",
             "permissions:\n",
@@ -454,7 +456,7 @@ async fn run_directive_streams_shell_output() {
             "      host: cmd\n",
         ),
     )
-    .expect("write directive");
+    .await;
 
     let recorder = Recorder::default();
     let response = ipc_connect(&endpoint)
@@ -506,9 +508,10 @@ async fn run_directive_streams_shell_output() {
 #[tokio::test]
 async fn a_plain_request_stays_one_shot() {
     let (dir, _daemon, endpoint) = start("plain").await;
-    let directives = dir.path().join("directives");
-    std::fs::write(
-        directives.join("probe.yaml"),
+    import_yaml(
+        &endpoint,
+        dir.path(),
+        "probe",
         concat!(
             "name: probe\n",
             "steps:\n",
@@ -518,7 +521,7 @@ async fn a_plain_request_stays_one_shot() {
             "      template: \"hi\"\n",
         ),
     )
-    .expect("write directive");
+    .await;
 
     let recorder = Recorder::default();
     let response = ipc_connect(&endpoint)

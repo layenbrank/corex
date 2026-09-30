@@ -48,7 +48,7 @@ fn the_key_wins_over_the_models_name() {
 
     store.put("the-key", &definition, None, None).unwrap();
 
-    let record = store.get("the-key").unwrap();
+    let record = store.fetch("the-key").unwrap();
     assert_eq!(record.definition.name, "the-key");
     assert!(store.find("inside-the-file").unwrap().is_none());
 }
@@ -69,7 +69,7 @@ fn save_keeps_folder_and_source() {
         )
         .unwrap();
 
-    let record = store.get("demo").unwrap();
+    let record = store.fetch("demo").unwrap();
     assert_eq!(record.folder.as_deref(), Some("build"));
     assert_eq!(record.source.as_deref(), Some("/tmp/demo.yaml"));
     assert_eq!(record.definition.description, "改过了");
@@ -164,7 +164,7 @@ fn broken_rows_are_still_listed() {
     let broken = listed.iter().find(|meta| meta.name == "broken").unwrap();
     assert!(broken.summary.is_none());
     // 读它时才报错，报的是「定义不合法」而不是「找不到」。
-    assert_eq!(store.get("broken").unwrap_err().kind(), "parse");
+    assert_eq!(store.fetch("broken").unwrap_err().kind(), "parse");
 }
 
 #[test]
@@ -188,14 +188,14 @@ fn imports_files_and_folders() {
     assert!(report.is_clean());
     // 相对子目录成为分组。
     assert_eq!(
-        store.get("intern").unwrap().folder.as_deref(),
+        store.fetch("intern").unwrap().folder.as_deref(),
         Some("build")
     );
-    assert_eq!(store.get("top").unwrap().folder, None);
+    assert_eq!(store.fetch("top").unwrap().folder, None);
     // 来源记的是原文件，方便日后对账。
     assert!(
         store
-            .get("intern")
+            .fetch("intern")
             .unwrap()
             .source
             .unwrap()
@@ -229,7 +229,7 @@ fn import_skips_existing_names_unless_overwrite() {
         .unwrap();
     assert_eq!(skipped.status, ImportStatus::Skipped);
     assert_eq!(
-        store.get("demo").unwrap().definition.description,
+        store.fetch("demo").unwrap().definition.description,
         "库里那份"
     );
 
@@ -242,7 +242,7 @@ fn import_skips_existing_names_unless_overwrite() {
         .unwrap();
     assert_eq!(updated.status, ImportStatus::Updated);
     assert_eq!(
-        store.get("demo").unwrap().definition.description,
+        store.fetch("demo").unwrap().definition.description,
         "新的一份"
     );
 }
@@ -345,6 +345,79 @@ fn open_in_data_dir_bootstraps_both_steps() {
     assert!(directives_db_path(dir.path()).is_file());
 }
 
+/// 执行日志与指令同库：写入、按名聚合「上次跑成什么样」、以及旧 JSONL 账本的一次性导入。
+#[test]
+fn records_runs_and_imports_the_legacy_ledger() {
+    let dir = tempfile::tempdir().unwrap();
+    let data = dir.path();
+    let jsonl = data.join("history.jsonl");
+    let older = "{\"directive\":\"demo\",\"started_at_ms\":1000,\"ended_at_ms\":1100,\"ok\":true,\"duration_ms\":100}\n\
+                 {\"directive\":\"demo\",\"started_at_ms\":2000,\"ended_at_ms\":2200,\"ok\":false,\"error\":\"boom\",\"duration_ms\":200}\n\
+                 { 这行坏了\n";
+    fs::write(&jsonl, older).unwrap();
+
+    let opts = corex_store::BootstrapOptions {
+        history_jsonl: Some(jsonl.clone()),
+        ..Default::default()
+    };
+    let (store, report) = DirectiveStore::open_in_data_dir(data, opts, &accept).unwrap();
+    // 坏行跳过，好的两条进来。
+    assert_eq!(report.history_imported, Some(2));
+    assert_eq!(store.runs_count().unwrap(), 2);
+
+    // 再启动一次不会重复导入（否则「跑了 4 次」这种数字会自己长大）。
+    let repeat = corex_store::BootstrapOptions {
+        history_jsonl: Some(jsonl.clone()),
+        ..Default::default()
+    };
+    let (again, second) = DirectiveStore::open_in_data_dir(data, repeat, &accept).unwrap();
+    assert_eq!(second.history_imported, None);
+    assert_eq!(again.runs_count().unwrap(), 2);
+
+    // 「上次跑成什么样」：新→旧是失败那条，计数 2、失败 1。
+    let by_directive = again.runs_by_directive(64).unwrap();
+    let summary = by_directive.get("demo").unwrap();
+    assert_eq!(summary.started_at_ms, 2000);
+    assert!(!summary.ok);
+    assert_eq!(summary.run_count, 2);
+    assert_eq!(summary.failed_count, 1);
+
+    // 追加一条新记录（引擎跑完走的就是这条）会盖掉「上次」。
+    again
+        .append_run(&corex_engine::HistoryEntry {
+            directive: "demo".to_owned(),
+            started_at_ms: 3000,
+            ended_at_ms: 3050,
+            ok: true,
+            error: None,
+            duration_ms: 50,
+        })
+        .unwrap();
+    let summary = again.runs_by_directive(64).unwrap();
+    assert!(summary.get("demo").unwrap().ok);
+    assert_eq!(summary.get("demo").unwrap().run_count, 3);
+
+    // 同一条运行写两次只算一次。
+    again
+        .append_run(&corex_engine::HistoryEntry {
+            directive: "demo".to_owned(),
+            started_at_ms: 3000,
+            ended_at_ms: 3050,
+            ok: true,
+            error: None,
+            duration_ms: 50,
+        })
+        .unwrap();
+    assert_eq!(again.runs_count().unwrap(), 3);
+
+    // 只按指令过滤、按时间倒序。
+    let only_demo = again.recent_runs(Some("demo"), 2).unwrap();
+    assert_eq!(only_demo.len(), 2);
+    assert_eq!(only_demo[0].started_at_ms, 3000);
+    assert_eq!(again.recent_run_names(10).unwrap(), vec!["demo".to_owned()]);
+    assert!(again.recent_runs(Some("nope"), 5).unwrap().is_empty());
+}
+
 #[test]
 fn name_rules_are_the_v12_ones() {
     assert!(validate_name("build-intern").is_ok());
@@ -369,7 +442,7 @@ fn two_handles_can_open_the_same_file() {
         .save("demo", &parse("name: demo\nsteps: []\n"))
         .unwrap();
 
-    assert_eq!(second.get("demo").unwrap().definition.name, "demo");
+    assert_eq!(second.fetch("demo").unwrap().definition.name, "demo");
     assert_eq!(second.list().unwrap().len(), 1);
 }
 
@@ -398,7 +471,7 @@ fn export_round_trips_and_does_not_clobber_by_default() {
         .import_dir(out.path(), &ImportOptions::default(), &accept)
         .unwrap();
     assert_eq!(report.created(), 1);
-    let back = other.get("demo").unwrap().definition;
+    let back = other.fetch("demo").unwrap().definition;
     assert_eq!(back.inputs.len(), 1);
     assert_eq!(back.steps.len(), 1);
 }

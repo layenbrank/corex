@@ -1,9 +1,8 @@
 //! 运行历史的只读出口：`list_runs` 与 `list_directives` 条目上的 `last_run`。
 //!
-//! 卡片的「上次跑成什么样」、运行台里的记录，都出自引擎自己写的那份账本（`corex history`
-//! 读的也是它）。宿主再攒一份必然与它对不上，所以回话形状只能在真进程上钉住。
-//!
-//! 历史默认开，文件落在 `COREX_DATA_DIR` 下——harness 已经把它钉在用例自己的临时目录上。
+//! 卡片的「上次跑成什么样」、运行台里的记录，都出自引擎自己写的那份账本——v13 起它与指令
+//! 同库（`<数据目录>/directives.db` 的 `runs` 表），`corex history` 读的也是它。宿主再攒一份
+//! 必然与它对不上，所以回话形状只能在真进程上钉住。
 
 mod harness;
 
@@ -29,12 +28,33 @@ fn data(response: Response) -> Value {
     }
 }
 
-/// 写一条指令：模板里没有占位符就渲染得出来，写个未定义的变量就一定失败。
-fn write_directive(dir: &Path, name: &str, template: &str) {
-    let text = format!(
-        "name: {name}\nsteps:\n  - id: render\n    action: template.render\n    params:\n      template: '{template}'\n    save_to: message\n"
+/// 写一条指令入库：模板里没有占位符就渲染得出来，写个未定义的变量就一定失败。
+async fn write_directive(endpoint: &Path, name: &str, template: &str) {
+    let definition = Value::from_json(
+        serde_json::from_str(&format!(
+            r#"{{
+                "name": "{name}",
+                "steps": [
+                    {{"id": "render", "action": "template.render",
+                      "params": {{"template": "{template}"}}, "save_to": "message"}}
+                ]
+            }}"#
+        ))
+        .expect("definition json"),
     );
-    std::fs::write(dir.join("directives").join(format!("{name}.yaml")), text).expect("写指令");
+    data(
+        send(
+            endpoint,
+            Request::SaveDirective {
+                id: 0,
+                auth_token: None,
+                name: name.to_owned(),
+                definition,
+                original_name: None,
+            },
+        )
+        .await,
+    );
 }
 
 /// 跑一条指令；`Err` 就是这次运行失败了。
@@ -78,7 +98,6 @@ async fn list_directives(endpoint: &Path) -> Value {
     let request = Request::ListDirectives {
         id: 2,
         auth_token: None,
-        dir: None,
     };
     data(send(endpoint, request).await)
 }
@@ -111,9 +130,9 @@ fn entry_of(entries: &Value, name: &str) -> Value {
 /// 跑三次（含一次失败）：新的在前、失败也在、`name` 与 `limit` 各管一段。
 #[tokio::test]
 async fn runs_are_read_back_newest_first_with_failures_kept() {
-    let (dir, _daemon, endpoint) = start("runs-order").await;
-    write_directive(dir.path(), "build", "hi");
-    write_directive(dir.path(), "deploy", "{{ missing }}");
+    let (_dir, _daemon, endpoint) = start("runs-order").await;
+    write_directive(&endpoint, "build", "hi").await;
+    write_directive(&endpoint, "deploy", "{{ missing }}").await;
 
     run_ok(&endpoint, "build").await;
     run_failing(&endpoint, "deploy").await;
@@ -162,9 +181,9 @@ async fn runs_are_read_back_newest_first_with_failures_kept() {
 /// 卡片要的「上次跑成什么样」随列目录一起回，省掉逐条问历史。
 #[tokio::test]
 async fn list_directives_carries_the_last_run() {
-    let (dir, _daemon, endpoint) = start("runs-card").await;
-    write_directive(dir.path(), "build", "{{ missing }}");
-    write_directive(dir.path(), "idle", "hi");
+    let (_dir, _daemon, endpoint) = start("runs-card").await;
+    write_directive(&endpoint, "build", "{{ missing }}").await;
+    write_directive(&endpoint, "idle", "hi").await;
 
     run_failing(&endpoint, "build").await;
     run_failing(&endpoint, "build").await;
@@ -205,8 +224,8 @@ async fn list_directives_carries_the_last_run() {
 /// 历史关掉时说清楚：空表不等于「一条都没跑过」。
 #[tokio::test]
 async fn a_disabled_history_says_so() {
-    let (dir, _daemon, endpoint) = start_with("runs-off", "\n[history]\nenabled = false\n").await;
-    write_directive(dir.path(), "build", "hi");
+    let (_dir, _daemon, endpoint) = start_with("runs-off", "\n[history]\nenabled = false\n").await;
+    write_directive(&endpoint, "build", "hi").await;
     run_ok(&endpoint, "build").await;
 
     let reply = list_runs(&endpoint, None, None).await;

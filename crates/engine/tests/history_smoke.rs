@@ -21,7 +21,7 @@ steps:
     let directive = Directive::from_yaml_str(yaml).unwrap();
     let mut registry = ActionRegistry::new();
     registry.register_builtins();
-    let pipeline = Pipeline::new(Arc::new(registry)).with_history(hist.clone());
+    let pipeline = Pipeline::new(Arc::new(registry)).with_history(Arc::new(hist.clone()));
 
     let ctx = ExecutionContext::new(RuntimeConfig::default());
     let result = pipeline.execute(&directive, ctx).await.unwrap();
@@ -50,7 +50,7 @@ steps:
     let directive = Directive::from_yaml_str(yaml).unwrap();
     let mut registry = ActionRegistry::new();
     registry.register_builtins();
-    let pipeline = Pipeline::new(Arc::new(registry)).with_history(hist.clone());
+    let pipeline = Pipeline::new(Arc::new(registry)).with_history(Arc::new(hist.clone()));
 
     let ctx = ExecutionContext::new(RuntimeConfig::default());
     let err = pipeline.execute(&directive, ctx).await.unwrap_err();

@@ -919,6 +919,7 @@ dependencies = [
  "corex-engine",
  "corex-ipc",
  "corex-registry",
+ "corex-store",
  "fs2",
  "rand 0.10.2",
  "serde",

@@ -12,7 +12,8 @@
 use super::event::{EventAction, EventFilter, classify_event};
 use super::filter::{WatchFilter, watch_relative_path};
 use super::gate::Chain;
-use crate::run::run_directive_file;
+use crate::history::HistorySink;
+use crate::run::{DirectiveSource, run_directive_spec};
 use crate::trigger::WatchConfig;
 use corex_core::{ActionStore, EngineError, RuntimeConfig};
 use notify::{Config as NotifyConfig, PollWatcher, RecommendedWatcher, RecursiveMode};
@@ -129,6 +130,10 @@ pub struct WatchEngine {
     data_dir: PathBuf,
     store: Arc<dyn ActionStore>,
     runtime: RuntimeConfig,
+    /// 每次触发从哪取指令；`None` 时只能按 `directive_path` 读文件（老行为）。
+    source: Option<Arc<dyn DirectiveSource>>,
+    /// 执行日志写到哪；`None` 时由 runner 按 `[history]` 配置决定。
+    history: Option<Arc<dyn HistorySink>>,
     jobs: AsyncMutex<HashMap<String, WatchState>>,
 }
 
@@ -137,11 +142,15 @@ impl WatchEngine {
         data_dir: PathBuf,
         store: Arc<dyn ActionStore>,
         runtime: RuntimeConfig,
+        source: Option<Arc<dyn DirectiveSource>>,
+        history: Option<Arc<dyn HistorySink>>,
     ) -> Arc<Self> {
         Arc::new(Self {
             data_dir,
             store,
             runtime,
+            source,
+            history,
             jobs: AsyncMutex::new(HashMap::new()),
         })
     }
@@ -186,6 +195,8 @@ impl WatchEngine {
                 worker_store: Arc::clone(&self.store),
                 worker_runtime: self.runtime.clone(),
                 worker_data: self.data_dir.clone(),
+                worker_source: self.source.clone(),
+                worker_history: self.history.clone(),
                 worker_path: spec.directive_path.clone(),
                 worker_name: spec.directive_name.clone(),
             },
@@ -371,13 +382,25 @@ impl WatchEngine {
         let store = Arc::clone(&self.store);
         let runtime = self.runtime.clone();
         let data_dir = self.data_dir.clone();
+        let source = self.source.clone();
+        let history = self.history.clone();
         let path = state.spec.directive_path.clone();
         let name = state.spec.directive_name.clone();
         let flag = Arc::clone(&state.is_running);
         drop(jobs);
         tokio::spawn(async move {
             info!(directive = %name, "watch RUN_NOW");
-            if let Err(e) = run_directive_file(store, runtime, data_dir, &path).await {
+            if let Err(e) = run_directive_spec(
+                store,
+                runtime,
+                &data_dir,
+                source.as_ref(),
+                history.as_ref(),
+                &name,
+                &path,
+            )
+            .await
+            {
                 warn!(directive = %name, error = %e, "watch RUN_NOW 执行失败");
             }
             flag.store(false, Ordering::SeqCst);
@@ -415,9 +438,13 @@ struct WorkerCtx {
     worker_runtime: RuntimeConfig,
     /// Corex 数据目录（历史 / 审计日志）。
     worker_data: PathBuf,
-    /// 指令文件的绝对路径。
+    /// 每次触发从哪取指令；`None` 时按文件跑。
+    worker_source: Option<Arc<dyn DirectiveSource>>,
+    /// 执行日志写到哪；`None` 时由 runner 按配置决定。
+    worker_history: Option<Arc<dyn HistorySink>>,
+    /// 指令文件的绝对路径（库里没有这条指令时的回退）。
     worker_path: PathBuf,
-    /// 指令名，用于日志行。
+    /// 指令名，用于日志行；库里的指令按它取。
     worker_name: String,
 }
 
@@ -432,6 +459,8 @@ fn spawn_watch_worker(
             worker_store,
             worker_runtime,
             worker_data,
+            worker_source,
+            worker_history,
             worker_path,
             worker_name,
         } = ctx;
@@ -465,6 +494,8 @@ fn spawn_watch_worker(
                 Arc::clone(&worker_store),
                 worker_runtime.clone(),
                 worker_data.clone(),
+                worker_source.as_ref(),
+                worker_history.as_ref(),
                 &worker_path,
                 &worker_name,
             )
@@ -523,6 +554,8 @@ async fn invoke_directive(
     store: Arc<dyn ActionStore>,
     runtime: RuntimeConfig,
     data_dir: PathBuf,
+    source: Option<&Arc<dyn DirectiveSource>>,
+    history: Option<&Arc<dyn HistorySink>>,
     path: &Path,
     name: &str,
 ) -> bool {
@@ -533,7 +566,7 @@ async fn invoke_directive(
         return false;
     }
     info!(directive = %name, "watch 触发执行");
-    let result = run_directive_file(store, runtime, data_dir, path).await;
+    let result = run_directive_spec(store, runtime, &data_dir, source, history, name, path).await;
     if let Err(e) = result {
         warn!(directive = %name, error = %e, "watch 执行失败");
     }

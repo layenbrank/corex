@@ -7,6 +7,7 @@ pub async fn supervise_watch_job(
     runtime: corex_core::RuntimeConfig,
     data_dir: &std::path::Path,
     immediate_cli: bool,
+    io: &crate::run::SupervisorIo,
 ) -> Result<(), corex_core::EngineError> {
     use crate::definition::Directive;
     use crate::supervisor::process::kill_process_tree;
@@ -17,8 +18,18 @@ pub async fn supervise_watch_job(
     use std::time::Duration;
     use tracing::info;
 
-    let directive = Directive::from_yaml_file(&meta.directive_path)?;
-    let engine = WatchEngine::new(data_dir.to_path_buf(), store, runtime.clone());
+    // 指令优先从库里取：v13 起真相在库，磁盘上的那份可能还是迁移前留下的旧版本。
+    let directive = match &io.source {
+        Some(source) => source.load(&meta.directive_name)?,
+        None => Directive::from_yaml_file(&meta.directive_path)?,
+    };
+    let engine = WatchEngine::new(
+        data_dir.to_path_buf(),
+        store,
+        runtime.clone(),
+        io.source.clone(),
+        io.history.clone(),
+    );
     let watch_raw = find_watch_trigger(&directive.triggers)?.ok_or_else(|| {
         corex_core::EngineError::other(format!("指令 {} 未声明 watch 触发器", meta.directive_name))
     })?;
@@ -79,6 +90,7 @@ pub async fn supervise_cron_job(
     store: std::sync::Arc<dyn corex_core::ActionStore>,
     runtime: corex_core::RuntimeConfig,
     data_dir: &std::path::Path,
+    io: &crate::run::SupervisorIo,
 ) -> Result<(), corex_core::EngineError> {
     use crate::cron::{CronEngine, CronJobSpec, bind_cron_engine, effective_cron_timezone};
     use crate::definition::Directive;
@@ -90,8 +102,19 @@ pub async fn supervise_cron_job(
     use std::time::Duration;
     use tracing::info;
 
-    let directive = Directive::from_yaml_file(&meta.directive_path)?;
-    let engine = CronEngine::new(data_dir.to_path_buf(), store, runtime.clone()).await?;
+    // 与 watch 同理：指令以库里的那份为准，文件只是老用法的回退。
+    let directive = match &io.source {
+        Some(source) => source.load(&meta.directive_name)?,
+        None => Directive::from_yaml_file(&meta.directive_path)?,
+    };
+    let engine = CronEngine::new(
+        data_dir.to_path_buf(),
+        store,
+        runtime.clone(),
+        io.source.clone(),
+        io.history.clone(),
+    )
+    .await?;
     bind_cron_engine(Arc::clone(&engine));
     let cron = find_cron_trigger(&directive.triggers)?.ok_or_else(|| {
         corex_core::EngineError::other(format!("指令 {} 未声明 cron 触发器", meta.directive_name))

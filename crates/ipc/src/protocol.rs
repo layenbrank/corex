@@ -24,27 +24,29 @@ pub enum Request {
         #[serde(default)]
         auth_token: Option<String>,
     },
+    /// 列出指令库里的指令。
+    ///
+    /// v12 的 `dir` 参数没有了：指令的真相从「<数据目录>/directives 下的 YAML 文件」换成了
+    /// `<数据目录>/directives.db`，分组由每条指令自己的 `folder` 字段表达，不再靠子目录。
     ListDirectives {
         #[serde(default)]
         id: u64,
         #[serde(default)]
         auth_token: Option<String>,
-        #[serde(default)]
-        dir: Option<String>,
     },
-    /// 读一条指令：原文与解析结果一起给，宿主不必自己解析 YAML。
+    /// 读一条指令：规范化 YAML 与解析结果一起给，宿主不必自己拼 YAML。
     ReadDirective {
         #[serde(default)]
         id: u64,
         #[serde(default)]
         auth_token: Option<String>,
         name: String,
-        #[serde(default)]
-        dir: Option<String>,
     },
-    /// 写一条指令：`definition` 是宿主编辑器里的结构化模型，由 daemon 校验后落盘。
+    /// 写一条指令：`definition` 是宿主编辑器里的结构化模型，由 daemon 校验后落库。
     ///
-    /// 宿主**不要**自己序列化 YAML——写盘格式（键序、省略哪些默认值）只有引擎一份。
+    /// - `original_name` 与 `name` 不同 = **改名**：daemon 在一个事务里删旧键、写新键，
+    ///   v12 那套「拿新名字另存一份文件、旧文件留在目录里」的操作就此消失。
+    /// - 宿主**不要**自己序列化 YAML——写出去的格式只有引擎一份。
     SaveDirective {
         #[serde(default)]
         id: u64,
@@ -53,7 +55,36 @@ pub enum Request {
         name: String,
         definition: Value,
         #[serde(default)]
-        dir: Option<String>,
+        original_name: Option<String>,
+    },
+    /// 删掉一条指令。
+    DeleteDirective {
+        #[serde(default)]
+        id: u64,
+        #[serde(default)]
+        auth_token: Option<String>,
+        name: String,
+    },
+    /// 从磁盘导入指令（YAML 文件或目录）。
+    ///
+    /// 这是 v13 里 YAML 的入口：`path` 是文件就导入一条，是目录就递归导入，相对子目录成为
+    /// 分组。写入前先过与 `run` 同样的两道门，写进去的都是跑得起来的。
+    ImportDirectives {
+        #[serde(default)]
+        id: u64,
+        #[serde(default)]
+        auth_token: Option<String>,
+        /// 文件或目录路径。
+        path: String,
+        /// 目录导入时的兜底分组（子目录优先）。
+        #[serde(default)]
+        folder: Option<String>,
+        /// 同名时覆盖；默认跳过并在报告里记一笔。
+        #[serde(default)]
+        is_overwrite: bool,
+        /// 只解析校验，不写库。
+        #[serde(default)]
+        is_dry_run: bool,
     },
     /// 列最近的执行记录：卡片的「上次跑成什么样」只该有一个来源。
     ///
@@ -117,6 +148,8 @@ impl Request {
             | Request::ListDirectives { id, .. }
             | Request::ReadDirective { id, .. }
             | Request::SaveDirective { id, .. }
+            | Request::DeleteDirective { id, .. }
+            | Request::ImportDirectives { id, .. }
             | Request::ListRuns { id, .. }
             | Request::ListActions { id, .. }
             | Request::RunDirective { id, .. }
@@ -149,6 +182,8 @@ impl Request {
             | Request::ListDirectives { auth_token, .. }
             | Request::ReadDirective { auth_token, .. }
             | Request::SaveDirective { auth_token, .. }
+            | Request::DeleteDirective { auth_token, .. }
+            | Request::ImportDirectives { auth_token, .. }
             | Request::ListRuns { auth_token, .. }
             | Request::ListActions { auth_token, .. }
             | Request::RunDirective { auth_token, .. }
@@ -165,6 +200,8 @@ impl Request {
             | Request::ListDirectives { auth_token, .. }
             | Request::ReadDirective { auth_token, .. }
             | Request::SaveDirective { auth_token, .. }
+            | Request::DeleteDirective { auth_token, .. }
+            | Request::ImportDirectives { auth_token, .. }
             | Request::ListRuns { auth_token, .. }
             | Request::ListActions { auth_token, .. }
             | Request::RunDirective { auth_token, .. }
@@ -248,6 +285,13 @@ impl RpcError {
 
     pub fn forbidden(msg: impl Into<String>) -> Self {
         Self::new(403, msg)
+    }
+
+    /// 名字撞车：目标已存在，或者并发下被别人抢先改了。
+    ///
+    /// 与 400 分开是因为调用方能做的事不一样：400 要改自己发的内容，409 要换个名字或先删旧的。
+    pub fn conflict(msg: impl Into<String>) -> Self {
+        Self::new(409, msg)
     }
 }
 

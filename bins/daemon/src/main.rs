@@ -1,6 +1,6 @@
 //! Corex 守护进程 —— 读配置、注册内置动作、服务 IPC。
 
-use anyhow::{Context, Result, bail};
+use anyhow::{Context, Result};
 use clap::Parser;
 use corex_core::{
     ActionError, ActionStore, DaemonConfig, EngineError, ExecutionContext, LoggingConfig, Mark,
@@ -8,18 +8,21 @@ use corex_core::{
     check_runtime_allowed,
 };
 use corex_engine::{
-    AuditEntry, Directive, DirectiveHistory, ExecutionAudit, ExecutionHistory, HistoryEntry,
-    Pipeline, required_permissions, validate_allowed, validate_registered,
+    AuditEntry, Directive, DirectiveHistory, DirectiveSource, ExecutionAudit, HistoryEntry,
+    HistorySink, Pipeline, admission, required_permissions, validate_allowed, validate_registered,
 };
 use corex_ipc::protocol::{Request, Response, RpcError};
 use corex_ipc::{FrameSink, Outlet, ProgressEvent, config_paths, data_dir, serve_ipc_ready};
 use corex_registry::ActionRegistry;
+use corex_store::{
+    BootstrapOptions, DirectiveRecord, DirectiveStore, ImportEntry, ImportOptions, ImportReport,
+    ImportStatus, SqliteHistory, StoreDirectiveSource, StoreError,
+};
 use fs2::FileExt;
 use rand::RngExt;
 use serde::Serialize;
-use std::fs::{File, OpenOptions};
-use std::io::Write;
-use std::path::{Component, Path, PathBuf};
+use std::fs::File;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::time::Duration;
@@ -35,9 +38,9 @@ struct Args {
     #[arg(long, alias = "pipe")]
     socket: Option<PathBuf>,
 
-    /// 覆盖指令目录
-    #[arg(long)]
-    directives: Option<PathBuf>,
+    /// 启动时把该目录（或文件）的 YAML 导入指令库，等价于 `corex directive import`
+    #[arg(long = "import", alias = "directives")]
+    import: Option<PathBuf>,
 
     /// 配置文件（toml）
     #[arg(long)]
@@ -47,8 +50,12 @@ struct Args {
 struct DaemonState {
     registry: Arc<ActionRegistry>,
     config: RuntimeConfig,
-    directives_dir: PathBuf,
-    history: Option<ExecutionHistory>,
+    /// 指令的唯一真相源。指令、执行日志、上次执行时间都在这一处，谁读谁写都只经过它。
+    store: Arc<DirectiveStore>,
+    /// 交给触发器等「按名字取指令」的口，与 [`Self::store`] 是同一个库。
+    source: Arc<dyn DirectiveSource>,
+    /// `[history]` 关掉时没有：那时执行日志不记，但指令照跑。
+    history: Option<Arc<dyn HistorySink>>,
     audit: Option<ExecutionAudit>,
     auth_token: String,
     shutdown: AtomicBool,
@@ -81,21 +88,6 @@ async fn main() -> Result<()> {
 
     let endpoint = resolve_endpoint(args.socket, &config.daemon, &data)?;
     let lock_path = resolve_lock_path(&config.daemon, &data);
-    // 宿主看到的第一眼就是这个列表：默认目录为空时放入起步指令。`--directives` 是调用方
-    // 自己指的目录，不碰。
-    let directives_dir = match args.directives {
-        Some(dir) => {
-            std::fs::create_dir_all(&dir)?;
-            dir
-        }
-        None => {
-            let dir = data.join("directives");
-            if let Err(e) = corex_engine::starter::seed(&dir) {
-                warn!(error = %e, dir = %dir.display(), "起步指令写入失败");
-            }
-            dir
-        }
-    };
 
     let auth = resolve_auth_token(&data, &config.daemon)?;
 
@@ -118,7 +110,50 @@ async fn main() -> Result<()> {
         }
     }
 
-    let history = open_history(&data, &config)?;
+    let registry = Arc::new(registry);
+    // 指令库要过注册表这道门才写：写进一条引用未注册动作的指令，用户要到跑的时候才发现。
+    let bootstrap = BootstrapOptions {
+        is_auto_import: config.directives.auto_import,
+        is_seed: config.directives.seed,
+        history_jsonl: history_ledger(&data, &config),
+    };
+    let validate = admission(Arc::clone(&registry));
+    let (store, report) =
+        DirectiveStore::open_in_data_dir(&data, bootstrap, &validate).context("无法打开指令库")?;
+    let store = Arc::new(store);
+    if !report.is_quiet() {
+        info!(
+            seeded = report.seeded.len(),
+            imported = report.history_imported.unwrap_or(0),
+            "指令库初始化完成"
+        );
+        for name in &report.seeded {
+            info!(name, "已写入起步指令");
+        }
+        for entry in report.legacy.iter().flat_map(|legacy| &legacy.entries) {
+            if let ImportStatus::Failed(reason) = &entry.status {
+                warn!(path = %entry.path.display(), reason, "旧指令导入失败");
+            }
+        }
+    }
+    info!(directives = store.count().unwrap_or(0), "指令库已就绪");
+
+    // 命令行显式指的目录：当成一次导入，而不是「换一个指令根」——指令的根只有一个，就是库。
+    if let Some(target) = &args.import {
+        match store.import_path(target, &ImportOptions::default(), &validate) {
+            Ok(report) => info!(
+                path = %target.display(),
+                created = report.created(),
+                updated = report.updated(),
+                skipped = report.skipped(),
+                failed = report.failed(),
+                "已导入指令"
+            ),
+            Err(e) => warn!(path = %target.display(), error = %e, "导入指令失败"),
+        }
+    }
+
+    let history = open_history(Arc::clone(&store), &config);
     let audit = ExecutionAudit::under_data_dir(&data).ok();
 
     // `max_jobs = 0` 表示不限：拿信号量的最大许可数当“无限”。
@@ -130,9 +165,10 @@ async fn main() -> Result<()> {
     let interactive = Arc::new(Semaphore::new(1));
 
     let state = Arc::new(DaemonState {
-        registry: Arc::new(registry),
+        registry,
         config,
-        directives_dir,
+        source: Arc::new(StoreDirectiveSource::new(Arc::clone(&store))),
+        store,
         history,
         audit,
         auth_token: auth.token,
@@ -412,7 +448,7 @@ async fn handle_request(state: &DaemonState, req: Request, outlet: Outlet) -> Re
                 Value::from_json(corex_registry::catalog::document(&state.registry, None)),
             )
         }
-        Request::ListDirectives { id, dir, .. } => match list_directives(state, dir.as_deref()) {
+        Request::ListDirectives { id, .. } => match list_directives(state) {
             Ok(data) => Response::ok(id, data),
             Err(e) => Response::error(id, e),
         },
@@ -422,19 +458,32 @@ async fn handle_request(state: &DaemonState, req: Request, outlet: Outlet) -> Re
             Ok(data) => Response::ok(id, data),
             Err(e) => Response::error(id, e),
         },
-        Request::ReadDirective { id, name, dir, .. } => {
-            match read_directive(state, &name, dir.as_deref()) {
-                Ok(data) => Response::ok(id, data),
-                Err(e) => Response::error(id, e),
-            }
-        }
+        Request::ReadDirective { id, name, .. } => match read_directive(state, &name) {
+            Ok(data) => Response::ok(id, data),
+            Err(e) => Response::error(id, e),
+        },
         Request::SaveDirective {
             id,
             name,
-            dir,
             definition,
+            original_name,
             ..
-        } => match save_directive(state, &name, dir.as_deref(), definition) {
+        } => match save_directive(state, &name, original_name.as_deref(), definition) {
+            Ok(data) => Response::ok(id, data),
+            Err(e) => Response::error(id, e),
+        },
+        Request::DeleteDirective { id, name, .. } => match delete_directive(state, &name) {
+            Ok(data) => Response::ok(id, data),
+            Err(e) => Response::error(id, e),
+        },
+        Request::ImportDirectives {
+            id,
+            path,
+            folder,
+            is_overwrite,
+            is_dry_run,
+            ..
+        } => match import_directives(state, &path, folder.as_deref(), is_overwrite, is_dry_run) {
             Ok(data) => Response::ok(id, data),
             Err(e) => Response::error(id, e),
         },
@@ -502,15 +551,21 @@ fn from_engine(err: &EngineError) -> RpcError {
     }
 }
 
-/// 指令目录下的一条指令。
+/// 指令库里的一条指令。
 ///
-/// `name` 是后续 `read_directive` / `save_directive` 要的键，`path` 供宿主显示或交给
-/// 外部编辑器，`bucket` 供宿主分组。分类得先解析文件才知道，所以**解析不了的指令照样
-/// 列出来**（编辑器要能打开它去修），只是 `summary` 为空。
+/// `name` 是后续 `read_directive` / `save_directive` 要的键；`folder` / `source` /
+/// `updated_at_ms` 是库里的元信息，宿主拿它分组、显示「从哪来、什么时候改的」。分类与描述
+/// 得先解析模型才知道，所以**解析不了的条目照样列出来**（编辑器要能打开它去修），只是
+/// `summary` 为空。
 #[derive(Serialize)]
 struct DirectiveEntry {
     name: String,
-    path: String,
+    /// 分组（自由文本；导入时取相对子目录）。`None` = 未分组。
+    folder: Option<String>,
+    /// 导入来源（当初那份 YAML 的路径）；库里新建的没有。
+    source: Option<String>,
+    updated_at_ms: u64,
+    /// 动作分类（`system` / `network` / …），卡片按它分桶。
     bucket: Option<String>,
     summary: Option<DirectiveSummary>,
     /// 最近一次执行（`[history]` 关掉、或这条从没跑过时没有）。
@@ -533,7 +588,7 @@ struct RunsReply {
 /// `list_runs` 不给 `limit` 时回多少条：够卡片列表与运行台头几屏用。
 const DEFAULT_RUNS: usize = 50;
 
-/// 卡片要用的元信息：宿主列目录时不该为了显示描述、步骤数再把每个文件读一遍。
+/// 卡片要用的元信息：宿主列目录时不该为了显示描述、步骤数再把每条模型读一遍。
 #[derive(Serialize)]
 struct DirectiveSummary {
     description: String,
@@ -542,23 +597,129 @@ struct DirectiveSummary {
     trigger_count: usize,
 }
 
-/// 一条指令的原文与模型。
+/// 一条指令的规范化 YAML 与模型。
 ///
 /// 两个都给：宿主展示与「保留自己没改的字段」要用原文，编辑要用模型。让宿主自己
 /// 解析一遍 YAML 的话，编辑器里的形状迟早会和真跑的那份不一样。
 #[derive(Serialize)]
 struct DirectiveDocument {
     name: String,
-    path: String,
-    text: String,
+    folder: Option<String>,
+    source: Option<String>,
+    created_at_ms: u64,
+    updated_at_ms: u64,
+    /// 库序列化出来的规范 YAML。宿主**不要**把它当输入再拼一遍——写出去只有引擎一份。
+    yaml: String,
     definition: Directive,
 }
 
-fn list_directives(state: &DaemonState, dir: Option<&str>) -> Result<Value, RpcError> {
-    let base =
-        resolve_dir(&state.directives_dir, dir).map_err(|e| RpcError::forbidden(e.to_string()))?;
-    let entries = directive_entries(&base, state.history.as_ref())
-        .map_err(|e| RpcError::internal(e.to_string()))?;
+impl DirectiveDocument {
+    fn of(record: DirectiveRecord) -> Self {
+        Self {
+            name: record.name,
+            folder: record.folder,
+            source: record.source,
+            created_at_ms: record.created_at_ms,
+            updated_at_ms: record.updated_at_ms,
+            yaml: record.yaml,
+            definition: record.definition,
+        }
+    }
+}
+
+/// 一次导入里单个条目的结果。
+#[derive(Serialize)]
+struct ImportEntryReply {
+    name: String,
+    path: String,
+    /// `created` / `updated` / `skipped` / `failed`。
+    status: &'static str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    error: Option<String>,
+}
+
+impl ImportEntryReply {
+    fn of(entry: ImportEntry) -> Self {
+        let (status, error) = match entry.status {
+            ImportStatus::Created => ("created", None),
+            ImportStatus::Updated => ("updated", None),
+            ImportStatus::Skipped => ("skipped", None),
+            ImportStatus::Failed(reason) => ("failed", Some(reason)),
+        };
+        Self {
+            name: entry.name,
+            path: entry.path.display().to_string(),
+            status,
+            error,
+        }
+    }
+}
+
+/// 一次导入的回话：逐条报告，外加四个计数。
+///
+/// 逐条而不是「成功几条、失败几条」：导入是用户拿自己的文件来换库里的内容，「哪个文件为什么
+/// 没进来」必须能一眼看到。
+#[derive(Serialize)]
+struct ImportReply {
+    entries: Vec<ImportEntryReply>,
+    created: usize,
+    updated: usize,
+    skipped: usize,
+    failed: usize,
+}
+
+impl ImportReply {
+    fn of(report: ImportReport) -> Self {
+        let (created, updated, skipped, failed) = (
+            report.created(),
+            report.updated(),
+            report.skipped(),
+            report.failed(),
+        );
+        Self {
+            entries: report
+                .entries
+                .into_iter()
+                .map(ImportEntryReply::of)
+                .collect(),
+            created,
+            updated,
+            skipped,
+            failed,
+        }
+    }
+}
+
+fn list_directives(state: &DaemonState) -> Result<Value, RpcError> {
+    // 账本一次倒扫就够全部指令：宿主画卡片不必再逐条问一遍历史。
+    let ran = state
+        .history
+        .as_ref()
+        .map(|history| history.by_directive())
+        .unwrap_or_default();
+    let entries: Vec<DirectiveEntry> = state
+        .store
+        .list()
+        .map_err(from_store)?
+        .into_iter()
+        .map(|meta| DirectiveEntry {
+            bucket: meta
+                .summary
+                .as_ref()
+                .and_then(|summary| summary.bucket.clone()),
+            summary: meta.summary.map(|summary| DirectiveSummary {
+                description: summary.description,
+                step_count: summary.step_count,
+                input_count: summary.input_count,
+                trigger_count: summary.trigger_count,
+            }),
+            last_run: ran.get(&meta.name).cloned(),
+            name: meta.name,
+            folder: meta.folder,
+            source: meta.source,
+            updated_at_ms: meta.updated_at_ms,
+        })
+        .collect();
     as_data(&entries)
 }
 
@@ -583,45 +744,64 @@ fn list_runs(
     })
 }
 
-fn read_directive(state: &DaemonState, name: &str, dir: Option<&str>) -> Result<Value, RpcError> {
-    let base =
-        resolve_dir(&state.directives_dir, dir).map_err(|e| RpcError::forbidden(e.to_string()))?;
-    let file = resolve_directive(&base, name).map_err(|e| from_engine(&e))?;
-    let text = std::fs::read_to_string(&file).map_err(|e| RpcError::internal(e.to_string()))?;
-    let definition = Directive::from_yaml_str(&text).map_err(|e| from_engine(&e))?;
-    as_data(&DirectiveDocument {
-        name: name.to_owned(),
-        path: for_host(&file),
-        text,
-        definition,
-    })
+fn read_directive(state: &DaemonState, name: &str) -> Result<Value, RpcError> {
+    let record = state.store.fetch(name).map_err(from_store)?;
+    as_data(&DirectiveDocument::of(record))
 }
 
 /// 保存一条指令，并把**规范化之后**的那份还给宿主。
 ///
-/// 先过 `run` 走的那**两道门**再落盘：动作没注册是 400、权限声明不够是 403，两者
-/// 写进去都跑不起来，不如当场拒掉——免得宿主存下一份注定失败的文件。
+/// 先过 `run` 走的那**两道门**再落库：动作没注册是 400、权限声明不够是 403，两者
+/// 写进去都跑不起来，不如当场拒掉——免得宿主存下一份注定失败的指令。
+///
+/// `original_name` 与 `name` 不同就是**改名**：库在一个事务里删旧键、写新键并沿用分组与
+/// 来源。v12 那套「拿新名字另存一份文件、旧文件留在目录里」的操作就此消失。
 fn save_directive(
     state: &DaemonState,
     name: &str,
-    dir: Option<&str>,
+    original_name: Option<&str>,
     definition: Value,
 ) -> Result<Value, RpcError> {
-    let base =
-        resolve_dir(&state.directives_dir, dir).map_err(|e| RpcError::forbidden(e.to_string()))?;
     let directive: Directive = serde_json::from_value(definition.to_json())
         .map_err(|e| RpcError::invalid(format!("指令定义不合法: {e}")))?;
     validate_registered(&*state.registry, &directive).map_err(|e| from_engine(&e))?;
     validate_allowed(&*state.registry, &directive).map_err(|e| from_action(&e))?;
-    let text = directive.to_yaml_str().map_err(|e| from_engine(&e))?;
-    let file = save_target(&base, name).map_err(|e| from_engine(&e))?;
-    write_atomic(&file, &text).map_err(|e| RpcError::internal(e.to_string()))?;
-    as_data(&DirectiveDocument {
-        name: name.to_owned(),
-        path: for_host(&file),
-        text,
-        definition: directive,
-    })
+    let record = state
+        .store
+        .save_with_rename(original_name, name, &directive)
+        .map_err(from_store)?;
+    as_data(&DirectiveDocument::of(record))
+}
+
+fn delete_directive(state: &DaemonState, name: &str) -> Result<Value, RpcError> {
+    state.store.delete(name).map_err(from_store)?;
+    as_data(&serde_json::json!({ "name": name }))
+}
+
+/// 从磁盘导入指令（YAML 文件或目录）。
+///
+/// 这是 v13 里 YAML 的入口：`path` 是文件就导入一条，是目录就递归导入，相对子目录成为分组。
+fn import_directives(
+    state: &DaemonState,
+    path: &str,
+    folder: Option<&str>,
+    is_overwrite: bool,
+    is_dry_run: bool,
+) -> Result<Value, RpcError> {
+    let opts = ImportOptions {
+        is_overwrite,
+        is_dry_run,
+        folder: folder.map(str::to_owned),
+    };
+    let report = state
+        .store
+        .import_path(
+            Path::new(path),
+            &opts,
+            &admission(Arc::clone(&state.registry)),
+        )
+        .map_err(from_store)?;
+    as_data(&ImportReply::of(report))
 }
 
 /// 序列化成一条响应的 `data`。
@@ -631,14 +811,27 @@ fn as_data<T: Serialize>(value: &T) -> Result<Value, RpcError> {
         .map_err(|e| RpcError::internal(e.to_string()))
 }
 
+/// 库的错误按**类型**分桶，不看消息文本：名字撞车给 409（调用方要换个名字或先删旧的），
+/// 库里没有给 404，名字/定义不合法给 400，其余是 daemon 自己的问题（500）。
+fn from_store(err: StoreError) -> RpcError {
+    let message = err.to_string();
+    match err {
+        StoreError::NotFound(_) => RpcError::not_found(message),
+        StoreError::NameTaken(_) => RpcError::conflict(message),
+        StoreError::InvalidName(_) | StoreError::Invalid(_) => RpcError::invalid(message),
+        StoreError::Sql(_) | StoreError::Io(_) => RpcError::internal(message),
+    }
+}
+
+/// 这次执行要跑的那条指令。
+///
+/// `path` 是调用方显式给的 **ad-hoc 文件**（`corex run --file`、MCP 的临时文件）：给了文件就
+/// 认它，不再往库里找；没给就从库里按名字取。库里没有的名字由 [`from_engine`] 报 404。
 fn load_directive(state: &DaemonState, name: &str, path: Option<&str>) -> Result<Directive> {
-    let file = if let Some(p) = path {
-        confine_under(&state.directives_dir, Path::new(p))
-            .with_context(|| format!("指令路径越界: {p}"))?
-    } else {
-        resolve_directive(&state.directives_dir, name)?
-    };
-    Ok(Directive::from_yaml_file(&file)?)
+    match path {
+        Some(p) => Ok(Directive::from_yaml_file(Path::new(p))?),
+        None => Ok(state.source.load(name)?),
+    }
 }
 
 fn needs_interactive(permissions: PermissionSet) -> bool {
@@ -732,174 +925,6 @@ fn check_invoke_allowed(
     check_runtime_allowed(config, store, action_id)
 }
 
-/// 按名称解析指令：只在 `dir` 下找 `{name}.yaml` / `{name}.yml`。
-fn resolve_directive(dir: &Path, name: &str) -> Result<PathBuf, EngineError> {
-    check_directive_name(name)?;
-    let yaml = dir.join(format!("{name}.yaml"));
-    let yml = dir.join(format!("{name}.yml"));
-    if yaml.is_file() {
-        return Ok(yaml);
-    }
-    if yml.is_file() {
-        return Ok(yml);
-    }
-    Err(EngineError::DirectiveNotFound(name.to_owned()))
-}
-
-/// 保存时的目标文件：**写回 [`resolve_directive`] 会读到的那一个**，顺序必须一致。
-///
-/// 反过来（先看 `.yml`）会出现「改了没生效」：两份同名文件并存时执行的是 `.yaml`，
-/// 保存却改进 `.yml`。已有的 `.yml` 仍写回 `.yml`，不另生 `.yaml` 副本。
-fn save_target(dir: &Path, name: &str) -> Result<PathBuf, EngineError> {
-    check_directive_name(name)?;
-    let yaml = dir.join(format!("{name}.yaml"));
-    if yaml.is_file() {
-        return Ok(yaml);
-    }
-    let yml = dir.join(format!("{name}.yml"));
-    if yml.is_file() {
-        return Ok(yml);
-    }
-    Ok(yaml)
-}
-
-/// 指令名必须是裸名：`..` / 分隔符 / 盘符 / 绝对路径都会让读写跑到指令根之外。
-///
-/// 只判 [`Path::is_absolute`] 不够：Windows 上 `D:evil` 是**盘符相对**名，
-/// `dir.join("D:evil.yaml")` 见到盘符 prefix 会把 base 整个丢掉（`Path::push` 的语义），
-/// 落点是「D 盘的当前目录」——照样跑出指令根之外。所以要求整个名字**恰好是一个普通路径
-/// 组件**（分隔符 / 盘符 / `.` / `..` 都不算）。另加一条 `\`：它在 Unix 上不是分隔符，
-/// 但同一条指令名会跨平台落进 YAML 与 IPC 请求，不该只在 Windows 上被挡。
-fn check_directive_name(name: &str) -> Result<(), EngineError> {
-    let mut components = Path::new(name).components();
-    let is_bare =
-        matches!(components.next(), Some(Component::Normal(_))) && components.next().is_none();
-    if !is_bare || name.contains("..") || name.contains('\\') {
-        return Err(EngineError::Usage(format!("非法指令名: {name}")));
-    }
-    Ok(())
-}
-
-/// 先写同目录的临时文件再改名：**读到一个写了一半的指令**比写失败更糟。
-static ATOMIC_TEMP_SEQUENCE: AtomicU64 = AtomicU64::new(0);
-
-fn write_atomic(path: &Path, text: &str) -> Result<()> {
-    let name = path
-        .file_name()
-        .and_then(|name| name.to_str())
-        .unwrap_or("corex-directive");
-    let (tmp, mut file) = (0..32)
-        .find_map(|_| {
-            let sequence = ATOMIC_TEMP_SEQUENCE.fetch_add(1, Ordering::Relaxed);
-            let candidate =
-                path.with_file_name(format!(".{name}.tmp-{}-{sequence}", std::process::id()));
-            match OpenOptions::new()
-                .write(true)
-                .create_new(true)
-                .open(&candidate)
-            {
-                Ok(file) => Some(Ok((candidate, file))),
-                Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => None,
-                Err(error) => Some(Err(error)),
-            }
-        })
-        .ok_or_else(|| anyhow::anyhow!("无法创建唯一临时文件 {}", path.display()))?
-        .with_context(|| format!("无法写入 {}", path.display()))?;
-    let saved = (|| {
-        file.write_all(text.as_bytes())?;
-        file.sync_all()?;
-        drop(file);
-        std::fs::rename(&tmp, path).context("无法替换目标文件")
-    })();
-    if let Err(e) = saved {
-        let _ = std::fs::remove_file(&tmp);
-        return Err(e).with_context(|| format!("无法保存 {}", path.display()));
-    }
-    Ok(())
-}
-
-/// 保证 `path`（拼接相对路径之后）解析在 `root` 之下。
-fn confine_under(root: &Path, path: &Path) -> Result<PathBuf> {
-    corex_core::path::confine_under(root, path).map_err(|e| anyhow::anyhow!(e.0))
-}
-
-fn resolve_dir(directives_dir: &Path, dir: Option<&str>) -> Result<PathBuf> {
-    match dir {
-        None => Ok(directives_dir.to_path_buf()),
-        Some(d) => {
-            let confined = confine_under(directives_dir, Path::new(d))?;
-            if !confined.is_dir() {
-                bail!("不是目录: {}", confined.display());
-            }
-            Ok(confined)
-        }
-    }
-}
-
-/// 交给宿主的路径：去掉 `\\?\` 前缀、统一成原生分隔符。
-///
-/// 宿主会把它显示出来、也可能直接拿去开文件，所以它得是 `cmd` / PowerShell 认的那一份
-/// （`canonicalize` 之后的 `\\?\C:\...` 会被它们当成找不到路径）。
-fn for_host(path: &Path) -> String {
-    corex_core::path::display_path(&corex_core::path::for_external_process(path.to_path_buf()))
-}
-
-/// 列出目录下的指令，按名字排序。
-///
-/// `history` 顺带把每条指令「上次跑成什么样」一起算出来：一次倒扫尾巴就够全部指令，
-/// 宿主画卡片不必再逐条问一遍历史。
-fn directive_entries(
-    dir: &Path,
-    history: Option<&ExecutionHistory>,
-) -> Result<Vec<DirectiveEntry>> {
-    let mut entries = Vec::new();
-    if !dir.exists() {
-        return Ok(entries);
-    }
-    let ran = history
-        .map(ExecutionHistory::by_directive)
-        .unwrap_or_default();
-    for entry in std::fs::read_dir(dir)? {
-        let path = entry?.path();
-        let Some(name) = directive_stem(&path) else {
-            continue;
-        };
-        // 解析一遍就够：分类与卡片元信息都从这份模型来
-        let parsed = Directive::from_yaml_file(&path).ok();
-        // 账本按 YAML 里的 `name` 记（流水线只认模型，不认文件名），查账本就得用同一个键：
-        // 文件主干与 `name` 不一致时按主干查永远查不到，卡片会一直显示「未运行」。
-        let ran_as = parsed
-            .as_ref()
-            .map(|directive| directive.name.as_str())
-            .unwrap_or(name);
-        entries.push(DirectiveEntry {
-            name: name.to_owned(),
-            path: for_host(&path),
-            bucket: parsed
-                .as_ref()
-                .and_then(|directive| directive.bucket)
-                .map(|bucket| bucket.as_str().to_owned()),
-            summary: parsed.as_ref().map(|directive| DirectiveSummary {
-                description: directive.description.clone(),
-                step_count: directive.steps.len(),
-                input_count: directive.inputs.len(),
-                trigger_count: directive.triggers.len(),
-            }),
-            last_run: ran.get(ran_as).cloned(),
-        });
-    }
-    entries.sort_by(|a, b| a.name.cmp(&b.name));
-    Ok(entries)
-}
-
-/// 指令文件的裸名；不是 `.yaml` / `.yml` 的都不算指令。
-fn directive_stem(path: &Path) -> Option<&str> {
-    match path.extension().and_then(|e| e.to_str()) {
-        Some("yaml") | Some("yml") => path.file_stem()?.to_str(),
-        _ => None,
-    }
-}
-
 fn acquire_singleton(lock_path: &Path) -> Result<File> {
     if let Some(parent) = lock_path.parent() {
         std::fs::create_dir_all(parent)?;
@@ -915,18 +940,33 @@ fn acquire_singleton(lock_path: &Path) -> Result<File> {
     Ok(file)
 }
 
-fn open_history(data: &Path, config: &RuntimeConfig) -> Result<Option<ExecutionHistory>> {
+/// 执行日志的落点：与指令同库（`directives.db` 的 `runs` 表）。
+///
+/// `[history] enabled = false` 时给 `None`——那是不记账，不是换个地方记账。
+fn open_history(
+    store: Arc<DirectiveStore>,
+    config: &RuntimeConfig,
+) -> Option<Arc<dyn HistorySink>> {
     if !config.history.enabled {
-        return Ok(None);
+        return None;
+    }
+    Some(Arc::new(SqliteHistory::new(store)))
+}
+
+/// 旧版 JSONL 账本的位置；只在它真的还在时才去导入。
+///
+/// `[history] file` 在 v13 里只剩这一个用途（一次性搬家）：账本搬进库以后，卡片上的
+/// 「上次执行时间」才不会在升级当天集体变空。
+fn history_ledger(data: &Path, config: &RuntimeConfig) -> Option<PathBuf> {
+    if !config.history.enabled {
+        return None;
     }
     let path = if config.history.file.is_absolute() {
         config.history.file.clone()
     } else {
         data.join(&config.history.file)
     };
-    Ok(Some(
-        ExecutionHistory::open(path).context("无法打开执行历史文件")?,
-    ))
+    path.is_file().then_some(path)
 }
 
 /// 本次运行实际使用的 IPC 端点。
@@ -1164,62 +1204,19 @@ steps:
         assert!(!directive_needs_interactive(&registry, &directive));
     }
 
-    #[test]
-    fn write_atomic_does_not_reuse_a_shared_temp_name() {
-        let dir = tempfile::tempdir().unwrap();
-        let target = dir.path().join("example.yaml");
-        let conventional_tmp = target.with_extension("tmp");
-        std::fs::write(&conventional_tmp, "keep me").unwrap();
-
-        write_atomic(&target, "new contents").unwrap();
-
-        assert_eq!(std::fs::read_to_string(&target).unwrap(), "new contents");
-        assert_eq!(
-            std::fs::read_to_string(&conventional_tmp).unwrap(),
-            "keep me"
-        );
-    }
-
-    /// 名字必须是**恰好一个普通组件**：空、`.`、`..`、分隔符、绝对路径、含 `..` 的都不行。
+    /// 库的错误按类型分桶：404 / 409 / 400 / 500。
     ///
-    /// `\` 要单列：它在 Unix 上不是分隔符，组件判定会放它过去，但同一条名字会跨平台被
-    /// 写进 YAML / IPC 请求，不该只在 Windows 上被挡。
+    /// 409 与 400 必须分开：400 要改自己发的内容，409 得换个名字或先删旧的——宿主能做的事
+    /// 完全不同，合成一个就只能靠猜消息文本。
     #[test]
-    fn directive_name_must_be_a_bare_component() {
-        for bad in [
-            "",
-            ".",
-            "..",
-            "a/b",
-            "a\\b",
-            "../a",
-            "a/../b",
-            "pack/inner",
-            "..hidden",
-        ] {
-            assert!(check_directive_name(bad).is_err(), "{bad:?} 该被拒");
-        }
-        for good in ["build", "打包"] {
-            assert!(check_directive_name(good).is_ok(), "{good:?} 该通过");
-        }
-    }
+    fn store_failures_map_to_ipc_codes_by_kind() {
+        let code = |err: StoreError| from_store(err).code;
 
-    /// Windows 的盘符相对名（`D:evil`、`D:`）会连「落点」一起算错：`join` 把 base 丢掉。
-    ///
-    /// 所以不只名字那道门，算落点的那道也得分掉——直接用 `join` 的地方将来多起来时，
-    /// 漏掉一道就等于漏掉整条路径沙箱。
-    #[cfg(windows)]
-    #[test]
-    fn directive_name_rejects_windows_drive_relative() {
-        let dir = tempfile::tempdir().unwrap();
-        for bad in [r"D:evil", "D:", r"C:\windows", r"\\server\share\x"] {
-            assert!(check_directive_name(bad).is_err(), "{bad} 该被拒");
-            assert!(save_target(dir.path(), bad).is_err(), "{bad} 不该算出落点");
-        }
-        assert_eq!(
-            save_target(dir.path(), "build").unwrap(),
-            dir.path().join("build.yaml")
-        );
+        assert_eq!(code(StoreError::NotFound("build".into())), 404);
+        assert_eq!(code(StoreError::NameTaken("build".into())), 409);
+        assert_eq!(code(StoreError::InvalidName("a/b".into())), 400);
+        assert_eq!(code(StoreError::Invalid("坏 YAML".into())), 400);
+        assert_eq!(code(StoreError::Io(std::io::Error::other("磁盘满了"))), 500);
     }
 
     /// 失败按**类型**分桶，不看消息文本。

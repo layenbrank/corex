@@ -1,7 +1,9 @@
 //! 候选路径 → [`RuntimeConfig`]，以及随之产生的告警。
 
 use crate::context::{DaemonConfig, HistoryConfig, LoggingConfig};
-use crate::context::{PluginConfig, RuntimeConfig, UiProfileOverrides, UpdateConfig};
+use crate::context::{
+    DirectivesConfig, PluginConfig, RuntimeConfig, UiProfileOverrides, UpdateConfig,
+};
 use crate::error::EngineError;
 use serde::Deserialize;
 use std::path::PathBuf;
@@ -59,6 +61,9 @@ struct ConfigFile {
     plugins: Option<PluginConfig>,
     #[serde(default)]
     history: Option<HistoryConfig>,
+    /// `[directives]`：指令库的启动开关（一次性迁移、空库播种）。
+    #[serde(default)]
+    directives: Option<DirectivesConfig>,
     #[serde(default)]
     daemon: Option<DaemonConfig>,
     #[serde(default)]
@@ -99,6 +104,9 @@ impl ConfigFile {
         }
         if let Some(v) = self.history {
             cfg.history = v;
+        }
+        if let Some(v) = self.directives {
+            cfg.directives = v;
         }
         if let Some(v) = self.daemon {
             cfg.daemon = v;

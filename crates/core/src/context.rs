@@ -48,12 +48,38 @@ fn init_plugin_dir() -> PathBuf {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct HistoryConfig {
-    /// 为真时把流水线执行记录到 JSONL。
+    /// 为真时记录流水线执行（v13 起写进指令库 `directives.db` 的 `runs` 表）。
     #[serde(default = "init_history_enabled")]
     pub enabled: bool,
-    /// 文件名，或相对数据目录的路径。
+    /// 旧版 JSONL 账本的位置（文件名，或相对数据目录的路径）。
+    ///
+    /// v13 起执行日志与指令同库，这个字段**只用于首次打开指令库时把旧账本导入一次**——
+    /// 「上次执行时间」这类记录要是留在旧文件里，卡片上的时间会突然全空。
     #[serde(default = "init_history_file")]
     pub file: PathBuf,
+}
+
+/// 指令库的设置。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct DirectivesConfig {
+    /// 首次打开指令库时，把数据目录下 `directives/` 里的 YAML 一次性导入（v12 → v13 的迁移）。
+    ///
+    /// 原文件不删：导入只是把旧的那棵树搬进库，想回到文件形态随时 `corex directive export`。
+    #[serde(default = "init_history_enabled")]
+    pub auto_import: bool,
+    /// 库是空的时候写入起步指令。
+    #[serde(default = "init_history_enabled")]
+    pub seed: bool,
+}
+
+impl Default for DirectivesConfig {
+    fn default() -> Self {
+        Self {
+            auto_import: init_history_enabled(),
+            seed: init_history_enabled(),
+        }
+    }
 }
 
 fn init_history_enabled() -> bool {
@@ -353,6 +379,8 @@ pub struct RuntimeConfig {
     #[serde(default)]
     pub history: HistoryConfig,
     #[serde(default)]
+    pub directives: DirectivesConfig,
+    #[serde(default)]
     pub daemon: DaemonConfig,
     #[serde(default)]
     pub logging: LoggingConfig,
@@ -405,6 +433,7 @@ impl Default for RuntimeConfig {
         Self {
             plugins: PluginConfig::default(),
             history: HistoryConfig::default(),
+            directives: DirectivesConfig::default(),
             daemon: DaemonConfig::default(),
             logging: LoggingConfig::default(),
             max_parallel: init_max_parallel(),

@@ -6,8 +6,9 @@ use super::record::{
     ImportOptions, ImportReport, ImportStatus,
 };
 use super::schema;
-use corex_engine::Directive;
+use corex_engine::{Directive, DirectiveHistory, HistoryEntry};
 use rusqlite::{Connection, OptionalExtension, params};
+use std::collections::BTreeMap;
 use std::path::{Component, Path, PathBuf};
 use std::sync::{Mutex, MutexGuard};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
@@ -21,6 +22,15 @@ const BUSY_TIMEOUT_MS: u64 = 5_000;
 
 /// 一次性迁移的记账键：写过就代表「旧数据目录已经看过一遍了」。
 const LEGACY_IMPORT_KEY: &str = "legacy_import_from";
+
+/// 旧 JSONL 账本的记账键。
+const LEGACY_HISTORY_KEY: &str = "legacy_history_from";
+
+/// 聚合「最近一次 + 次数」时最多回看多少条日志。
+///
+/// 与 JSONL 时代 `ExecutionHistory::SCAN` 同一个量级：够给最近跑过的指令名去重，也不至于
+/// 为了画一张卡片把整份账本读出来。
+pub(crate) const RUNS_SCAN: usize = 512;
 
 /// 校验回调：把「这条指令能不能跑」的判断留给带注册表的一侧。
 ///
@@ -49,13 +59,18 @@ pub fn validate_name(name: &str) -> Result<(), StoreError> {
     Ok(())
 }
 
-/// 启动时要做的两件额外的事。
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// 启动时要做的几件额外的事。
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BootstrapOptions {
     /// 把旧数据目录里的 YAML 一次性导入（v12 → v13 的迁移）。
     pub is_auto_import: bool,
     /// 空库时写入起步指令（与 v12「空指令目录写起步指令」同一套内容）。
     pub is_seed: bool,
+    /// 旧版 JSONL 执行账本的位置（`[history] file`）；`Some` 时一次性导入。
+    ///
+    /// 「上次执行时间」这类记录同样要跟着迁移 —— 指令搬进库、运行记录却留在 JSONL 的话，
+    /// 卡片上的时间会突然全空，看起来像功能坏了。
+    pub history_jsonl: Option<PathBuf>,
 }
 
 impl Default for BootstrapOptions {
@@ -63,6 +78,7 @@ impl Default for BootstrapOptions {
         Self {
             is_auto_import: true,
             is_seed: true,
+            history_jsonl: None,
         }
     }
 }
@@ -74,6 +90,8 @@ pub struct BootstrapReport {
     pub legacy: Option<ImportReport>,
     /// 本次写入的起步指令名。
     pub seeded: Vec<String>,
+    /// 本次从旧 JSONL 账本导入了多少条；`None` = 没做这一步。
+    pub history_imported: Option<usize>,
 }
 
 impl BootstrapReport {
@@ -84,7 +102,7 @@ impl BootstrapReport {
             .as_ref()
             .map(|report| report.entries.len())
             .unwrap_or(0);
-        imported == 0 && self.seeded.is_empty()
+        imported == 0 && self.seeded.is_empty() && self.history_imported.unwrap_or(0) == 0
     }
 }
 
@@ -92,6 +110,7 @@ impl BootstrapReport {
 ///
 /// 进程内共享一个连接，用 `Mutex` 串行化：写库都是短事务（单条 upsert / 改名），
 /// 几十毫秒级的排队比每操作开一次连接便宜得多。跨进程靠 WAL + `busy_timeout`。
+#[derive(Debug)]
 pub struct DirectiveStore {
     conn: Mutex<Connection>,
 }
@@ -156,7 +175,7 @@ impl DirectiveStore {
     }
 
     /// 读一条指令，不存在时给 [`StoreError::NotFound`]。
-    pub fn get(&self, name: &str) -> Result<DirectiveRecord, StoreError> {
+    pub fn fetch(&self, name: &str) -> Result<DirectiveRecord, StoreError> {
         validate_name(name)?;
         self.find(name)?
             .ok_or_else(|| StoreError::NotFound(name.to_owned()))
@@ -201,7 +220,7 @@ impl DirectiveStore {
                updated_at_ms = excluded.updated_at_ms",
             params![name, folder, source, json, now],
         )?;
-        self.get(name)
+        self.fetch(name)
     }
 
     /// 保存模型（编辑器保存走这条）。
@@ -270,7 +289,7 @@ impl DirectiveStore {
         )?;
         tx.commit()?;
         drop(conn);
-        self.get(name)
+        self.fetch(name)
     }
 
     /// 改名：模型里的 `name` 跟着换，旧名字随之消失。
@@ -279,9 +298,9 @@ impl DirectiveStore {
     /// `UPDATE`，不存在第二份。
     pub fn rename(&self, from: &str, to: &str) -> Result<DirectiveRecord, StoreError> {
         if from == to {
-            return self.get(from);
+            return self.fetch(from);
         }
-        let definition = self.get(from)?.definition;
+        let definition = self.fetch(from)?.definition;
         self.save_with_rename(Some(from), to, &definition)
     }
 
@@ -299,7 +318,7 @@ impl DirectiveStore {
 
     /// 一条指令的规范化 YAML（导出用）。
     pub fn export_yaml(&self, name: &str) -> Result<String, StoreError> {
-        Ok(self.get(name)?.yaml)
+        Ok(self.fetch(name)?.yaml)
     }
 
     /// 把库里全部指令导出成一个 YAML 目录（`<out>/<名字>.yaml`），返回写下的文件路径。
@@ -322,6 +341,140 @@ impl DirectiveStore {
         Ok(written)
     }
 
+    /// 写一条执行日志。
+    ///
+    /// `recorded_at_ms` 记的是「谁在什么时候把它写进来的」，与运行自己的起止时间分开：旧账本
+    /// 导入进去的那些，落库时间与运行时间差着好几个月，排查时能分清。
+    ///
+    /// 同一条运行重复写会被唯一索引挡掉（`INSERT OR IGNORE`）——旧账本可能被导入多次，
+    /// 重复计数比丢记录更难查。
+    pub fn append_run(&self, entry: &HistoryEntry) -> Result<(), StoreError> {
+        let recorded = now_ms();
+        self.conn().execute(
+            "INSERT OR IGNORE INTO runs \
+             (directive, started_at_ms, ended_at_ms, ok, error, duration_ms, recorded_at_ms) \
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+            params![
+                entry.directive,
+                entry.started_at_ms as i64,
+                entry.ended_at_ms as i64,
+                entry.ok,
+                entry.error,
+                entry.duration_ms as i64,
+                recorded,
+            ],
+        )?;
+        Ok(())
+    }
+
+    /// 最近的执行日志，新的在前；`name` 只看一条指令，`limit` 最多回几条。
+    pub fn recent_runs(
+        &self,
+        name: Option<&str>,
+        limit: usize,
+    ) -> Result<Vec<HistoryEntry>, StoreError> {
+        if limit == 0 {
+            return Ok(Vec::new());
+        }
+        let conn = self.conn();
+        let mut stmt = conn.prepare(
+            "SELECT directive, started_at_ms, ended_at_ms, ok, error, duration_ms FROM runs \
+             WHERE (?1 IS NULL OR directive = ?1) ORDER BY id DESC LIMIT ?2",
+        )?;
+        let rows = stmt.query_map(params![name, limit as i64], |row| {
+            Ok(HistoryEntry {
+                directive: row.get(0)?,
+                started_at_ms: to_ms(row.get(1)?),
+                ended_at_ms: to_ms(row.get(2)?),
+                ok: row.get(3)?,
+                error: row.get(4)?,
+                duration_ms: to_ms(row.get(5)?),
+            })
+        })?;
+
+        let mut out = Vec::new();
+        for row in rows {
+            out.push(row?);
+        }
+        Ok(out)
+    }
+
+    /// 最近跑过的指令名，新的在前、同名只留一次。
+    pub fn recent_run_names(&self, limit: usize) -> Result<Vec<String>, StoreError> {
+        if limit == 0 {
+            return Ok(Vec::new());
+        }
+        let mut names: Vec<String> = Vec::new();
+        for entry in self.recent_runs(None, RUNS_SCAN.max(limit))? {
+            if names.iter().any(|name| name == &entry.directive) {
+                continue;
+            }
+            names.push(entry.directive);
+            if names.len() == limit {
+                break;
+            }
+        }
+        Ok(names)
+    }
+
+    /// 按指令名聚合「最近一次 + 窗口内的次数」，语义与 JSONL 时代的 `by_directive` 一致。
+    pub fn runs_by_directive(
+        &self,
+        window: usize,
+    ) -> Result<BTreeMap<String, DirectiveHistory>, StoreError> {
+        let mut out: BTreeMap<String, DirectiveHistory> = BTreeMap::new();
+        for entry in self.recent_runs(None, window)? {
+            let summary = out
+                .entry(entry.directive.clone())
+                .or_insert_with(|| DirectiveHistory::from_run(&entry));
+            summary.run_count += 1;
+            if !entry.ok {
+                summary.failed_count += 1;
+            }
+        }
+        Ok(out)
+    }
+
+    /// 执行日志一共有多少条。
+    pub fn runs_count(&self) -> Result<usize, StoreError> {
+        let count: i64 = self
+            .conn()
+            .query_row("SELECT COUNT(*) FROM runs", [], |row| row.get(0))?;
+        Ok(usize::try_from(count).unwrap_or(0))
+    }
+
+    /// 把旧版的 JSONL 账本一次性导入（`[history] file`）。
+    ///
+    /// 只在 `meta.legacy_history_from` 没写过时动手；文件不存在也记账 —— 新装环境本来就没有
+    /// 这份文件，不该每次启动都去 `stat` 一次。坏行跳过：一份账本里有一行写坏，不该让整份
+    /// 导入放弃。
+    pub fn import_legacy_history(&self, path: &Path) -> Result<Option<usize>, StoreError> {
+        if self.meta(LEGACY_HISTORY_KEY)?.is_some() {
+            return Ok(None);
+        }
+
+        let mut imported = 0usize;
+        if path.is_file() {
+            let text = std::fs::read_to_string(path)?;
+            for line in text.lines() {
+                let line = line.trim();
+                if line.is_empty() {
+                    continue;
+                }
+                match serde_json::from_str::<HistoryEntry>(line) {
+                    Ok(entry) => {
+                        if self.append_run(&entry).is_ok() {
+                            imported += 1;
+                        }
+                    }
+                    Err(error) => warn!(error = %error, "跳过损坏的历史行"),
+                }
+            }
+        }
+        self.put_meta(LEGACY_HISTORY_KEY, &path.display().to_string())?;
+        Ok(Some(imported))
+    }
+
     /// 库里的元信息。
     pub fn meta(&self, key: &str) -> Result<Option<String>, StoreError> {
         let value: Option<String> = self
@@ -334,7 +487,7 @@ impl DirectiveStore {
     }
 
     /// 写一条元信息。
-    pub fn set_meta(&self, key: &str, value: &str) -> Result<(), StoreError> {
+    pub fn put_meta(&self, key: &str, value: &str) -> Result<(), StoreError> {
         self.conn().execute(
             "INSERT INTO meta (key, value) VALUES (?1, ?2) \
              ON CONFLICT(key) DO UPDATE SET value = excluded.value",
@@ -351,7 +504,26 @@ impl DirectiveStore {
         validate: Validator<'_>,
     ) -> Result<ImportEntry, StoreError> {
         let folder = opts.folder.as_deref();
-        self.import_path(path, folder, opts, validate)
+        self.import_file_at(path, folder, opts, validate)
+    }
+
+    /// 导入「用户给的那个路径」：文件就导入一条，目录就递归导入（子目录成为分组）。
+    ///
+    /// 三个入口（CLI / daemon / MCP）拿到的都是用户随手给的路径，所以判定「这是文件还是目录」
+    /// 只该有一处——各写一份的话，`--dry-run`、分组回退这类语义迟早走偏。
+    pub fn import_path(
+        &self,
+        path: &Path,
+        opts: &ImportOptions,
+        validate: Validator<'_>,
+    ) -> Result<ImportReport, StoreError> {
+        if path.is_dir() {
+            return self.import_dir(path, opts, validate);
+        }
+        let entry = self.import_file(path, opts, validate)?;
+        Ok(ImportReport {
+            entries: vec![entry],
+        })
     }
 
     /// 导入一段 YAML 文本（`corex edit` 的编辑往返也走它）。
@@ -441,7 +613,7 @@ impl DirectiveStore {
         for path in files {
             // 子目录优先于 `--folder`：目录结构本身就是用户表达的分组。
             let folder = folder_of(dir, &path).or_else(|| opts.folder.clone());
-            let entry = self.import_path(&path, folder.as_deref(), opts, validate)?;
+            let entry = self.import_file_at(&path, folder.as_deref(), opts, validate)?;
             report.entries.push(entry);
         }
         Ok(report)
@@ -504,6 +676,19 @@ impl DirectiveStore {
             report.seeded = store.seed_starters()?;
         }
 
+        if let Some(history) = &opts.history_jsonl {
+            report.history_imported = store.import_legacy_history(history)?;
+            if let Some(count) = report.history_imported
+                && count > 0
+            {
+                info!(
+                    path = %history.display(),
+                    count,
+                    "已把旧执行账本导入指令库"
+                );
+            }
+        }
+
         Ok((store, report))
     }
 
@@ -526,11 +711,12 @@ impl DirectiveStore {
         } else {
             ImportReport::default()
         };
-        self.set_meta(LEGACY_IMPORT_KEY, &dir.display().to_string())?;
+        self.put_meta(LEGACY_IMPORT_KEY, &dir.display().to_string())?;
         Ok(Some(import))
     }
 
-    fn import_path(
+    /// 单个文件的导入：读文本、带上分组、交给 [`Self::import_text`]。
+    fn import_file_at(
         &self,
         path: &Path,
         folder: Option<&str>,

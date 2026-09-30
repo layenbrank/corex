@@ -35,6 +35,24 @@ CREATE TABLE IF NOT EXISTS directives (
 
 CREATE INDEX IF NOT EXISTS idx_directives_folder ON directives(folder);
 CREATE INDEX IF NOT EXISTS idx_directives_updated ON directives(updated_at_ms);
+
+-- 执行日志：与指令同库，「上次执行时间 / 上次成功没 / 跑了多少次」不再另找一处账本。
+-- `(directive, started_at_ms, ended_at_ms)` 唯一：旧 JSONL 账本可能被导入多次，重复计数
+-- 比丢一次记录更难查，所以按「同一条运行」去重，导入也就天然幂等。
+CREATE TABLE IF NOT EXISTS runs (
+  id             INTEGER PRIMARY KEY AUTOINCREMENT,
+  directive      TEXT NOT NULL,
+  started_at_ms  INTEGER NOT NULL,
+  ended_at_ms    INTEGER NOT NULL,
+  ok             INTEGER NOT NULL,
+  error          TEXT,
+  duration_ms    INTEGER NOT NULL,
+  recorded_at_ms INTEGER NOT NULL,
+  UNIQUE (directive, started_at_ms, ended_at_ms)
+);
+
+CREATE INDEX IF NOT EXISTS idx_runs_directive ON runs(directive, id DESC);
+CREATE INDEX IF NOT EXISTS idx_runs_recorded ON runs(recorded_at_ms DESC);
 "#;
 
 /// 把库补到 [`SCHEMA_VERSION`]。

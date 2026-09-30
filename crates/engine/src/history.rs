@@ -76,7 +76,10 @@ pub struct DirectiveHistory {
 
 impl DirectiveHistory {
     /// 拿一条执行记录当「最近一次」，计数从 0 起（由聚合方累加）。
-    fn from_run(entry: &HistoryEntry) -> Self {
+    ///
+    /// 公开是因为聚合不只发生在 JSONL 这一侧：v13 起执行日志落在指令库里
+    /// （`corex_store::SqliteHistory`），它也要按同一套语义把记录折成「上次跑成什么样」。
+    pub fn from_run(entry: &HistoryEntry) -> Self {
         Self {
             started_at_ms: entry.started_at_ms,
             ended_at_ms: entry.ended_at_ms,
@@ -157,6 +160,46 @@ const TAIL_BYTES: u64 = 128 * 1024;
 
 /// 聚合 / 去重时最多回看多少条：给 [`ExecutionHistory::recent_names`] 留足去重的余地。
 const SCAN: usize = 512;
+
+/// 执行历史的写入与查询口。
+///
+/// 引擎只负责「跑完把这一条记下来」，**记在哪由调用方定**：v13 起指令库（SQLite）是唯一
+/// 真相源，daemon / CLI / MCP 都把记录写进库（`corex_store::SqliteHistory`）；JSONL 实现
+/// （[`ExecutionHistory`]）留着，供显式把 `[history] file` 指到文件的场景与测试使用。
+///
+/// 之所以放进引擎而不是直接让引擎依赖指令库：依赖方向是 `store → engine`（库要用引擎的
+/// `Directive`），反过来加边就成环了。
+pub trait HistorySink: Send + Sync + std::fmt::Debug {
+    /// 追加一条；失败只记日志，不向上传播 —— 记不下来不该让一次已经跑完的指令报失败。
+    fn record_best_effort(&self, entry: &HistoryEntry);
+
+    /// 最近的执行记录，新的在前；`name` 只看一条指令，`limit` 最多回几条。
+    fn recent(&self, name: Option<&str>, limit: usize) -> Vec<HistoryEntry>;
+
+    /// 最近跑过的指令名，新的在前、同名只留一次。
+    fn recent_names(&self, limit: usize) -> Vec<String>;
+
+    /// 按指令名聚合「最近一次 + 窗口内的次数」。
+    fn by_directive(&self) -> BTreeMap<String, DirectiveHistory>;
+}
+
+impl HistorySink for ExecutionHistory {
+    fn record_best_effort(&self, entry: &HistoryEntry) {
+        ExecutionHistory::record_best_effort(self, entry);
+    }
+
+    fn recent(&self, name: Option<&str>, limit: usize) -> Vec<HistoryEntry> {
+        ExecutionHistory::recent(self, name, limit)
+    }
+
+    fn recent_names(&self, limit: usize) -> Vec<String> {
+        ExecutionHistory::recent_names(self, limit)
+    }
+
+    fn by_directive(&self) -> BTreeMap<String, DirectiveHistory> {
+        ExecutionHistory::by_directive(self)
+    }
+}
 
 /// 执行历史的只追加 JSONL 写入器。
 #[derive(Debug, Clone)]

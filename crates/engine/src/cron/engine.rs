@@ -2,7 +2,8 @@
 
 use super::expr::parse_cron_expr;
 use super::tz::{ResolvedCronTz, parse_cron_timezone};
-use crate::run::run_directive_file;
+use crate::history::HistorySink;
+use crate::run::{DirectiveSource, run_directive_spec};
 use corex_core::{ActionStore, EngineError, RuntimeConfig};
 use std::collections::HashMap;
 use std::future::Future;
@@ -36,6 +37,10 @@ pub struct CronEngine {
     data_dir: PathBuf,
     store: Arc<dyn ActionStore>,
     runtime: RuntimeConfig,
+    /// 每次触发从哪取指令；`None` 时只能按 `directive_path` 读文件（老行为）。
+    source: Option<Arc<dyn DirectiveSource>>,
+    /// 执行日志写到哪；`None` 时由 runner 按 `[history]` 配置决定。
+    history: Option<Arc<dyn HistorySink>>,
     scheduler: tokio_cron_scheduler::JobScheduler,
     jobs: Mutex<HashMap<String, JobState>>,
 }
@@ -47,6 +52,8 @@ impl CronEngine {
         data_dir: PathBuf,
         store: Arc<dyn ActionStore>,
         runtime: RuntimeConfig,
+        source: Option<Arc<dyn DirectiveSource>>,
+        history: Option<Arc<dyn HistorySink>>,
     ) -> Result<Arc<Self>, EngineError> {
         let scheduler = tokio_cron_scheduler::JobScheduler::new()
             .await
@@ -59,6 +66,8 @@ impl CronEngine {
             data_dir,
             store,
             runtime,
+            source,
+            history,
             scheduler,
             jobs: Mutex::new(HashMap::new()),
         }))
@@ -75,6 +84,8 @@ impl CronEngine {
         let store = Arc::clone(&self.store);
         let runtime = self.runtime.clone();
         let data_dir = self.data_dir.clone();
+        let source = self.source.clone();
+        let history = self.history.clone();
         let path = spec.directive_path.clone();
         let name = spec.directive_name.clone();
         let is_running = Arc::new(AtomicBool::new(false));
@@ -85,6 +96,8 @@ impl CronEngine {
             let store = Arc::clone(&store);
             let runtime = runtime.clone();
             let data_dir = data_dir.clone();
+            let source = source.clone();
+            let history = history.clone();
             let path = path.clone();
             let name = name.clone();
             let flag = Arc::clone(&flag);
@@ -97,7 +110,16 @@ impl CronEngine {
                     return;
                 }
                 info!(directive = %name, "cron 触发执行");
-                let result = run_directive_file(store, runtime, data_dir, &path).await;
+                let result = run_directive_spec(
+                    store,
+                    runtime,
+                    &data_dir,
+                    source.as_ref(),
+                    history.as_ref(),
+                    &name,
+                    &path,
+                )
+                .await;
                 if let Err(e) = result {
                     warn!(directive = %name, error = %e, "cron 执行失败");
                 }
@@ -159,13 +181,24 @@ impl CronEngine {
         let store = Arc::clone(&self.store);
         let runtime = self.runtime.clone();
         let data_dir = self.data_dir.clone();
+        let source = self.source.clone();
+        let history = self.history.clone();
         let path = state.spec.directive_path.clone();
         let name = state.spec.directive_name.clone();
         let flag = Arc::clone(&state.is_running);
         drop(jobs);
         tokio::spawn(async move {
             info!(directive = %name, "cron RUN_NOW");
-            let _ = run_directive_file(store, runtime, data_dir, &path).await;
+            let _ = run_directive_spec(
+                store,
+                runtime,
+                &data_dir,
+                source.as_ref(),
+                history.as_ref(),
+                &name,
+                &path,
+            )
+            .await;
             flag.store(false, Ordering::SeqCst);
         });
         Ok(())

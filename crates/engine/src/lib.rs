@@ -19,14 +19,16 @@ pub mod watch;
 pub use audit::{AuditEntry, ExecutionAudit};
 pub use corex_core::{PermissionKind, PermissionSet};
 pub use definition::{
-    ActionStep, Condition, Directive, InputDecl, OnError, Permissions, Step, Trigger,
+    ActionStep, Condition, Directive, InputDecl, OnError, Permissions, Step, Trigger, admission,
     required_permissions, validate_allowed, validate_permissions, validate_registered,
 };
-pub use history::{DirectiveHistory, ExecutionHistory, HistoryEntry};
+pub use history::{DirectiveHistory, ExecutionHistory, HistoryEntry, HistorySink};
 pub use inputs::{fill_input_defaults, is_input_unset};
 pub use pipeline::Pipeline;
 pub use resolver::Resolver;
-pub use run::{DirectiveRunner, run_directive_file};
+pub use run::{
+    DirectiveRunner, DirectiveSource, SupervisorIo, run_directive_file, run_directive_spec,
+};
 pub use supervisor::process::{
     child_supervisor_identity, current_supervisor_identity, is_pid_running, is_supervisor_alive,
     kill_process_tree, spawn_detached,

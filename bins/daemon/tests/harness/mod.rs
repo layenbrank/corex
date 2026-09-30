@@ -6,7 +6,7 @@
 #![allow(dead_code)]
 
 use corex_core::Value;
-use corex_ipc::protocol::Request;
+use corex_ipc::protocol::{Request, Response};
 use corex_ipc::{Transport, ipc_connect};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
@@ -30,14 +30,16 @@ impl Drop for Daemon {
 }
 
 impl Daemon {
-    fn spawn(config: &Path, directives: &Path, log: &Path, data: &Path) -> Self {
+    fn spawn(config: &Path, imports: &Path, log: &Path, data: &Path) -> Self {
         let out = std::fs::File::create(log).expect("daemon log");
         let err = out.try_clone().expect("daemon log clone");
         let child = Command::new(env!("CARGO_BIN_EXE_corex-daemon"))
             .arg("--config")
             .arg(config)
-            .arg("--directives")
-            .arg(directives)
+            // 数据目录下的 `directives/` 会在打开库时自动导入一次（`[directives] auto_import`），
+            // 所以这里指的同一个目录等于一次空导入——留着是为了钉住「显式导入」这条路径。
+            .arg("--import")
+            .arg(imports)
             .env("COREX_TOKEN", TOKEN)
             // 钉住数据目录。不钉的话 `data_dir()` 会退到二进制所在的目录（构建产物旁边），
             // 端点记录与历史都写到那儿去，而且几个用例共用一份会互相覆盖。
@@ -160,6 +162,27 @@ pub async fn start_with(tag: &str, extra: &str) -> (tempfile::TempDir, Daemon, P
 
 pub fn authed(request: Request) -> Request {
     request.with_auth_token(TOKEN)
+}
+
+/// 把一段 YAML 写进 `dir` 并导入指令库，返回落点。
+///
+/// v13 起指令的真相在库里，测试要造一条指令就得走导入（或 `save_directive` 的结构化定义）；
+/// 往 `<数据目录>/directives` 里丢个文件已经不起作用——只有 daemon **启动时**那一次会扫它。
+pub async fn import_yaml(endpoint: &Path, dir: &Path, name: &str, yaml: &str) -> PathBuf {
+    let path = dir.join(format!("{name}.yaml"));
+    std::fs::write(&path, yaml).expect("write yaml");
+    let request = Request::ImportDirectives {
+        id: 0,
+        auth_token: None,
+        path: path.display().to_string(),
+        folder: None,
+        is_overwrite: false,
+        is_dry_run: false,
+    };
+    match ipc_connect(endpoint).send(&authed(request)).await {
+        Ok(Response::Ok { .. }) => path,
+        other => panic!("导入 {name} 失败: {other:?}"),
+    }
 }
 
 /// 取一个字符串数组字段；缺失或类型不对都当空表。

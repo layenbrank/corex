@@ -17,6 +17,7 @@ corex-engine = { workspace = true }
 # `all-actions` 之上额外开启 `wasm`。
 corex-registry     = { workspace = true, features = ["wasm"] }
 corex-ipc          = { workspace = true }
+corex-store        = { workspace = true }
 anyhow             = { workspace = true }
 clap               = { workspace = true }
 tokio              = { workspace = true }
