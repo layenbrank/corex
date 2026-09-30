@@ -8,6 +8,40 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 See also [Conventional Commits](https://www.conventionalcommits.org/).
 
 ---
+## [13.0.0](https://github.com/layenbrank/corex/compare/v12.1.0..v13.0.0) - 2026-09-30
+
+### 💥 Breaking Changes
+
+- **(store)** 指令改用 SQLite 唯一真相源，YAML 降级为导入导出
+> BREAKING CHANGE:指令与执行日志从「directives/ 目录 + history.jsonl」搬进
+> <数据目录>/directives.db（SQLite 唯一真相源）。IPC 去掉 dir 参数、read_directive 的
+> text 改名 yaml、新增 delete_directive / import_directives；corex paths --json 的
+> directives_dir 换成 directives_db。旧的 directives/ 与 history.jsonl 只在首次打开库时
+> 导入一次，原文件保留。详见 docs/changelog/破坏性变更-v13.md。 · ([`497e383`](https://github.com/layenbrank/corex/commit/497e383418e365544d38aaca905d55081db95f06)) · lh
+
+
+### 🚀 Features
+- **(cli,mcp)** CLI 与 MCP 改用指令库，新增 corex directive 命令族 · ([`92a654b`](https://github.com/layenbrank/corex/commit/92a654b4d4dce5f6324a3f050d099f28b0c70e5b)) · lh
+- 💥 **(store)** 指令改用 SQLite 唯一真相源，YAML 降级为导入导出 — **breaking** · ([`497e383`](https://github.com/layenbrank/corex/commit/497e383418e365544d38aaca905d55081db95f06)) · lh
+
+
+### 📚 Documentation
+- **(v13)** 指令库迁移说明与全仓文档同步 · ([`885d575`](https://github.com/layenbrank/corex/commit/885d5758be86fba326738a8df0de80c01b5fe002)) · lh
+
+
+### ♻️ Refactoring
+- **(daemon)** 指令层改用指令库，删掉整套文件路径逻辑 · ([`7e2e49b`](https://github.com/layenbrank/corex/commit/7e2e49bfc9c709ffeb0b789cc398cee5994a0559)) · lh
+
+
+### 🎨 Style
+- **(registry)** launch 测试换掉会被 typos 判错的非法枚举值 · ([`428a84a`](https://github.com/layenbrank/corex/commit/428a84aac68d98c13e10b26ab02805c9092a3ddc)) · layen
+- **(registry)** 过滤串按对切分改用 as_chunks，跟上 1.98 的 clippy · ([`a5a5680`](https://github.com/layenbrank/corex/commit/a5a568050a2ece537788ea14ee7f2cafb529dd3d)) · layen
+
+
+### 📦 Release
+- **(release)** bump version to 13.0.0 · ([`ac8e669`](https://github.com/layenbrank/corex/commit/ac8e66960b57837f2674d20d8868113b84486fff)) · lh
+
+---
 ## [12.1.0](https://github.com/layenbrank/corex/compare/v12.0.0..v12.1.0) - 2026-09-23
 
 ### 🚀 Features
