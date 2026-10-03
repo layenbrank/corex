@@ -2,7 +2,7 @@
 
 use super::error::StoreError;
 use super::record::{
-    DIRECTIVES_DB_FILE, DirectiveMeta, DirectiveRecord, DirectiveSummary, ImportEntry,
+    DATABASE_FILE, LEGACY_DATABASE_FILE, DirectiveMeta, DirectiveRecord, DirectiveSummary, ImportEntry,
     ImportOptions, ImportReport, ImportStatus,
 };
 use super::schema;
@@ -38,9 +38,41 @@ pub(crate) const RUNS_SCAN: usize = 512;
 /// 用户要到运行时才发现。所以把判定从外面传进来。
 pub type Validator<'a> = &'a dyn Fn(&Directive) -> Result<(), String>;
 
-/// 指令库文件路径。
-pub fn directives_db_path(data_dir: &Path) -> PathBuf {
-    data_dir.join(DIRECTIVES_DB_FILE)
+/// 指令库文件路径（`<数据目录>/corex.db`）。
+///
+/// 若仅存在早期的 `directives.db`，一次性改名为 `corex.db`（含 WAL / SHM）。
+pub fn database_path(data_dir: &Path) -> PathBuf {
+    migrate_legacy_database(data_dir);
+    data_dir.join(DATABASE_FILE)
+}
+
+fn migrate_legacy_database(data_dir: &Path) {
+    let dest = data_dir.join(DATABASE_FILE);
+    let src = data_dir.join(LEGACY_DATABASE_FILE);
+    if dest.exists() || !src.is_file() {
+        return;
+    }
+    if let Err(error) = std::fs::rename(&src, &dest) {
+        warn!(
+            from = %src.display(),
+            to = %dest.display(),
+            error = %error,
+            "指令库改名失败"
+        );
+        return;
+    }
+    for suffix in ["-wal", "-shm"] {
+        let from = data_dir.join(format!("{LEGACY_DATABASE_FILE}{suffix}"));
+        let to = data_dir.join(format!("{DATABASE_FILE}{suffix}"));
+        if from.is_file() {
+            let _ = std::fs::rename(&from, &to);
+        }
+    }
+    info!(
+        from = %LEGACY_DATABASE_FILE,
+        to = %DATABASE_FILE,
+        "指令库已改名为产品库文件名"
+    );
 }
 
 /// 指令名必须是裸名：`..`、路径分隔符、盘符、绝对路径都不行。
@@ -181,12 +213,25 @@ impl DirectiveStore {
             .unwrap_or_else(|poisoned| poisoned.into_inner())
     }
 
-    /// 列全部指令，按名字排序（与 `corex schedule` 的历史顺序一致）。
-    pub fn list(&self) -> Result<Vec<DirectiveMeta>, StoreError> {
-        let conn = self.conn();
-        let mut stmt = conn.prepare(&format!(
+    /// 用户可见指令元信息，按名字排序（与 `corex schedule` 的历史顺序一致）。
+    ///
+    /// 隐藏 `visible = 0` 的预配置指令；按名 `fetch` / `run` 仍可执行它们。
+    pub fn metas(&self) -> Result<Vec<DirectiveMeta>, StoreError> {
+        self.query_metas(&format!(
+            "SELECT {SELECT_COLUMNS} FROM directives WHERE visible = 1 ORDER BY name ASC"
+        ))
+    }
+
+    /// 全部指令元信息（含隐藏），调试 / 管理用。
+    pub fn all_metas(&self) -> Result<Vec<DirectiveMeta>, StoreError> {
+        self.query_metas(&format!(
             "SELECT {SELECT_COLUMNS} FROM directives ORDER BY name ASC"
-        ))?;
+        ))
+    }
+
+    fn query_metas(&self, sql: &str) -> Result<Vec<DirectiveMeta>, StoreError> {
+        let conn = self.conn();
+        let mut stmt = conn.prepare(sql)?;
         let rows = stmt.query_map([], RawRow::from_row)?;
 
         let mut metas = Vec::new();
@@ -225,7 +270,7 @@ impl DirectiveStore {
         row.map(RawRow::into_record).transpose()
     }
 
-    /// 新建或整体覆盖：`folder` / `source` 由调用方给定（新建、导入走这条）。
+    /// 新建或整体覆盖：`folder` / `source` / `visible` 由调用方给定（新建、导入走这条）。
     ///
     /// 模型里的 `name` 会被改写成这里的 `name`——库的键与模型只有一处真相，v12 里
     /// 「文件主干与 YAML 的 `name` 不一致，卡片就一直显示未运行」那类毛病不会再出现。
@@ -235,20 +280,23 @@ impl DirectiveStore {
         definition: &Directive,
         folder: Option<&str>,
         source: Option<&str>,
+        visible: bool,
     ) -> Result<DirectiveRecord, StoreError> {
         validate_name(name)?;
         let folder = normalize_folder(folder);
         let json = encode(name, definition)?;
         let now = now_ms();
+        let visible_flag = if visible { 1 } else { 0 };
         self.conn().execute(
-            "INSERT INTO directives (name, folder, source, definition_json, created_at_ms, updated_at_ms) \
-             VALUES (?1, ?2, ?3, ?4, ?5, ?5) \
+            "INSERT INTO directives (name, folder, source, definitionJson, visible, createdAt, updatedAt) \
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?6) \
              ON CONFLICT(name) DO UPDATE SET \
                folder = excluded.folder, \
                source = excluded.source, \
-               definition_json = excluded.definition_json, \
-               updated_at_ms = excluded.updated_at_ms",
-            params![name, folder, source, json, now],
+               definitionJson = excluded.definitionJson, \
+               visible = excluded.visible, \
+               updatedAt = excluded.updatedAt",
+            params![name, folder, source, json, visible_flag, now],
         )?;
         self.fetch(name)
     }
@@ -280,15 +328,15 @@ impl DirectiveStore {
         let mut conn = self.conn();
         let tx = conn.transaction()?;
 
-        // 改名时先把旧行的分组 / 来源取下来：它们是库的元信息，不该因为改个名就丢掉。
+        // 改名时先把旧行的分组 / 来源 / 可见性取下来：它们是库的元信息，不该因为改个名就丢掉。
         let carried = match renaming_from {
             Some(previous) => {
                 validate_name(previous)?;
-                let row: Option<(Option<String>, Option<String>)> = tx
+                let row: Option<(Option<String>, Option<String>, i64)> = tx
                     .query_row(
-                        "SELECT folder, source FROM directives WHERE name = ?1",
+                        "SELECT folder, source, visible FROM directives WHERE name = ?1",
                         [previous],
-                        |row| Ok((row.get(0)?, row.get(1)?)),
+                        |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
                     )
                     .optional()?;
                 let taken: bool = tx.query_row(
@@ -307,15 +355,17 @@ impl DirectiveStore {
             None => None,
         };
 
-        // 不是改名（或旧行本来就不在库里）时分组与来源留空；命中已有行时 `ON CONFLICT` 不碰这两列。
-        let (folder, source) = carried.unwrap_or((None, None));
+        // 不是改名（或旧行本来就不在库里）时分组与来源留空、可见；命中已有行时 `ON CONFLICT` 不碰元信息列。
+        let (folder, source, visible_flag) = carried
+            .map(|(folder, source, visible)| (folder, source, visible))
+            .unwrap_or((None, None, 1));
         tx.execute(
-            "INSERT INTO directives (name, folder, source, definition_json, created_at_ms, updated_at_ms) \
-             VALUES (?1, ?2, ?3, ?4, ?5, ?5) \
+            "INSERT INTO directives (name, folder, source, definitionJson, visible, createdAt, updatedAt) \
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?6) \
              ON CONFLICT(name) DO UPDATE SET \
-               definition_json = excluded.definition_json, \
-               updated_at_ms = excluded.updated_at_ms",
-            params![name, folder, source, json, now],
+               definitionJson = excluded.definitionJson, \
+               updatedAt = excluded.updatedAt",
+            params![name, folder, source, json, visible_flag, now],
         )?;
         tx.commit()?;
         drop(conn);
@@ -358,7 +408,7 @@ impl DirectiveStore {
     pub fn export_dir(&self, out: &Path, is_overwrite: bool) -> Result<Vec<PathBuf>, StoreError> {
         std::fs::create_dir_all(out)?;
         let mut written = Vec::new();
-        for meta in self.list()? {
+        for meta in self.metas()? {
             let path = out.join(format!("{}.yaml", meta.name));
             if path.exists() && !is_overwrite {
                 warn!(path = %path.display(), "已存在，跳过导出");
@@ -373,7 +423,7 @@ impl DirectiveStore {
 
     /// 写一条执行日志。
     ///
-    /// `recorded_at_ms` 记的是「谁在什么时候把它写进来的」，与运行自己的起止时间分开：旧账本
+    /// `recordedAt` 记的是「谁在什么时候把它写进来的」，与运行自己的起止时间分开：旧账本
     /// 导入进去的那些，落库时间与运行时间差着好几个月，排查时能分清。
     ///
     /// 同一条运行重复写会被唯一索引挡掉（`INSERT OR IGNORE`）——旧账本可能被导入多次，
@@ -382,7 +432,7 @@ impl DirectiveStore {
         let recorded = now_ms();
         self.conn().execute(
             "INSERT OR IGNORE INTO runs \
-             (directive, started_at_ms, ended_at_ms, ok, error, duration_ms, recorded_at_ms) \
+             (directive, startedAt, endedAt, ok, error, duration, recordedAt) \
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
             params![
                 entry.directive,
@@ -408,7 +458,7 @@ impl DirectiveStore {
         }
         let conn = self.conn();
         let mut stmt = conn.prepare(
-            "SELECT directive, started_at_ms, ended_at_ms, ok, error, duration_ms FROM runs \
+            "SELECT directive, startedAt, endedAt, ok, error, duration FROM runs \
              WHERE (?1 IS NULL OR directive = ?1) ORDER BY id DESC LIMIT ?2",
         )?;
         let rows = stmt.query_map(params![name, limit as i64], |row| {
@@ -620,7 +670,7 @@ impl DirectiveStore {
         }
 
         let source = path.display().to_string();
-        self.put(&name, &definition, folder, Some(&source))?;
+        self.put(&name, &definition, folder, Some(&source), true)?;
         Ok(ImportEntry {
             name,
             path: path.to_path_buf(),
@@ -662,7 +712,7 @@ impl DirectiveStore {
         for (name, yaml) in corex_engine::starter::entries() {
             match Directive::from_yaml_str(yaml) {
                 Ok(definition) => {
-                    self.put(name, &definition, None, None)?;
+                    self.put(name, &definition, None, None, true)?;
                     written.push((*name).to_owned());
                 }
                 // 起步指令是编译进二进制的资产，解析不了就是构建期的问题；
@@ -676,13 +726,34 @@ impl DirectiveStore {
         Ok(written)
     }
 
+    /// 写入 / 刷新系统预配置指令（`visible = false`）。
+    ///
+    /// 与 [`Self::seed_starters`] 不同：每次启动都 upsert，保证产品依赖的隐藏指令始终在库里；
+    /// 用户从列表看不到它们，但仍可按名 `run_directive`。
+    pub fn seed_system(&self) -> Result<Vec<String>, StoreError> {
+        let mut written = Vec::new();
+        for (name, yaml) in corex_engine::system::directives() {
+            match Directive::from_yaml_str(yaml) {
+                Ok(definition) => {
+                    self.put(name, &definition, None, None, false)?;
+                    written.push((*name).to_owned());
+                }
+                Err(error) => warn!(name, error = %error, "系统预配置指令解析失败"),
+            }
+        }
+        if !written.is_empty() {
+            debug!(count = written.len(), "已写入系统预配置指令");
+        }
+        Ok(written)
+    }
+
     /// 打开数据目录下的指令库，并做启动时该做的两件事：一次性迁移 + 空库播种。
     pub fn open_in_data_dir(
         data_dir: &Path,
         opts: BootstrapOptions,
         validate: Validator<'_>,
     ) -> Result<(Self, BootstrapReport), StoreError> {
-        let store = Self::open(&directives_db_path(data_dir))?;
+        let store = Self::open(&database_path(data_dir))?;
         let mut report = BootstrapReport::default();
 
         if opts.is_auto_import {
@@ -704,6 +775,7 @@ impl DirectiveStore {
 
         if opts.is_seed {
             report.seeded = store.seed_starters()?;
+            let _ = store.seed_system()?;
         }
 
         if let Some(history) = &opts.history_jsonl {
@@ -769,7 +841,8 @@ impl DirectiveStore {
 }
 
 /// 一条记录要选的列，`list` / `find` 共用一份，免得两处列名各写一遍再慢慢走偏。
-const SELECT_COLUMNS: &str = "name, folder, source, definition_json, created_at_ms, updated_at_ms";
+const SELECT_COLUMNS: &str =
+    "name, folder, source, definitionJson, visible, createdAt, updatedAt";
 
 /// 库里的一行原始数据：模型还是 JSON，读出来才解析。
 struct RawRow {
@@ -777,19 +850,22 @@ struct RawRow {
     folder: Option<String>,
     source: Option<String>,
     json: String,
+    visible: bool,
     created_at_ms: i64,
     updated_at_ms: i64,
 }
 
 impl RawRow {
     fn from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<Self> {
+        let visible_flag: i64 = row.get(4)?;
         Ok(Self {
             name: row.get(0)?,
             folder: row.get(1)?,
             source: row.get(2)?,
             json: row.get(3)?,
-            created_at_ms: row.get(4)?,
-            updated_at_ms: row.get(5)?,
+            visible: visible_flag != 0,
+            created_at_ms: row.get(5)?,
+            updated_at_ms: row.get(6)?,
         })
     }
 
@@ -809,6 +885,7 @@ impl RawRow {
             name: self.name,
             folder: self.folder,
             source: self.source,
+            visible: self.visible,
             created_at_ms: to_ms(self.created_at_ms),
             updated_at_ms: to_ms(self.updated_at_ms),
             summary,
@@ -822,6 +899,7 @@ impl RawRow {
             name: self.name,
             folder: self.folder,
             source: self.source,
+            visible: self.visible,
             created_at_ms: to_ms(self.created_at_ms),
             updated_at_ms: to_ms(self.updated_at_ms),
             definition,

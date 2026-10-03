@@ -5,7 +5,7 @@
 
 use corex_engine::Directive;
 use corex_store::{
-    DirectiveStore, ImportOptions, ImportStatus, StoreError, directives_db_path, validate_name,
+    DirectiveStore, ImportOptions, ImportStatus, StoreError, database_path, validate_name,
 };
 use std::fs;
 use std::path::Path;
@@ -28,15 +28,15 @@ fn stores_and_reads_back_a_directive() {
     let store = DirectiveStore::open_in_memory().unwrap();
     let definition = parse("name: demo\nsteps:\n  - id: a\n    action: file.read\n");
 
-    let record = store.put("demo", &definition, None, None).unwrap();
+    let record = store.put("demo", &definition, None, None, true).unwrap();
     assert_eq!(record.name, "demo");
     assert_eq!(record.definition.steps.len(), 1);
     assert!(record.yaml.contains("action: file.read"), "{}", record.yaml);
 
-    let listed = store.list().unwrap();
-    assert_eq!(listed.len(), 1);
-    assert_eq!(listed[0].name, "demo");
-    let summary = listed[0].summary.as_ref().unwrap();
+    let metas = store.metas().unwrap();
+    assert_eq!(metas.len(), 1);
+    assert_eq!(metas[0].name, "demo");
+    let summary = metas[0].summary.as_ref().unwrap();
     assert_eq!(summary.step_count, 1);
 }
 
@@ -46,7 +46,7 @@ fn the_key_wins_over_the_models_name() {
     let store = DirectiveStore::open_in_memory().unwrap();
     let definition = parse("name: inside-the-file\nsteps: []\n");
 
-    store.put("the-key", &definition, None, None).unwrap();
+    store.put("the-key", &definition, None, None, true).unwrap();
 
     let record = store.fetch("the-key").unwrap();
     assert_eq!(record.definition.name, "the-key");
@@ -59,7 +59,7 @@ fn save_keeps_folder_and_source() {
     let store = DirectiveStore::open_in_memory().unwrap();
     let definition = parse("name: demo\nsteps: []\n");
     store
-        .put("demo", &definition, Some("build"), Some("/tmp/demo.yaml"))
+        .put("demo", &definition, Some("build"), Some("/tmp/demo.yaml"), true)
         .unwrap();
 
     store
@@ -106,12 +106,7 @@ fn rename_refuses_a_taken_name_and_a_missing_source() {
 fn save_with_rename_carries_metadata() {
     let store = DirectiveStore::open_in_memory().unwrap();
     store
-        .put(
-            "old",
-            &parse("name: old\nsteps: []\n"),
-            Some("build"),
-            Some("/tmp/old.yaml"),
-        )
+        .put("old", &parse("name: old\nsteps: []\n"), Some("build"), Some("/tmp/old.yaml"), true)
         .unwrap();
 
     let record = store
@@ -141,9 +136,9 @@ fn delete_reports_missing() {
 
 /// 坏条目不能从列表里消失：编辑器正是靠这份列表把它打开来修的。
 #[test]
-fn broken_rows_are_still_listed() {
+fn broken_rows_still_appear_in_metas() {
     let dir = tempfile::tempdir().unwrap();
-    let path = directives_db_path(dir.path());
+    let path = database_path(dir.path());
     let store = DirectiveStore::open(&path).unwrap();
     store
         .save("good", &parse("name: good\nsteps: []\n"))
@@ -152,16 +147,16 @@ fn broken_rows_are_still_listed() {
     // 绕过 store 写一行坏 JSON：只有手改库 / 旧版写坏才会出现这种情况。
     let raw = rusqlite::Connection::open(&path).unwrap();
     raw.execute(
-        "INSERT INTO directives (name, folder, source, definition_json, created_at_ms, updated_at_ms) \
-         VALUES ('broken', NULL, NULL, '{ not json', 1, 1)",
+        "INSERT INTO directives (name, folder, source, definitionJson, visible, createdAt, updatedAt) \
+         VALUES ('broken', NULL, NULL, '{ not json', 1, 1, 1)",
         [],
     )
     .unwrap();
     drop(raw);
 
-    let listed = store.list().unwrap();
-    assert_eq!(listed.len(), 2);
-    let broken = listed.iter().find(|meta| meta.name == "broken").unwrap();
+    let metas = store.metas().unwrap();
+    assert_eq!(metas.len(), 2);
+    let broken = metas.iter().find(|meta| meta.name == "broken").unwrap();
     assert!(broken.summary.is_none());
     // 读它时才报错，报的是「定义不合法」而不是「找不到」。
     assert_eq!(store.fetch("broken").unwrap_err().kind(), "parse");
@@ -305,7 +300,7 @@ fn legacy_import_happens_once() {
     fs::create_dir_all(&legacy).unwrap();
     write(&legacy, "old.yaml", "name: old\nsteps: []\n");
 
-    let store = DirectiveStore::open(&directives_db_path(dir.path())).unwrap();
+    let store = DirectiveStore::open(&database_path(dir.path())).unwrap();
     let first = store.import_legacy_dir(&legacy, &accept).unwrap().unwrap();
     assert_eq!(first.created(), 1);
 
@@ -342,7 +337,7 @@ fn open_in_data_dir_bootstraps_both_steps() {
     // 有旧指令可导时就不播种了：那不是空库。
     assert!(report.seeded.is_empty());
     assert!(store.find("old").unwrap().is_some());
-    assert!(directives_db_path(dir.path()).is_file());
+    assert!(database_path(dir.path()).is_file());
 }
 
 /// 执行日志与指令同库：写入、按名聚合「上次跑成什么样」、以及旧 JSONL 账本的一次性导入。
@@ -430,11 +425,23 @@ fn name_rules_are_the_v12_ones() {
     assert!(matches!(error, StoreError::InvalidName(name) if name == "../escape"));
 }
 
+/// 早期 `directives.db` 一次性改名为 `corex.db`。
+#[test]
+fn renames_legacy_directives_db_to_corex_db() {
+    let dir = tempfile::tempdir().unwrap();
+    let legacy = dir.path().join("directives.db");
+    fs::write(&legacy, b"").unwrap();
+    let path = database_path(dir.path());
+    assert_eq!(path, dir.path().join("corex.db"));
+    assert!(path.is_file());
+    assert!(!legacy.exists());
+}
+
 /// 两个进程（CLI 与 daemon）同时开着时靠 WAL + busy_timeout；这里至少确认能同时打开。
 #[test]
 fn two_handles_can_open_the_same_file() {
     let dir = tempfile::tempdir().unwrap();
-    let path = directives_db_path(dir.path());
+    let path = database_path(dir.path());
 
     let first = DirectiveStore::open(&path).unwrap();
     let second = DirectiveStore::open(&path).unwrap();
@@ -443,7 +450,7 @@ fn two_handles_can_open_the_same_file() {
         .unwrap();
 
     assert_eq!(second.fetch("demo").unwrap().definition.name, "demo");
-    assert_eq!(second.list().unwrap().len(), 1);
+    assert_eq!(second.metas().unwrap().len(), 1);
 }
 
 /// 导出是「库里那份 → 文件」的单向快照：导出再导入要能读回同样的模型。
@@ -474,4 +481,61 @@ fn export_round_trips_and_does_not_clobber_by_default() {
     let back = other.fetch("demo").unwrap().definition;
     assert_eq!(back.inputs.len(), 1);
     assert_eq!(back.steps.len(), 1);
+}
+
+/// 隐藏指令不进默认 metas，但 fetch / all_metas 仍能拿到。
+#[test]
+fn hidden_directives_stay_out_of_default_metas() {
+    let store = DirectiveStore::open_in_memory().unwrap();
+    let definition = parse("name: capture-screenshot\nsteps: []\n");
+    store
+        .put("capture-screenshot", &definition, None, None, false)
+        .unwrap();
+    store
+        .put("user-demo", &parse("name: user-demo\nsteps: []\n"), None, None, true)
+        .unwrap();
+
+    let names: Vec<_> = store
+        .metas()
+        .unwrap()
+        .into_iter()
+        .map(|meta| meta.name)
+        .collect();
+    assert_eq!(names, vec!["user-demo".to_owned()]);
+
+    let all: Vec<_> = store
+        .all_metas()
+        .unwrap()
+        .into_iter()
+        .map(|meta| (meta.name, meta.visible))
+        .collect();
+    assert!(all.contains(&("capture-screenshot".to_owned(), false)));
+    assert!(all.contains(&("user-demo".to_owned(), true)));
+
+    let record = store.fetch("capture-screenshot").unwrap();
+    assert!(!record.visible);
+}
+
+#[test]
+fn seed_system_upserts_hidden_capture_screenshot() {
+    let store = DirectiveStore::open_in_memory().unwrap();
+    let written = store.seed_system().unwrap();
+    assert!(written.contains(&"capture-screenshot".to_owned()));
+    assert!(store.metas().unwrap().is_empty());
+
+    let record = store.fetch("capture-screenshot").unwrap();
+    assert!(!record.visible);
+    assert!(
+        record.definition.steps.iter().any(|step| {
+            matches!(
+                step,
+                corex_engine::Step::Action(action) if action.action == "capture.screenshot"
+            )
+        }),
+        "{:?}",
+        record.definition.steps
+    );
+
+    // 再跑一次仍 upsert，不报错。
+    assert!(!store.seed_system().unwrap().is_empty());
 }

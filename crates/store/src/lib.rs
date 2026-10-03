@@ -6,7 +6,7 @@
 //! 自带的私有目录。四套规则下，「同一条指令在哪」本身就说不清。执行日志也一样：它在
 //! 另一个文件（`history.jsonl`）里，宿主想显示「上次执行时间」就得自己再存一份。
 //!
-//! v13 把读写收成一处：[`DirectiveStore`] 打开 `<数据目录>/directives.db`，指令、执行日志、
+//! v13 把读写收成一处：[`DirectiveStore`] 打开 `<数据目录>/corex.db`，指令、执行日志、
 //! 上次执行时间都在里面，谁读谁写都只经过它。YAML 退到三个位置——
 //! [`DirectiveStore::import_file`] / [`DirectiveStore::export_yaml`] / `corex edit` 的编辑
 //! 往返——它不再是真相，只是一份可读可写的表示。
@@ -24,9 +24,9 @@ mod store;
 pub use error::StoreError;
 pub use history::{SqliteHistory, StoreDirectiveSource, history_sink};
 pub use record::{
-    DIRECTIVES_DB_FILE, DirectiveMeta, DirectiveRecord, DirectiveSummary, ImportEntry,
+    DATABASE_FILE, DirectiveMeta, DirectiveRecord, DirectiveSummary, ImportEntry,
     ImportOptions, ImportReport, ImportStatus,
 };
 pub use store::{
-    BootstrapOptions, BootstrapReport, DirectiveStore, Validator, directives_db_path, validate_name,
+    BootstrapOptions, BootstrapReport, DirectiveStore, Validator, database_path, validate_name,
 };

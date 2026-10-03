@@ -4,8 +4,11 @@ use corex_engine::Directive;
 use serde::Serialize;
 use std::path::PathBuf;
 
-/// 指令库文件名，放在数据目录下（`<数据目录>/directives.db`）。
-pub const DIRECTIVES_DB_FILE: &str = "directives.db";
+/// 指令库文件名，放在数据目录下（`<数据目录>/corex.db`，对齐 i-thinking 的 `i-thinking.db`）。
+pub const DATABASE_FILE: &str = "corex.db";
+
+/// v13 早期文件名；打开时若新名不存在则一次性迁过去。
+pub(crate) const LEGACY_DATABASE_FILE: &str = "directives.db";
 
 /// 列目录用的元信息：不含模型，卡片只需要这些。
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -15,6 +18,8 @@ pub struct DirectiveMeta {
     pub folder: Option<String>,
     /// 导入来源（YAML 路径）；库里新建的没有。
     pub source: Option<String>,
+    /// 是否出现在用户指令列表；预配置系统指令可为 `false`，仍可按名执行。
+    pub visible: bool,
     pub created_at_ms: u64,
     pub updated_at_ms: u64,
     /// 模型读得出来才有。读不出来的条目**照样列出来**——与 v12 列 YAML 目录时的行为一致：
@@ -39,13 +44,14 @@ pub struct DirectiveRecord {
     pub name: String,
     pub folder: Option<String>,
     pub source: Option<String>,
+    /// 是否出现在用户指令列表。
+    pub visible: bool,
     pub created_at_ms: u64,
     pub updated_at_ms: u64,
     pub definition: Directive,
     /// 规范化 YAML：只给展示与导出用。宿主不要把它当输入再拼一遍——写盘格式只有引擎一份。
     pub yaml: String,
 }
-
 /// 导入开关。
 #[derive(Debug, Clone, Default)]
 pub struct ImportOptions {
