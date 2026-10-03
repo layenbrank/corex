@@ -14,9 +14,9 @@ See also [Conventional Commits](https://www.conventionalcommits.org/).
 
 - **(store)** 指令改用 SQLite 唯一真相源，YAML 降级为导入导出
 > BREAKING CHANGE:指令与执行日志从「directives/ 目录 + history.jsonl」搬进
-> <数据目录>/directives.db（SQLite 唯一真相源）。IPC 去掉 dir 参数、read_directive 的
+> <数据目录>/corex.db（SQLite 唯一真相源）。IPC 去掉 dir 参数、read_directive 的
 > text 改名 yaml、新增 delete_directive / import_directives；corex paths --json 的
-> directives_dir 换成 directives_db。旧的 directives/ 与 history.jsonl 只在首次打开库时
+> directives_dir 换成 database。旧的 directives/ 与 history.jsonl 只在首次打开库时
 > 导入一次，原文件保留。详见 docs/changelog/破坏性变更-v13.md。 · ([`497e383`](https://github.com/layenbrank/corex/commit/497e383418e365544d38aaca905d55081db95f06)) · lh
 
 

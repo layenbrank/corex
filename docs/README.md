@@ -100,7 +100,7 @@ Schema：[schemas/directive.schema.json](../schemas/directive.schema.json)
 
 | 文档                                            | 说明                                                                        |
 | ----------------------------------------------- | --------------------------------------------------------------------------- |
-| [破坏性变更 v13](./changelog/破坏性变更-v13.md) | 指令与执行日志搬进 `directives.db`、IPC v13、新增 `corex directive`        |
+| [破坏性变更 v13](./changelog/破坏性变更-v13.md) | 指令与执行日志搬进 `corex.db`、IPC v13、新增 `corex directive`        |
 | [破坏性变更 v12](./changelog/破坏性变更-v12.md) | `list_directives` 回条目、`bucket` 有约束、子进程输出走帧              |
 | [破坏性变更 v11](./changelog/破坏性变更-v11.md) | `ui.element.pick` 改名 `ui.element.inspect`，旧 id 不再注册                   |
 | [破坏性变更 v10](./changelog/破坏性变更-v10.md) | `list_actions` 回目录文档、单连接多请求、错误码按错误类型给                 |

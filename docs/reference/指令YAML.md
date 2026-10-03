@@ -30,7 +30,7 @@ schema 副本）、`corex schema --write <路径>`（只落盘）、在编辑器
 
 | 入口                                   | 说明                                                             |
 | -------------------------------------- | ---------------------------------------------------------------- |
-| `corex directive new <名称>`           | 写进指令库（`<数据目录>/directives.db`），默认入口                |
+| `corex directive new <名称>`           | 写进指令库（`<数据目录>/corex.db`），默认入口                |
 | `corex directive new --file <目录>`    | 只写文件，不入库（脚手架 / 要一份能提交的 YAML）                  |
 | `corex directive import <文件\|目录>`  | 把已有 YAML 收进库；目录递归，相对子目录成为分组                  |
 | Studio                                | 通过 IPC 的 `save_directive` / `import_directives`，形状见 [IPC 协议](./IPC协议.md) |

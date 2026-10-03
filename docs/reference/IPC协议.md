@@ -80,7 +80,7 @@ daemon 在开始服务**之前**把「它到底监听在哪」写成 **`<data-di
 | -------- | ------------------------------------------------------------------------------------------- |
 | 建立连接 | **总是并发**：每条连接一个任务。一条慢请求不会让别的客户端连不上                            |
 | 执行请求 | `run_directive` / `invoke` 受 **`[daemon] max_jobs`** 限制，超出的在队列里等                |
-| 控制请求 | `ping` / `shutdown` / `list_directives` / `list_runs` / `list_actions` **不排队**，随时可答 |
+| 控制请求 | `ping` / `shutdown` / `directives` / `list_runs` / `list_actions` **不排队**，随时可答 |
 
 `max_jobs`：`1` 串行 / `> 1`（默认 `4`）最多同时这么多 / `0` 不限。默认不串行是因为
 宿主的「多任务并跑」（构建、拷贝、压缩之类互不相干的重活）本就互不干扰，串起来只会让后面几条
@@ -130,7 +130,7 @@ CLI / 宿主 / SDK 侧的 token 解析顺序（一处实现：`corex_ipc::find_t
 | ----------------- | -------------------------------------------------------- | ---------------------------------------------- |
 | `ping`            | `id`，`auth_token`                                       | 探活                                           |
 | `shutdown`        | `id`，`auth_token`                                       | 优雅退出 daemon                                |
-| `list_directives` | `id`，`auth_token`                                       | 列出指令库里的指令（`{name, folder, source, updated_at_ms, bucket, summary, last_run?}[]`） |
+| `directives` | `id`，`auth_token`                                       | 列出指令库里的指令（`{name, folder, source, updated_at_ms, bucket, summary, last_run?}[]`） |
 | `read_directive`  | `id`，`auth_token`，`name`                               | 读一条指令的规范化 YAML 与模型                 |
 | `save_directive`  | `id`，`auth_token`，`name`，`definition`，`original_name?` | 校验后入库，并回规范化之后的那份（`original_name` 不同即改名） |
 | `delete_directive`| `id`，`auth_token`，`name`                               | 删掉一条指令                                   |
@@ -192,12 +192,12 @@ CLI / 宿主 / SDK 侧的 token 解析顺序（一处实现：`corex_ipc::find_t
 
 宿主编辑器要展示并改指令，但**不该自己拼路径，也不该自己解析 YAML**：写出去的格式（键序、
 哪些默认值该省）只有引擎一份，解析口径也是。指令住在指令库里
-（`<数据目录>/directives.db`，见 [破坏性变更 v13](../changelog/破坏性变更-v13.md)），
+（`<数据目录>/corex.db`，见 [破坏性变更 v13](../changelog/破坏性变更-v13.md)），
 所以这些请求里**没有目录参数**：分组是条目自己的 `folder` 字段。
 
 | 请求                | 字段                                                            | 回什么                                                     |
 | ------------------- | --------------------------------------------------------------- | ---------------------------------------------------------- |
-| `list_directives`   | `id`，`auth_token`                                              | `{name, folder, source, updated_at_ms, bucket, summary, last_run?}[]`，按名字排序 |
+| `directives`   | `id`，`auth_token`                                              | `{name, folder, source, updated_at_ms, bucket, summary, last_run?}[]`，按名字排序 |
 | `read_directive`    | `id`，`auth_token`，`name`                                      | `{name, folder, source, created_at_ms, updated_at_ms, yaml, definition}` |
 | `save_directive`    | `id`，`auth_token`，`name`，`definition`，`original_name?`       | 同上，但 `yaml` 是**刚写下去**的那一份                      |
 | `delete_directive`  | `id`，`auth_token`，`name`                                      | `{name}`                                                   |
@@ -273,7 +273,7 @@ CLI / 宿主 / SDK 侧的 token 解析顺序（一处实现：`corex_ipc::find_t
 宿主画「上次跑成什么样」不该自己攒一本账：这份账本（即 `runs` 表）与指令**同库**，由引擎在
 执行结束的当口写，开关来自 `[history]` 配置（见
 [数据目录与状态文件 § 目录内容](./数据目录与状态文件.md#2-目录内容)）。`list_runs` 把这份
-账本读成 JSON，而 `list_directives` 的每条指令顺带带上自己的 `last_run` —— 列一次库就够
+账本读成 JSON，而 `directives` 的每条指令顺带带上自己的 `last_run` —— 列一次库就够
 画卡片，不必再逐条问一遍历史。
 
 ```json
@@ -300,7 +300,7 @@ CLI / 宿主 / SDK 侧的 token 解析顺序（一处实现：`corex_ipc::find_t
 两个字段都得看：**关掉历史**与**一条都没跑过**都回空表，但卡片上一个该说「历史没开」，
 另一个才说「从未运行」。`name` 只看一条指令，`limit` 限条数（不给时用 daemon 的默认 50 条）；
 **失败也会记**，所以「上次失败成什么样」与 `corex history` 看到的是同一份事实。
-`list_directives` 条目里的 `last_run` 是同一形状，另加窗口内的 `run_count` / `failed_count`。
+`directives` 条目里的 `last_run` 是同一形状，另加窗口内的 `run_count` / `failed_count`。
 
 ### 进度帧（`stream: true`）
 
@@ -434,7 +434,7 @@ daemon 会在**这条请求的终帧之前**插入零个或多个 `event` 帧：
 
 ## 路径沙箱
 
-v13 起指令住在库里，`list_directives` / `read_directive` / `save_directive` 已经**没有路径参数**：
+v13 起指令住在库里，`directives` / `read_directive` / `save_directive` 已经**没有路径参数**：
 指令名只是一把键，非裸名（含 `..`、`/`、`\` 或绝对路径）一律 400。
 
 两个仍与磁盘打交道的地方：

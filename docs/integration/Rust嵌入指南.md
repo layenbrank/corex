@@ -160,7 +160,7 @@ CLI 参考：`bins/cli/src/main.rs` 中 `cmd_run`。
 | `corex-core` | `Value`、`Action` / `ActionStore`、`ExecutionContext`、`ActionError`/`EngineError`、权限、`RuntimeConfig` |
 | `corex-engine` | `Directive`、`Pipeline`、解析器、控制流、`AuditEntry`、`HistorySink` / `DirectiveSource` |
 | `corex-registry` | 内置 Action、`register_builtins`、WASM host |
-| `corex-store` | 指令库（`directives.db`）：指令的 CRUD、YAML 导入导出、执行日志；`SqliteHistory` / `StoreDirectiveSource` |
+| `corex-store` | 指令库（`corex.db`）：指令的 CRUD、YAML 导入导出、执行日志；`SqliteHistory` / `StoreDirectiveSource` |
 | `corex-ipc` | Daemon 协议与传输（独立进程时用） |
 | `corex-plugin-sdk` | WASM 插件 WIT 契约 |
 

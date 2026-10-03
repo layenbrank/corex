@@ -95,7 +95,7 @@ Token 不匹配 → 响应 `error`，code **401**。
 | type              | 用途            | 主要字段                                              |
 | ----------------- | --------------- | ----------------------------------------------------- |
 | `ping`            | 存活检测        | —                                                     |
-| `list_directives` | 列出指令        | `dir?` → `{name, path, bucket, summary, last_run?}[]` |
+| `directives` | 列出指令        | `dir?` → `{name, path, bucket, summary, last_run?}[]` |
 | `read_directive`  | 读一条指令      | `name`, `dir?`                                        |
 | `save_directive`  | 保存一条指令    | `name`, `definition`, `dir?`                          |
 | `list_runs`       | 最近执行记录    | `name?`, `limit?` → `{is_history_enabled, entries}`   |
@@ -108,7 +108,7 @@ Token 不匹配 → 响应 `error`，code **401**。
 拿到 `definition` 编辑，改完原样交回即可（形状见 [IPC 协议](../reference/IPC协议.md)）。
 
 执行历史同样只有 daemon 一份：`list_runs` 回引擎自己写的记录（新 → 旧，含失败），
-`list_directives` 的条目顺带带上 `last_run`。宿主别再存一份「上次运行时间」——换台机器、
+`directives` 的条目顺带带上 `last_run`。宿主别再存一份「上次运行时间」——换台机器、
 清过数据目录就会与它对不上。
 
 ### 响应（Daemon → Client）
@@ -244,7 +244,7 @@ Tauri 等桌面壳：**推荐 Daemon sidecar 模式**。
 | ---------- | -------------------------------------------- |
 | 连接拒绝   | `corex daemon status`；检查 pipe/socket 路径 |
 | 401        | 对齐 `COREX_TOKEN` 或 `token` 文件           |
-| 指令未找到 | `list_directives` 看库里有什么；名字必须是裸名（不含 `/`、`\`、`..`） |
+| 指令未找到 | `directives` 看库里有什么；名字必须是裸名（不含 `/`、`\`、`..`） |
 | 行过大     | 拆分结果或避免在单步返回超大 body            |
 
 ---
