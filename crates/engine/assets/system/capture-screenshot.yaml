@@ -1,0 +1,22 @@
+# 系统预配置：全屏截图（对用户指令墙不可见，visible=false）
+name: capture-screenshot
+description: 截取主显示器画面到指定路径
+version: "1.0"
+
+inputs:
+  - name: out
+    description: 截图输出路径
+    required: true
+
+permissions:
+  capture: true
+  filesystem: true
+
+steps:
+  - id: shot
+    action: capture.screenshot
+    params:
+      to: "{{input.out}}"
+      format: png
+      quality: 90
+    save_to: screenshot
