@@ -46,12 +46,12 @@ fn init_plugin_dir() -> PathBuf {
 
 /// 执行日志与指令库的设置。
 ///
-/// v13 起执行日志与指令同库（`<数据目录>/directives.db`），所以 `[history]` 只决定**记不记**，
+/// v13 起执行日志与指令同库（`<数据目录>/corex.db`），所以 `[history]` 只决定**记不记**，
 /// `file` 退成「旧 JSONL 账本在哪、要不要一次性导入」。
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct HistoryConfig {
-    /// 为真时记录流水线执行（写进 `directives.db` 的 `runs` 表）。
+    /// 为真时记录流水线执行（写进 `corex.db` 的 `runs` 表）。
     #[serde(default = "default_true")]
     pub enabled: bool,
     /// 旧版 JSONL 账本的位置（文件名，或相对数据目录的路径）。

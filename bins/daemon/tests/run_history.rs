@@ -1,7 +1,7 @@
-//! 运行历史的只读出口：`list_runs` 与 `list_directives` 条目上的 `last_run`。
+//! 运行历史的只读出口：`list_runs` 与 `directives` 条目上的 `last_run`。
 //!
 //! 卡片的「上次跑成什么样」、运行台里的记录，都出自引擎自己写的那份账本——v13 起它与指令
-//! 同库（`<数据目录>/directives.db` 的 `runs` 表），`corex history` 读的也是它。宿主再攒一份
+//! 同库（`<数据目录>/corex.db` 的 `runs` 表），`corex history` 读的也是它。宿主再攒一份
 //! 必然与它对不上，所以回话形状只能在真进程上钉住。
 
 mod harness;
@@ -94,8 +94,8 @@ async fn list_runs(endpoint: &Path, name: Option<&str>, limit: Option<usize>) ->
     data(send(endpoint, request).await)
 }
 
-async fn list_directives(endpoint: &Path) -> Value {
-    let request = Request::ListDirectives {
+async fn directives(endpoint: &Path) -> Value {
+    let request = Request::Directives {
         id: 2,
         auth_token: None,
     };
@@ -180,7 +180,7 @@ async fn runs_are_read_back_newest_first_with_failures_kept() {
 
 /// 卡片要的「上次跑成什么样」随列目录一起回，省掉逐条问历史。
 #[tokio::test]
-async fn list_directives_carries_the_last_run() {
+async fn directives_carries_the_last_run() {
     let (_dir, _daemon, endpoint) = start("runs-card").await;
     write_directive(&endpoint, "build", "{{ missing }}").await;
     write_directive(&endpoint, "idle", "hi").await;
@@ -188,7 +188,7 @@ async fn list_directives_carries_the_last_run() {
     run_failing(&endpoint, "build").await;
     run_failing(&endpoint, "build").await;
 
-    let entries = list_directives(&endpoint).await;
+    let entries = directives(&endpoint).await;
     let last = entry_of(&entries, "build")
         .find_path("last_run")
         .expect("跑过就该有 last_run")
@@ -238,7 +238,7 @@ async fn a_disabled_history_says_so() {
     );
     assert!(entry_names(&reply).is_empty(), "{reply:?}");
     assert!(
-        entry_of(&list_directives(&endpoint).await, "build")
+        entry_of(&directives(&endpoint).await, "build")
             .find_path("last_run")
             .is_none(),
         "历史关掉时没有 last_run"

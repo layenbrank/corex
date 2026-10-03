@@ -877,9 +877,9 @@ fn paths_json_reports_the_effective_locations() {
         "COREX_DATA_DIR 必须原样生效"
     );
     assert_eq!(
-        std::path::PathBuf::from(text("directives_db")),
-        dir.path().join("directives.db"),
-        "指令库就是数据目录下的 directives.db"
+        std::path::PathBuf::from(text("database")),
+        dir.path().join("corex.db"),
+        "指令库就是数据目录下的 corex.db"
     );
     assert_eq!(
         text("kind"),

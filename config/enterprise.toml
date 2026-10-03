@@ -53,7 +53,7 @@ level = "info"
 json  = true
 
 [history]
-# 执行日志进指令库（directives.db 的 runs 表）；仅保留脱敏后的短错误类别
+# 执行日志进指令库（corex.db 的 runs 表）；仅保留脱敏后的短错误类别
 enabled = true
 # 旧版 JSONL 账本的位置：只在首次打开指令库时导入一次
 file    = "history.jsonl"

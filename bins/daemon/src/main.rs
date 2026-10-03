@@ -446,7 +446,7 @@ async fn handle_request(state: &DaemonState, req: Request, outlet: Outlet) -> Re
                 Value::from_json(corex_registry::catalog::document(&state.registry, None)),
             )
         }
-        Request::ListDirectives { id, .. } => match list_directives(state) {
+        Request::Directives { id, .. } => match directives(state) {
             Ok(data) => Response::ok(id, data),
             Err(e) => Response::error(id, e),
         },
@@ -562,6 +562,8 @@ struct DirectiveEntry {
     folder: Option<String>,
     /// 导入来源（当初那份 YAML 的路径）；库里新建的没有。
     source: Option<String>,
+    /// 是否出现在用户指令列表。
+    visible: bool,
     updated_at_ms: u64,
     /// 动作分类（`system` / `network` / …），卡片按它分桶。
     bucket: Option<String>,
@@ -604,6 +606,7 @@ struct DirectiveDocument {
     name: String,
     folder: Option<String>,
     source: Option<String>,
+    visible: bool,
     created_at_ms: u64,
     updated_at_ms: u64,
     /// 库序列化出来的规范 YAML。宿主**不要**把它当输入再拼一遍——写出去只有引擎一份。
@@ -617,6 +620,7 @@ impl DirectiveDocument {
             name: record.name,
             folder: record.folder,
             source: record.source,
+            visible: record.visible,
             created_at_ms: record.created_at_ms,
             updated_at_ms: record.updated_at_ms,
             yaml: record.yaml,
@@ -688,16 +692,16 @@ impl ImportReply {
     }
 }
 
-fn list_directives(state: &DaemonState) -> Result<Value, RpcError> {
+fn directives(state: &DaemonState) -> Result<Value, RpcError> {
     // 账本一次倒扫就够全部指令：宿主画卡片不必再逐条问一遍历史。
     let ran = state
         .history
         .as_ref()
         .map(|history| history.by_directive())
         .unwrap_or_default();
-    let entries: Vec<DirectiveEntry> = state
+    let directives: Vec<DirectiveEntry> = state
         .store
-        .list()
+        .metas()
         .map_err(from_store)?
         .into_iter()
         .map(|meta| DirectiveEntry {
@@ -715,10 +719,11 @@ fn list_directives(state: &DaemonState) -> Result<Value, RpcError> {
             name: meta.name,
             folder: meta.folder,
             source: meta.source,
+            visible: meta.visible,
             updated_at_ms: meta.updated_at_ms,
         })
         .collect();
-    as_data(&entries)
+    as_data(&directives)
 }
 
 /// 最近的执行记录（新 → 旧），可按指令过滤。

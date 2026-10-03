@@ -24,11 +24,11 @@ pub enum Request {
         #[serde(default)]
         auth_token: Option<String>,
     },
-    /// 列出指令库里的指令。
+    /// 指令库里的指令（用户可见；`visible = false` 的预配置不在此列）。
     ///
     /// v12 的 `dir` 参数没有了：指令的真相从「<数据目录>/directives 下的 YAML 文件」换成了
-    /// `<数据目录>/directives.db`，分组由每条指令自己的 `folder` 字段表达，不再靠子目录。
-    ListDirectives {
+    /// `<数据目录>/corex.db`，分组由每条指令自己的 `folder` 字段表达，不再靠子目录。
+    Directives {
         #[serde(default)]
         id: u64,
         #[serde(default)]
@@ -179,7 +179,7 @@ impl Request {
         match self {
             Request::Ping { auth_token, .. }
             | Request::Shutdown { auth_token, .. }
-            | Request::ListDirectives { auth_token, .. }
+            | Request::Directives { auth_token, .. }
             | Request::ReadDirective { auth_token, .. }
             | Request::SaveDirective { auth_token, .. }
             | Request::DeleteDirective { auth_token, .. }
@@ -197,7 +197,7 @@ impl Request {
         match &mut self {
             Request::Ping { auth_token, .. }
             | Request::Shutdown { auth_token, .. }
-            | Request::ListDirectives { auth_token, .. }
+            | Request::Directives { auth_token, .. }
             | Request::ReadDirective { auth_token, .. }
             | Request::SaveDirective { auth_token, .. }
             | Request::DeleteDirective { auth_token, .. }

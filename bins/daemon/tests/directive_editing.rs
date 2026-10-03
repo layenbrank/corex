@@ -1,6 +1,6 @@
 //! 宿主编辑指令走的几条 IPC：列目录、读一条、写一条（含改名）、删、导入。
 //!
-//! v13 起指令的真相是 `<数据目录>/directives.db`，而不是磁盘上的 YAML 文件：编辑器不自己
+//! v13 起指令的真相是 `<数据目录>/corex.db`，而不是磁盘上的 YAML 文件：编辑器不自己
 //! 拼 YAML 也不自己解析 YAML——写出去只有引擎一份——所以这些回话形状只能在真进程上钉住。
 
 mod harness;
@@ -122,7 +122,7 @@ async fn list(endpoint: &Path) -> Value {
     data(
         send(
             endpoint,
-            Request::ListDirectives {
+            Request::Directives {
                 id: 3,
                 auth_token: None,
             },

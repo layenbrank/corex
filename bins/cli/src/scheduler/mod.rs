@@ -3,7 +3,7 @@
 //! 两族的机制完全一致——解析指令、每个指令最多保留一个 supervisor、通过控制套接字与
 //! 它通信——因此共用一套实现，只在传入的 [`JobKind`] 上不同。
 //!
-//! 指令从**库**里取：v13 起真相在 `<数据目录>/directives.db`，supervisor 每次触发也按名字
+//! 指令从**库**里取：v13 起真相在 `<数据目录>/corex.db`，supervisor 每次触发也按名字
 //! 从库读（[`Jobs::io`]），于是「用户改的是库里那份、跑的还是磁盘上那份」不会再发生。
 
 mod control;
@@ -15,7 +15,7 @@ use anyhow::{Result, bail};
 use corex_engine::{Directive, JobKind, JobMeta, SupervisorIo};
 use corex_ipc::data_dir;
 use corex_registry::ActionRegistry;
-use corex_store::directives_db_path;
+use corex_store::database_path;
 use std::path::Path;
 use std::sync::Arc;
 
@@ -88,7 +88,7 @@ impl Jobs {
     pub(crate) fn origin(file: Option<&Path>, data: &Path) -> std::path::PathBuf {
         match file {
             Some(file) => file.to_path_buf(),
-            None => directives_db_path(data),
+            None => database_path(data),
         }
     }
 }

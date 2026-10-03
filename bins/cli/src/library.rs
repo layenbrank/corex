@@ -2,7 +2,7 @@
 //!
 //! v12 及以前 CLI 的「指令根」是目录（`<数据目录>/directives` 加 `--dir` 加
 //! `examples/directives`），`run` / `validate` / `watch` / `cron` / REPL 各查各的。v13 起指令的
-//! 真相在 `<数据目录>/directives.db`，这一层就是全 CLI 唯一的取指令处——谁要一条指令都经过它，
+//! 真相在 `<数据目录>/corex.db`，这一层就是全 CLI 唯一的取指令处——谁要一条指令都经过它，
 //! 「同一条指令」于是在所有命令里都是同一份。
 //!
 //! 库之外只留一条**只读**回退：调用方直接给的文件路径，以及 `--dir` / `examples/directives`
@@ -98,7 +98,7 @@ impl Library {
 
     /// 库里的全部条目（不含模型）。
     pub(crate) fn records(&self) -> Result<Vec<DirectiveMeta>> {
-        Ok(self.store.list().map_err(EngineError::from)?)
+        Ok(self.store.metas().map_err(EngineError::from)?)
     }
 
     /// 取一条指令的完整记录。

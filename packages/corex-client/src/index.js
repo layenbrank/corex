@@ -497,7 +497,7 @@ export class CorexClient {
 
   /** 指令名。`dir` 是数据目录下的子目录（**路径沙箱**：越界会被拒）。 */
   async directives(dir, { timeoutMs = LIGHT_TIMEOUT_MS } = {}) {
-    const request = { type: 'list_directives' }
+    const request = { type: 'directives' }
     if (dir) {
       request.dir = dir
     }

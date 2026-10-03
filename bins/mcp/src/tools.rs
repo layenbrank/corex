@@ -78,7 +78,7 @@ fn directive_tool() -> Tool {
         "properties": {
             "name": {
                 "type": "string",
-                "description": "指令名，在指令库（<数据目录>/directives.db）里按名查找"
+                "description": "指令名，在指令库（<数据目录>/corex.db）里按名查找"
             },
             "path": {
                 "type": "string",
