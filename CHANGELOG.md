@@ -8,6 +8,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 See also [Conventional Commits](https://www.conventionalcommits.org/).
 
 ---
+## [13.2.0](https://github.com/layenbrank/corex/compare/v13.1.0..v13.2.0) - 2026-10-05
+
+### 🚀 Features
+- **(daemon,ipc)** cron/watch 作业生命周期走 IPC · ([`4da3c67`](https://github.com/layenbrank/corex/commit/4da3c671f3ebf8792dd7e01f371e811b758e45ac)) · layen
+
+
+### 📦 Release
+- **(release)** bump version to 13.2.0 · ([`321dbb3`](https://github.com/layenbrank/corex/commit/321dbb35788f4c989dd8e1ac0dcf45a59015c62b)) · layen
+
+---
 ## [13.1.0](https://github.com/layenbrank/corex/compare/v13.0.0..v13.1.0) - 2026-10-05
 
 ### 🚀 Features
@@ -741,6 +751,7 @@ See also [Conventional Commits](https://www.conventionalcommits.org/).
 - fluxor.yml · ([`322cb9c`](https://github.com/layenbrank/corex/commit/322cb9cb8c1e91f0b0a0b47e0014ae4c872fa846)) · layenbrank
 - Remove legacy notification examples and related files to streamline the project structure and focus on the updated notification system. This includes deleting old test files, configuration files, and XML templates that are no longer in use. · ([`fc89b31`](https://github.com/layenbrank/corex/commit/fc89b313725223dd1b0ce38ed5ad6b877f9a16e8)) · 李贺
 
+[13.2.0]: https://github.com/layenbrank/corex/compare/v13.1.0..v13.2.0
 [13.1.0]: https://github.com/layenbrank/corex/compare/v13.0.0..v13.1.0
 [13.0.0]: https://github.com/layenbrank/corex/compare/v12.1.0..v13.0.0
 [12.1.0]: https://github.com/layenbrank/corex/compare/v12.0.0..v12.1.0
