@@ -210,6 +210,46 @@ export declare class CorexClient {
     }
   ): Promise<T>
 
+  jobs(
+    kind?: 'cron' | 'watch',
+    options?: { timeoutMs?: number }
+  ): Promise<
+    Array<{
+      kind: 'cron' | 'watch'
+      name: string
+      id: string
+      pid: number
+      is_alive: boolean
+      started_at_ms?: number
+      directive_path: string
+    }>
+  >
+
+  startJob(
+    kind: 'cron' | 'watch',
+    name: string,
+    options?: { immediate?: boolean; timeoutMs?: number }
+  ): Promise<CorexValue>
+
+  stopJob(
+    kind: 'cron' | 'watch',
+    name: string,
+    options?: { force?: boolean; timeoutMs?: number }
+  ): Promise<CorexValue>
+
+  restartJob(
+    kind: 'cron' | 'watch',
+    name: string,
+    options?: { timeoutMs?: number }
+  ): Promise<CorexValue>
+
+  sendJob(
+    kind: 'cron' | 'watch',
+    name: string,
+    command: string,
+    options?: { timeoutMs?: number }
+  ): Promise<CorexValue>
+
   /** 请 daemon 退出。 */
   shutdown(options?: { timeoutMs?: number }): Promise<void>
 

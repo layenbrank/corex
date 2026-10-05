@@ -12,7 +12,8 @@
 use super::event::{EventAction, EventFilter, classify_event};
 use super::filter::{WatchFilter, watch_relative_path};
 use super::gate::Chain;
-use crate::run::{SupervisorIo, run_directive_spec};
+use crate::run::{SupervisorIo, run_supervised_directive};
+use crate::supervisor::JobKind;
 use crate::trigger::WatchConfig;
 use corex_core::{ActionStore, EngineError, RuntimeConfig};
 use notify::{Config as NotifyConfig, PollWatcher, RecommendedWatcher, RecursiveMode};
@@ -66,9 +67,11 @@ enum RemountCmd {
 struct WatchState {
     spec: WatchJobSpec,
     is_running: Arc<AtomicBool>,
+    /// 优雅停止：不再接新触发，等当前轮跑完再退。
+    stopping: Arc<AtomicBool>,
     /// 与 worker 共享，使 RUN_NOW / immediate 能刷新两级门的窗口。
     chain: Arc<Mutex<Chain>>,
-    /// 为真时 DebounceHandler 丢弃 FS 触发（启动期 / immediate 之前）。
+    /// 为真时 DebounceHandler 丢弃 FS 触发（启动期 / immediate 之前 / 优雅停止中）。
     ignore_initial: Arc<AtomicBool>,
     worker_abort: tokio::task::AbortHandle,
     remount_abort: tokio::task::AbortHandle,
@@ -176,6 +179,7 @@ impl WatchEngine {
         let watch_roots_str = cfg.paths.clone();
 
         let is_running = Arc::new(AtomicBool::new(false));
+        let stopping = Arc::new(AtomicBool::new(false));
         // 计时全在两扇逻辑门里；worker 与 RUN_NOW 共享同一条链。
         let chain = Arc::new(Mutex::new(Chain::new(&cfg)));
 
@@ -186,6 +190,7 @@ impl WatchEngine {
             trigger_rx,
             WorkerCtx {
                 worker_flag: Arc::clone(&is_running),
+                worker_stopping: Arc::clone(&stopping),
                 worker_chain: Arc::clone(&chain),
                 worker_store: Arc::clone(&self.store),
                 worker_runtime: self.runtime.clone(),
@@ -327,6 +332,7 @@ impl WatchEngine {
             WatchState {
                 spec,
                 is_running,
+                stopping,
                 chain,
                 ignore_initial,
                 worker_abort,
@@ -348,6 +354,38 @@ impl WatchEngine {
             }
         }
         Ok(())
+    }
+
+    /// 优雅停止：忽略新 FS 事件，等当前触发跑完（不 abort worker）。
+    pub async fn request_stop(&self, job_id: &str) -> Result<(), EngineError> {
+        let jobs = self.jobs.lock().await;
+        let state = jobs
+            .get(job_id)
+            .ok_or_else(|| EngineError::other(format!("watch job 未找到: {job_id}")))?;
+        state.ignore_initial.store(true, Ordering::SeqCst);
+        state.stopping.store(true, Ordering::SeqCst);
+        Ok(())
+    }
+
+    /// 等到没有进行中的触发（或 job 已卸）。超时返回 `false`，由调用方改走强制停。
+    pub async fn wait_idle(&self, job_id: &str, timeout: Duration) -> Result<bool, EngineError> {
+        let deadline = Instant::now() + timeout;
+        loop {
+            let running = {
+                let jobs = self.jobs.lock().await;
+                match jobs.get(job_id) {
+                    Some(state) => state.is_running.load(Ordering::SeqCst),
+                    None => false,
+                }
+            };
+            if !running {
+                return Ok(true);
+            }
+            if Instant::now() >= deadline {
+                return Ok(false);
+            }
+            tokio::time::sleep(Duration::from_millis(BUSY_POLL_MS)).await;
+        }
     }
 
     pub async fn shutdown_force(&self, job_id: &str) -> Result<(), EngineError> {
@@ -383,12 +421,13 @@ impl WatchEngine {
         drop(jobs);
         tokio::spawn(async move {
             info!(directive = %name, "watch RUN_NOW");
-            if let Err(e) = run_directive_spec(
+            if let Err(e) = run_supervised_directive(
                 store,
                 runtime,
                 &data_dir,
                 io.source.as_ref(),
                 io.history.as_ref(),
+                JobKind::Watch,
                 &name,
                 &path,
             )
@@ -423,6 +462,8 @@ impl WatchEngine {
 struct WorkerCtx {
     /// 流水线运行时为 `true`，同时充当单飞门禁。
     worker_flag: Arc<AtomicBool>,
+    /// 优雅停止中：不再开新一轮。
+    worker_stopping: Arc<AtomicBool>,
     /// 去抖门 → 节流门，与 `RUN_NOW` 共享。
     worker_chain: Arc<Mutex<Chain>>,
     /// 流水线解析动作所用的 Action store。
@@ -446,6 +487,7 @@ fn spawn_watch_worker(
     tokio::spawn(async move {
         let WorkerCtx {
             worker_flag,
+            worker_stopping,
             worker_chain,
             worker_store,
             worker_runtime,
@@ -455,28 +497,48 @@ fn spawn_watch_worker(
             worker_name,
         } = ctx;
         loop {
+            if worker_stopping.load(Ordering::SeqCst) {
+                while worker_flag.load(Ordering::SeqCst) {
+                    tokio::time::sleep(Duration::from_millis(BUSY_POLL_MS)).await;
+                    let _ = drain(&mut trigger_rx);
+                }
+                break;
+            }
+
             let deadline = worker_chain.lock().ok().and_then(|chain| chain.pending());
             let fire = tokio::select! {
                 trig = trigger_rx.recv() => {
                     if trig.is_none() {
                         break;
                     }
-                    drain(&mut trigger_rx);
-                    feed(&worker_chain)
+                    if worker_stopping.load(Ordering::SeqCst) {
+                        drain(&mut trigger_rx);
+                        false
+                    } else {
+                        drain(&mut trigger_rx);
+                        feed(&worker_chain)
+                    }
                 }
-                _ = sleep_until(deadline) => tick(&worker_chain),
+                _ = sleep_until(deadline) => {
+                    if worker_stopping.load(Ordering::SeqCst) {
+                        false
+                    } else {
+                        tick(&worker_chain)
+                    }
+                }
             };
             if !fire {
                 continue;
             }
 
-            // 门已经放行，但当前那轮还没收尾：等它跑完再执行（单飞，不并发）。
-            // 等待期间到达的触发照常喂给两级门，会被合并成最多一次补跑。
+            // 单飞：等当前轮结束。运行期间的 FS 触发直接丢掉，避免 build 写盘自激环。
             while worker_flag.load(Ordering::SeqCst) {
                 tokio::time::sleep(Duration::from_millis(BUSY_POLL_MS)).await;
-                if drain(&mut trigger_rx) {
-                    feed(&worker_chain);
-                }
+                let _ = drain(&mut trigger_rx);
+            }
+
+            if worker_stopping.load(Ordering::SeqCst) {
+                break;
             }
 
             let ran = invoke_directive(
@@ -490,19 +552,15 @@ fn spawn_watch_worker(
             )
             .await;
             let now = Instant::now();
+            // 构建写盘集中在运行期：收尾时清空积压，不回填补跑。
+            let _ = drain(&mut trigger_rx);
             if !ran {
                 // CAS 被 RUN_NOW 抢走：这次触发已经通过边沿判定，补上它。
-                if let Ok(mut chain) = worker_chain.lock() {
+                if !worker_stopping.load(Ordering::SeqCst)
+                    && let Ok(mut chain) = worker_chain.lock()
+                {
                     chain.retry(now);
                 }
-                continue;
-            }
-            // 运行期间到达的触发回填一次；能立刻放行就再来一轮。
-            if drain(&mut trigger_rx)
-                && feed(&worker_chain)
-                && let Ok(mut chain) = worker_chain.lock()
-            {
-                chain.retry(now);
             }
         }
     })
@@ -554,12 +612,13 @@ async fn invoke_directive(
         return false;
     }
     info!(directive = %name, "watch 触发执行");
-    let result = run_directive_spec(
+    let result = run_supervised_directive(
         store,
         runtime,
         &data_dir,
         io.source.as_ref(),
         io.history.as_ref(),
+        JobKind::Watch,
         name,
         path,
     )

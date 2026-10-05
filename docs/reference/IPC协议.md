@@ -80,7 +80,7 @@ daemon 在开始服务**之前**把「它到底监听在哪」写成 **`<data-di
 | -------- | ------------------------------------------------------------------------------------------- |
 | 建立连接 | **总是并发**：每条连接一个任务。一条慢请求不会让别的客户端连不上                            |
 | 执行请求 | `run_directive` / `invoke` 受 **`[daemon] max_jobs`** 限制，超出的在队列里等                |
-| 控制请求 | `ping` / `shutdown` / `directives` / `list_runs` / `list_actions` **不排队**，随时可答 |
+| 控制请求 | `ping` / `shutdown` / `directives` / `list_runs` / `list_actions` / `jobs` / `start_job` / `stop_job` / `restart_job` / `send_job` **不排队**，随时可答 |
 
 `max_jobs`：`1` 串行 / `> 1`（默认 `4`）最多同时这么多 / `0` 不限。默认不串行是因为
 宿主的「多任务并跑」（构建、拷贝、压缩之类互不相干的重活）本就互不干扰，串起来只会让后面几条
@@ -137,6 +137,11 @@ CLI / 宿主 / SDK 侧的 token 解析顺序（一处实现：`corex_ipc::find_t
 | `import_directives`| `id`，`auth_token`，`path`，`folder?`，`overwrite?`，`dry_run?` | 从 YAML 文件或目录导入                |
 | `list_runs`       | `id`，`auth_token`，`name?`，`limit?`                    | 最近的执行记录（新 → 旧），可按指令过滤        |
 | `list_actions`    | `id`，`auth_token`                                       | 动作目录文档（参数表、权限与 `inputSchema`）   |
+| `jobs`            | `id`，`auth_token`，`kind?`                              | cron / watch 作业（`kind` 缺省则两族都列）     |
+| `start_job`       | `id`，`auth_token`，`kind`，`name`，`immediate?`         | 按指令名启动 supervisor（指令须已声明对应触发器） |
+| `stop_job`        | `id`，`auth_token`，`kind`，`name`，`force?`             | 停止作业；`force` 杀进程树                     |
+| `restart_job`     | `id`，`auth_token`，`kind`，`name`                       | 先停再起                                       |
+| `send_job`        | `id`，`auth_token`，`kind`，`name`，`command`            | 控制消息：`run-now` / `status` / `stop` / `stop-force` |
 | `run_directive`   | `id`，`auth_token`，`name`，`input?`，`path?`，`stream?` | 按名运行指令库里的指令，或直接给一份 ad-hoc YAML 路径 |
 | `invoke`          | `id`，`auth_token`，`action`，`params?`，`stream?`       | 按 ID 调用单个 Action                          |
 
@@ -215,7 +220,9 @@ CLI / 宿主 / SDK 侧的 token 解析顺序（一处实现：`corex_ipc::find_t
       "description": "打个招呼",
       "step_count": 2,
       "input_count": 1,
-      "trigger_count": 0
+      "trigger_count": 0,
+      "has_cron": false,
+      "has_watch": false
     }
   }
 ]
@@ -232,6 +239,22 @@ CLI / 宿主 / SDK 侧的 token 解析顺序（一处实现：`corex_ipc::find_t
 | `summary.step_count`   | 顶层步骤数（含 `parallel` / `steps` 这类复合步骤各算一步）                                                   |
 | `summary.input_count`  | 声明的输入个数                                                                                               |
 | `summary.trigger_count`| 声明的触发器个数                                                                                             |
+| `summary.has_cron`     | 是否声明了 cron 触发器（宿主开定时守护用）                                                                   |
+| `summary.has_watch`    | 是否声明了 watch 触发器（宿主开文件监听守护用）                                                              |
+
+### 守护触发的进度落盘
+
+`start_job` 拉起的 `--supervised` 子进程在触发执行时，会把进度写到：
+
+`<数据目录>/<kind>/<指令名>/progress.ndjson`
+
+同行还有进行中标记 `run.json`（结束即删）。每行 JSON：
+
+- `{"phase":"start","run_id","kind","name","at_ms"}`
+- `{"phase":"progress","run_id","progress":{…与 `ProgressEvent` 同形…}}`
+- `{"phase":"end","run_id","ok","error?","at_ms"}`
+
+宿主可盯这份文件把触发运行接到终端；与 IPC `run_directive` 的 `event` 帧词汇一致。
 | `last_run`             | 最近一次执行（`ok` / `duration_ms` / `error` / `run_count` / `failed_count`）；没跑过时不出现                |
 | `yaml`                 | 引擎序列化出来的**规范文档**，供宿主展示与「保留自己没改的字段」                                             |
 | `definition`           | 解析后的 `Directive`（[指令 DSL](指令YAML.md)）；宿主编辑的就是它，改完原样交回 `save_directive`             |

@@ -18,6 +18,9 @@ pub async fn supervise_watch_job(
     use std::time::Duration;
     use tracing::info;
 
+    /// 优雅停止等待当前轮的上限；超时改走强制停，避免 `is_running` 卡死挂住 supervisor
+    const STOP_IDLE_TIMEOUT: Duration = Duration::from_secs(3_600);
+
     // 指令优先从库里取：v13 起真相在库，磁盘上的那份可能还是迁移前留下的旧版本。
     let directive = match &io.source {
         Some(source) => source.load(&meta.directive_name)?,
@@ -50,7 +53,23 @@ pub async fn supervise_watch_job(
         if let Some(msg) = poll_control(&job_dir) {
             match msg {
                 ControlMsg::Stop => {
-                    info!(job = %meta.id, "watch supervisor 停止");
+                    info!(job = %meta.id, "watch supervisor 优雅停止：等待当前任务结束");
+                    let _ = engine.request_stop(&meta.id).await;
+                    match engine.wait_idle(&meta.id, STOP_IDLE_TIMEOUT).await {
+                        Ok(true) => {}
+                        Ok(false) => {
+                            tracing::warn!(
+                                job = %meta.id,
+                                "watch 优雅停止超时，改为强制终止"
+                            );
+                            let _ = engine.shutdown_force(&meta.id).await;
+                            let _ = JobMeta::remove(data_dir, JobKind::Watch, &meta.id);
+                            let _ = kill_process_tree(std::process::id());
+                        }
+                        Err(e) => {
+                            tracing::warn!(job = %meta.id, error = %e, "watch wait_idle 失败");
+                        }
+                    }
                     break;
                 }
                 ControlMsg::StopForce => {
@@ -96,6 +115,8 @@ pub async fn supervise_cron_job(
     use std::time::Duration;
     use tracing::info;
 
+    const STOP_IDLE_TIMEOUT: Duration = Duration::from_secs(3_600);
+
     // 与 watch 同理：指令以库里的那份为准，文件只是老用法的回退。
     let directive = match &io.source {
         Some(source) => source.load(&meta.directive_name)?,
@@ -130,7 +151,20 @@ pub async fn supervise_cron_job(
         if let Some(msg) = poll_control(&job_dir) {
             match msg {
                 ControlMsg::Stop => {
-                    info!(job = %meta.id, "cron supervisor 停止");
+                    info!(job = %meta.id, "cron supervisor 优雅停止：等待当前任务结束");
+                    let _ = engine.request_stop(&meta.id).await;
+                    match engine.wait_idle(&meta.id, STOP_IDLE_TIMEOUT).await {
+                        Ok(true) => {}
+                        Ok(false) => {
+                            tracing::warn!(job = %meta.id, "cron 优雅停止超时，改为强制终止");
+                            let _ = engine.shutdown_force(&meta.id).await;
+                            let _ = JobMeta::remove(data_dir, JobKind::Cron, &meta.id);
+                            let _ = kill_process_tree(std::process::id());
+                        }
+                        Err(e) => {
+                            tracing::warn!(job = %meta.id, error = %e, "cron wait_idle 失败");
+                        }
+                    }
                     break;
                 }
                 ControlMsg::StopForce => {

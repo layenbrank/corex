@@ -12,6 +12,15 @@ pub enum JobKind {
     Cron,
 }
 
+impl JobKind {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Watch => "watch",
+            Self::Cron => "cron",
+        }
+    }
+}
+
 /// 持久化的作业元数据，位于 `<data>/<kind>/<id>/meta.json`。
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct JobMeta {
@@ -58,12 +67,14 @@ impl JobMeta {
         is_supervisor_alive(self)
     }
 
-    /// 删除持久化的作业元数据（保留 `supervisor.log`）。
+    /// 删除持久化的作业元数据（保留 `supervisor.log` / `progress.ndjson`）。
     pub fn remove(data_dir: &Path, kind: JobKind, id: &str) -> std::io::Result<()> {
         let dir = Self::job_dir(data_dir, kind, id);
         let _ = std::fs::remove_file(dir.join("meta.json"));
         let _ = std::fs::remove_file(dir.join("supervisor.pid"));
         let _ = std::fs::remove_file(dir.join("control.cmd"));
+        // 强制杀进程时 FileProgress::finish 来不及写 end；清掉进行中标记，宿主才不会假「运行中」
+        let _ = std::fs::remove_file(dir.join("run.json"));
         Ok(())
     }
 

@@ -29,6 +29,7 @@ pub use pipeline::Pipeline;
 pub use resolver::Resolver;
 pub use run::{
     DirectiveRunner, DirectiveSource, SupervisorIo, run_directive_file, run_directive_spec,
+    run_supervised_directive,
 };
 pub use supervisor::process::{
     child_supervisor_identity, current_supervisor_identity, is_pid_running, is_supervisor_alive,
@@ -38,7 +39,8 @@ pub use supervisor::process::{
 pub use supervisor::supervise_cron_job;
 #[cfg(feature = "watch")]
 pub use supervisor::supervise_watch_job;
-pub use supervisor::{ControlMsg, JobKind, JobMeta, poll_control, send_control};
+pub use supervisor::{ControlMsg, JobKind, JobMeta, JobView, poll_control, send_control};
+pub use supervisor::{ensure_trigger, jobs, send_job, start_detached, stop_job};
 pub use trigger::{
     CronConfig, DEBOUNCE_EDGE, DEBOUNCE_MS, Edge, THROTTLE_EDGE, THROTTLE_MS, WatchConfig,
     find_cron_trigger, find_watch_trigger,

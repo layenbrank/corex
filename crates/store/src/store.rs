@@ -879,6 +879,12 @@ impl RawRow {
                 step_count: definition.steps.len(),
                 input_count: definition.inputs.len(),
                 trigger_count: definition.triggers.len(),
+                has_cron: definition.triggers.iter().any(|trigger| {
+                    matches!(trigger, corex_engine::Trigger::Cron { .. })
+                }),
+                has_watch: definition.triggers.iter().any(|trigger| {
+                    matches!(trigger, corex_engine::Trigger::Watch(_))
+                }),
             });
 
         DirectiveMeta {

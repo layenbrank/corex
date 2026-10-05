@@ -6,8 +6,8 @@ use crate::output::{errln, outln};
 use anyhow::{Context, Result, bail};
 use corex_core::EngineError;
 use corex_engine::{
-    ControlMsg, JobKind, JobMeta, child_supervisor_identity, current_supervisor_identity,
-    send_control, spawn_detached, supervise_cron_job, supervise_watch_job,
+    ControlMsg, JobKind, JobMeta, current_supervisor_identity, send_control, start_detached,
+    supervise_cron_job, supervise_watch_job,
 };
 use corex_ipc::data_dir;
 use std::path::Path;
@@ -25,51 +25,29 @@ pub(crate) async fn start_job(
     let directive = located.directive;
     Jobs::ensure(kind, &directive)?;
     let data = data_dir()?;
-    if let Some(existing) = Jobs::running(&data, kind, &directive.name) {
-        bail!(
-            "指令 `{}` 已有 {} 守护运行中 (pid {})。查看: corex {} attach {}",
-            directive.name,
-            Jobs::sub(kind),
-            existing.pid,
-            Jobs::sub(kind),
-            directive.name
-        );
-    }
-    let id = directive.name.clone();
     let sub = Jobs::sub(kind);
-    let job_dir = JobMeta::job_dir(&data, kind, &id);
-    std::fs::create_dir_all(&job_dir)?;
-    let log_path = JobMeta::supervisor_log_path(&data, kind, &id);
     let exe = std::env::current_exe()?;
     let mut args = vec![
         sub.to_string(),
         "run".to_string(),
-        id.clone(),
+        directive.name.clone(),
         "--supervised".to_string(),
         "--job-id".to_string(),
-        id.clone(),
+        directive.name.clone(),
     ];
     if immediate && kind == JobKind::Watch {
         args.push("--immediate".to_string());
     }
-    let pid = spawn_detached(
-        &exe,
-        &args.iter().map(String::as_str).collect::<Vec<_>>(),
-        Some(&log_path),
-    )?;
-    let (supervisor_exe, started_at_ms) = child_supervisor_identity(pid, &exe);
-    let meta = JobMeta {
-        id: id.clone(),
+    let meta = start_detached(
+        &data,
         kind,
-        directive_name: directive.name.clone(),
-        directive_path: Jobs::origin(located.file.as_deref(), &data),
-        pid,
-        expr: None,
-        paths: Vec::new(),
-        supervisor_exe: Some(supervisor_exe),
-        started_at_ms: Some(started_at_ms),
-    };
-    meta.write(&data)?;
+        &directive.name,
+        Jobs::origin(located.file.as_deref(), &data),
+        &exe,
+        &args,
+    )?;
+    let id = meta.id;
+    let pid = meta.pid;
     outln!("已启动 {sub} `{id}` (pid {pid})");
     outln!("查看: corex {sub} attach {id}");
     Ok(())

@@ -36,6 +36,10 @@ pub struct DirectiveSummary {
     pub step_count: usize,
     pub input_count: usize,
     pub trigger_count: usize,
+    /// 声明了 cron 触发器（宿主可开定时守护）。
+    pub has_cron: bool,
+    /// 声明了 watch 触发器（宿主可开文件监听守护）。
+    pub has_watch: bool,
 }
 
 /// 一条指令的完整记录：模型 + 由模型序列化出的规范化 YAML。

@@ -538,6 +538,64 @@ export class CorexClient {
     return response.data
   }
 
+  /**
+   * cron / watch 作业。`kind` 缺省则两族都列。
+   * @param {'cron' | 'watch'} [kind]
+   */
+  async jobs(kind, { timeoutMs = LIGHT_TIMEOUT_MS } = {}) {
+    const request = { type: 'jobs' }
+    if (kind) {
+      request.kind = kind
+    }
+    const response = await this.#request(request, { timeoutMs })
+    return response.data?.jobs ?? []
+  }
+
+  /**
+   * 按指令名启动对应族的 supervisor。
+   * @param {'cron' | 'watch'} kind
+   */
+  async startJob(kind, name, { immediate = false, timeoutMs = LIGHT_TIMEOUT_MS } = {}) {
+    const response = await this.#request(
+      { type: 'start_job', kind, name, immediate },
+      { timeoutMs }
+    )
+    return response.data
+  }
+
+  /**
+   * 停止作业。`force` 为真时杀进程树。
+   * @param {'cron' | 'watch'} kind
+   */
+  async stopJob(kind, name, { force = false, timeoutMs = LIGHT_TIMEOUT_MS } = {}) {
+    const response = await this.#request(
+      { type: 'stop_job', kind, name, force },
+      { timeoutMs }
+    )
+    return response.data
+  }
+
+  /**
+   * 先停再起。
+   * @param {'cron' | 'watch'} kind
+   */
+  async restartJob(kind, name, { timeoutMs = LIGHT_TIMEOUT_MS } = {}) {
+    const response = await this.#request({ type: 'restart_job', kind, name }, { timeoutMs })
+    return response.data
+  }
+
+  /**
+   * 给运行中的 supervisor 发控制消息：`run-now` / `status` / `stop` / `stop-force`。
+   * @param {'cron' | 'watch'} kind
+   */
+  async sendJob(kind, name, command, { timeoutMs = LIGHT_TIMEOUT_MS } = {}) {
+    const response = await this.#request(
+      { type: 'send_job', kind, name, command },
+      { timeoutMs }
+    )
+    return response.data
+  }
+
   /** 请 daemon 退出。它回 `bye` 后进程会结束（连接随之断掉）。 */
   async shutdown({ timeoutMs } = {}) {
     await this.#request({ type: 'shutdown' }, { timeoutMs })

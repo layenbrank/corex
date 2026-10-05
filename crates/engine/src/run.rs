@@ -4,11 +4,13 @@ use crate::audit::ExecutionAudit;
 use crate::definition::Directive;
 use crate::history::HistorySink;
 use crate::pipeline::Pipeline;
-use corex_core::{ActionStore, EngineError, ExecutionContext, RuntimeConfig, Value};
+use crate::supervisor::progress::FileProgress;
+use crate::supervisor::JobKind;
+use corex_core::{ActionStore, EngineError, ExecutionContext, Observer, RuntimeConfig, Value};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use tracing::debug;
+use tracing::{debug, warn};
 
 /// 一条指令从哪来。
 ///
@@ -49,6 +51,8 @@ pub struct DirectiveRunner {
     history: Option<Arc<dyn HistorySink>>,
     /// 按名字取指令的口；没注入时只能跑文件。
     source: Option<Arc<dyn DirectiveSource>>,
+    /// 进度上报口；cron / watch 触发时挂上落盘 Observer。
+    observer: Option<Arc<dyn Observer>>,
 }
 
 impl DirectiveRunner {
@@ -59,6 +63,7 @@ impl DirectiveRunner {
             data_dir,
             history: None,
             source: None,
+            observer: None,
         }
     }
 
@@ -72,6 +77,12 @@ impl DirectiveRunner {
     /// 注入「按名字取指令」的口。
     pub fn with_source(mut self, source: Arc<dyn DirectiveSource>) -> Self {
         self.source = Some(source);
+        self
+    }
+
+    /// 挂上进度上报（守护触发落盘 / IPC stream）。
+    pub fn with_observer(mut self, observer: Arc<dyn Observer>) -> Self {
+        self.observer = Some(observer);
         self
     }
 
@@ -108,6 +119,9 @@ impl DirectiveRunner {
         if let Some(history) = &self.history {
             pipeline = pipeline.with_history(Arc::clone(history));
         }
+        if let Some(observer) = &self.observer {
+            pipeline = pipeline.with_observer(Arc::clone(observer));
+        }
         let audit_path = self.data_dir.join("audit.jsonl");
         if let Ok(audit) = ExecutionAudit::open(audit_path) {
             pipeline = pipeline.with_audit(audit);
@@ -129,9 +143,27 @@ pub async fn run_directive_spec(
     name: &str,
     path: &Path,
 ) -> Result<Value, EngineError> {
+    run_directive_spec_with_observer(store, runtime, data_dir, source, history, name, path, None)
+        .await
+}
+
+/// 同 [`run_directive_spec`]，可挂进度 Observer。
+pub async fn run_directive_spec_with_observer(
+    store: Arc<dyn ActionStore>,
+    runtime: RuntimeConfig,
+    data_dir: &Path,
+    source: Option<&Arc<dyn DirectiveSource>>,
+    history: Option<&Arc<dyn HistorySink>>,
+    name: &str,
+    path: &Path,
+    observer: Option<Arc<dyn Observer>>,
+) -> Result<Value, EngineError> {
     let mut runner = DirectiveRunner::new(store, runtime, data_dir.to_path_buf());
     if let Some(history) = history {
         runner = runner.with_history(Arc::clone(history));
+    }
+    if let Some(observer) = observer {
+        runner = runner.with_observer(observer);
     }
 
     let Some(source) = source else {
@@ -145,6 +177,51 @@ pub async fn run_directive_spec(
         }
         Err(error) => Err(error),
     }
+}
+
+/// 守护触发：落盘进度后再跑。`kind` + 指令名对应 `<data>/<kind>/<name>/`。
+pub async fn run_supervised_directive(
+    store: Arc<dyn ActionStore>,
+    runtime: RuntimeConfig,
+    data_dir: &Path,
+    source: Option<&Arc<dyn DirectiveSource>>,
+    history: Option<&Arc<dyn HistorySink>>,
+    kind: JobKind,
+    name: &str,
+    path: &Path,
+) -> Result<Value, EngineError> {
+    let job_dir = crate::supervisor::JobMeta::job_dir(data_dir, kind, name);
+    let progress = match FileProgress::begin_run(&job_dir, kind, name) {
+        Ok(p) => Some(Arc::new(p)),
+        Err(error) => {
+            warn!(
+                directive = %name,
+                kind = kind.as_str(),
+                error = %error,
+                "无法打开进度文件，本次触发不落盘进度"
+            );
+            None
+        }
+    };
+    let observer = progress.clone().map(|p| p as Arc<dyn Observer>);
+    let result = run_directive_spec_with_observer(
+        store,
+        runtime,
+        data_dir,
+        source,
+        history,
+        name,
+        path,
+        observer,
+    )
+    .await;
+    if let Some(progress) = progress {
+        match &result {
+            Ok(_) => progress.finish(true, None),
+            Err(error) => progress.finish(false, Some(error.to_string())),
+        }
+    }
+    result
 }
 
 /// 给触发器 supervisor 用的便捷包装。

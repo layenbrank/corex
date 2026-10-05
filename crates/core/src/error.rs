@@ -142,6 +142,10 @@ pub enum EngineError {
     #[error("{0}")]
     Usage(String),
 
+    /// 目标已经在跑（或名字被占用）：调用方该先停旧的，而不是改自己发的内容。
+    #[error("{0}")]
+    Conflict(String),
+
     #[error("IO 错误: {0}")]
     Io(#[from] std::io::Error),
 
@@ -173,6 +177,7 @@ impl EngineError {
             Self::ConditionError(_) | Self::ControlFlow(_) => "control_flow".into(),
             Self::Config(_) => "config".into(),
             Self::Usage(_) => "usage".into(),
+            Self::Conflict(_) => "conflict".into(),
             Self::Io(_) => "io".into(),
             Self::Other(_) => "execution".into(),
         }

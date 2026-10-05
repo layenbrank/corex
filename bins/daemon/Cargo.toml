@@ -12,7 +12,7 @@ path = "src/main.rs"
 
 [dependencies]
 corex-core   = { workspace = true }
-corex-engine = { workspace = true }
+corex-engine = { workspace = true, features = ["triggers"] }
 # 守护进程是唯一发现并加载 WASM 插件的二进制，因此只有它在默认的
 # `all-actions` 之上额外开启 `wasm`。
 corex-registry     = { workspace = true, features = ["wasm"] }

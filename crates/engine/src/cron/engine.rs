@@ -3,7 +3,8 @@
 use super::expr::parse_cron_expr;
 use super::tz::{ResolvedCronTz, parse_cron_timezone};
 use crate::history::HistorySink;
-use crate::run::{DirectiveSource, run_directive_spec};
+use crate::run::{DirectiveSource, run_supervised_directive};
+use crate::supervisor::JobKind;
 use corex_core::{ActionStore, EngineError, RuntimeConfig};
 use std::collections::HashMap;
 use std::future::Future;
@@ -110,12 +111,13 @@ impl CronEngine {
                     return;
                 }
                 info!(directive = %name, "cron 触发执行");
-                let result = run_directive_spec(
+                let result = run_supervised_directive(
                     store,
                     runtime,
                     &data_dir,
                     source.as_ref(),
                     history.as_ref(),
+                    JobKind::Cron,
                     &name,
                     &path,
                 )
@@ -153,12 +155,45 @@ impl CronEngine {
 
     pub async fn unregister(&self, job_id: &str) -> Result<(), EngineError> {
         if let Some(state) = self.jobs.lock().await.remove(job_id) {
-            self.scheduler
-                .remove(&state.uuid)
-                .await
-                .map_err(|e| EngineError::other(format!("cron 移除失败: {e}")))?;
+            // 可能已在 request_stop 里摘过调度，重复 remove 忽略
+            let _ = self.scheduler.remove(&state.uuid).await;
         }
         Ok(())
+    }
+
+    /// 优雅停止：先从调度器摘掉（不再接新 tick），保留状态供 wait_idle。
+    pub async fn request_stop(&self, job_id: &str) -> Result<(), EngineError> {
+        let jobs = self.jobs.lock().await;
+        let state = jobs
+            .get(job_id)
+            .ok_or_else(|| EngineError::other(format!("cron job 未找到: {job_id}")))?;
+        let _ = self.scheduler.remove(&state.uuid).await;
+        Ok(())
+    }
+
+    /// 等到没有进行中的触发（或 job 已卸）。超时返回 `false`，由调用方改走强制停。
+    pub async fn wait_idle(
+        &self,
+        job_id: &str,
+        timeout: std::time::Duration,
+    ) -> Result<bool, EngineError> {
+        let deadline = tokio::time::Instant::now() + timeout;
+        loop {
+            let running = {
+                let jobs = self.jobs.lock().await;
+                match jobs.get(job_id) {
+                    Some(state) => state.is_running.load(Ordering::SeqCst),
+                    None => false,
+                }
+            };
+            if !running {
+                return Ok(true);
+            }
+            if tokio::time::Instant::now() >= deadline {
+                return Ok(false);
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        }
     }
 
     /// 移除已调度作业，并停止接受新的 cron 触发。
@@ -189,12 +224,13 @@ impl CronEngine {
         drop(jobs);
         tokio::spawn(async move {
             info!(directive = %name, "cron RUN_NOW");
-            let _ = run_directive_spec(
+            let _ = run_supervised_directive(
                 store,
                 runtime,
                 &data_dir,
                 source.as_ref(),
                 history.as_ref(),
+                JobKind::Cron,
                 &name,
                 &path,
             )

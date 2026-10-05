@@ -44,6 +44,10 @@ impl WatchFilter {
 
     /// 该相对路径是否应触发重建。
     pub fn matches(&self, rel_path: &str) -> bool {
+        // 监听根自身的 modify（Windows 上子树变更常带一条）相对路径为空，不能当有效触发
+        if rel_path.is_empty() {
+            return false;
+        }
         let path = Path::new(rel_path);
         if !self.includes.is_empty() && !self.matches_any(&self.includes, path) {
             return false;
@@ -69,7 +73,19 @@ impl WatchFilter {
 }
 
 fn parse_patterns(patterns: &[String]) -> Vec<Pattern> {
-    patterns
+    let mut expanded = Vec::new();
+    for pat in patterns {
+        expanded.push(pat.clone());
+        // `**/dist/**` 也要挡住裸 `dist` 目录事件（只有分量名、没有子路径）
+        if let Some(prefix) = pat.strip_suffix("/**") {
+            let name = prefix.rsplit('/').next().unwrap_or(prefix);
+            if !name.is_empty() && !name.contains(['*', '?', '[']) {
+                expanded.push(name.to_string());
+                expanded.push(format!("{name}/**"));
+            }
+        }
+    }
+    expanded
         .iter()
         .filter_map(|p| Pattern::new(p).ok())
         .collect()
@@ -116,6 +132,18 @@ mod tests {
     fn exclude_directory_shorthand() {
         assert!(!path_matches("new/index.js", &[], &["new".into()]));
         assert!(path_matches("src/index.js", &[], &["new".into()]));
+    }
+
+    #[test]
+    fn empty_rel_path_never_matches() {
+        assert!(!path_matches("", &[], &[]));
+        assert!(!path_matches("", &[], &["**/dist/**".into()]));
+    }
+
+    #[test]
+    fn exclude_dist_glob_covers_bare_dir() {
+        assert!(!path_matches("dist", &[], &["**/dist/**".into()]));
+        assert!(!path_matches("dist/index.js", &[], &["**/dist/**".into()]));
     }
 
     #[test]

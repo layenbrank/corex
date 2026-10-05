@@ -9,14 +9,16 @@ use corex_core::{
 };
 use corex_engine::{
     AuditEntry, Directive, DirectiveHistory, DirectiveSource, ExecutionAudit, HistoryEntry,
-    HistorySink, Pipeline, admission, required_permissions, validate_allowed, validate_registered,
+    HistorySink, JobKind as EngineJobKind, JobView, Pipeline, SupervisorIo, admission,
+    ensure_trigger, jobs, required_permissions, send_job, start_detached, stop_job,
+    supervise_cron_job, supervise_watch_job, validate_allowed, validate_registered,
 };
-use corex_ipc::protocol::{Request, Response, RpcError};
+use corex_ipc::protocol::{JobKind, Request, Response, RpcError};
 use corex_ipc::{FrameSink, Outlet, ProgressEvent, config_paths, data_dir, serve_ipc_ready};
 use corex_registry::ActionRegistry;
 use corex_store::{
     BootstrapOptions, DirectiveRecord, DirectiveStore, ImportEntry, ImportOptions, ImportReport,
-    ImportStatus, StoreDirectiveSource, StoreError, history_sink,
+    ImportStatus, StoreDirectiveSource, StoreError, database_path, history_sink,
 };
 use fs2::FileExt;
 use rand::RngExt;
@@ -45,11 +47,43 @@ struct Args {
     /// 配置文件（toml）
     #[arg(long)]
     config: Option<PathBuf>,
+
+    /// 作为已登记作业的 supervisor 运行（由 `start_job` 拉起，不听 IPC）
+    #[arg(long, requires_all = ["kind", "job_id"])]
+    supervised: bool,
+    /// supervisor 作业族
+    #[arg(long, value_enum)]
+    kind: Option<SupervisedKind>,
+    /// supervisor 作业 id（指令名）
+    #[arg(long)]
+    job_id: Option<String>,
+    /// watch：先立刻触发一次
+    #[arg(long)]
+    immediate: bool,
+}
+
+#[derive(Clone, Copy, Debug, clap::ValueEnum)]
+enum SupervisedKind {
+    Watch,
+    Cron,
+}
+
+impl From<SupervisedKind> for EngineJobKind {
+    fn from(kind: SupervisedKind) -> Self {
+        match kind {
+            SupervisedKind::Watch => EngineJobKind::Watch,
+            SupervisedKind::Cron => EngineJobKind::Cron,
+        }
+    }
 }
 
 struct DaemonState {
     registry: Arc<ActionRegistry>,
     config: RuntimeConfig,
+    /// 指令库所在的数据目录：supervisor 的 meta 写在这里。
+    data: PathBuf,
+    /// 启动时的 `--config`，传给 supervisor 子进程以免读到另一份配置。
+    config_path: Option<PathBuf>,
     /// 指令的唯一真相源。指令、执行日志、上次执行时间都在这一处，谁读谁写都只经过它。
     store: Arc<DirectiveStore>,
     /// 交给触发器等「按名字取指令」的口，与 [`Self::store`] 是同一个库。
@@ -84,6 +118,10 @@ async fn main() -> Result<()> {
     }
     for issue in &resolved.warnings {
         warn!(key = issue.key, "{}", issue.message);
+    }
+
+    if args.supervised {
+        return run_supervised(&args, &data, config).await;
     }
 
     let endpoint = resolve_endpoint(args.socket, &config.daemon, &data)?;
@@ -165,6 +203,8 @@ async fn main() -> Result<()> {
     let state = Arc::new(DaemonState {
         registry,
         config,
+        data: data.clone(),
+        config_path: args.config.clone(),
         source: Arc::new(StoreDirectiveSource::new(Arc::clone(&store))),
         store,
         history,
@@ -504,6 +544,46 @@ async fn handle_request(state: &DaemonState, req: Request, outlet: Outlet) -> Re
             Ok(v) => Response::ok(id, v),
             Err(e) => Response::error(id, classify(&e)),
         },
+        Request::Jobs { id, kind, .. } => match jobs_reply(state, kind) {
+            Ok(data) => Response::ok(id, data),
+            Err(e) => Response::error(id, e),
+        },
+        Request::StartJob {
+            id,
+            kind,
+            name,
+            immediate,
+            ..
+        } => match spawn_job(state, kind, &name, immediate) {
+            Ok(data) => Response::ok(id, data),
+            Err(e) => Response::error(id, e),
+        },
+        Request::StopJob {
+            id,
+            kind,
+            name,
+            force,
+            ..
+        } => match halt_job(state, kind, &name, force).await {
+            Ok(data) => Response::ok(id, data),
+            Err(e) => Response::error(id, e),
+        },
+        Request::RestartJob {
+            id, kind, name, ..
+        } => match restart_job(state, kind, &name).await {
+            Ok(data) => Response::ok(id, data),
+            Err(e) => Response::error(id, e),
+        },
+        Request::SendJob {
+            id,
+            kind,
+            name,
+            command,
+            ..
+        } => match control_job(state, kind, &name, &command) {
+            Ok(data) => Response::ok(id, data),
+            Err(e) => Response::error(id, e),
+        },
     }
 }
 
@@ -545,8 +625,152 @@ fn from_engine(err: &EngineError) -> RpcError {
     match err.kind().as_str() {
         "not_found" => RpcError::not_found(message),
         "not_registered" | "parse" | "config" | "usage" => RpcError::invalid(message),
+        "conflict" => RpcError::conflict(message),
         _ => RpcError::internal(message),
     }
+}
+
+fn as_engine(kind: JobKind) -> EngineJobKind {
+    match kind {
+        JobKind::Watch => EngineJobKind::Watch,
+        JobKind::Cron => EngineJobKind::Cron,
+    }
+}
+
+#[derive(Serialize)]
+struct JobsReply {
+    jobs: Vec<JobView>,
+}
+
+fn jobs_reply(state: &DaemonState, kind: Option<JobKind>) -> Result<Value, RpcError> {
+    as_data(&JobsReply {
+        jobs: jobs(&state.data, kind.map(as_engine)),
+    })
+}
+
+/// `--supervised` 子进程参数（与 CLI `watch/cron run --supervised` 同形）。
+fn supervised_args(
+    state: &DaemonState,
+    kind: EngineJobKind,
+    id: &str,
+    immediate: bool,
+) -> Vec<String> {
+    let mut args = vec![
+        "--supervised".into(),
+        "--kind".into(),
+        kind.as_str().into(),
+        "--job-id".into(),
+        id.into(),
+    ];
+    if let Some(config) = &state.config_path {
+        args.push("--config".into());
+        args.push(config.display().to_string());
+    }
+    if immediate && kind == EngineJobKind::Watch {
+        args.push("--immediate".into());
+    }
+    args
+}
+
+fn spawn_job(
+    state: &DaemonState,
+    kind: JobKind,
+    name: &str,
+    immediate: bool,
+) -> Result<Value, RpcError> {
+    let kind = as_engine(kind);
+    let directive = state.source.load(name).map_err(|e| classify(&e.into()))?;
+    ensure_trigger(kind, &directive).map_err(|e| classify(&e.into()))?;
+    let exe = std::env::current_exe().map_err(|e| RpcError::internal(e.to_string()))?;
+    let args = supervised_args(state, kind, &directive.name, immediate);
+    let meta = start_detached(
+        &state.data,
+        kind,
+        &directive.name,
+        database_path(&state.data),
+        &exe,
+        &args,
+    )
+    .map_err(|e| classify(&e.into()))?;
+    as_data(&JobView::from_meta(meta))
+}
+
+async fn halt_job(
+    state: &DaemonState,
+    kind: JobKind,
+    name: &str,
+    force: bool,
+) -> Result<Value, RpcError> {
+    let view = stop_job(&state.data, as_engine(kind), name, force)
+        .await
+        .map_err(|e| classify(&e.into()))?;
+    as_data(&view)
+}
+
+async fn restart_job(state: &DaemonState, kind: JobKind, name: &str) -> Result<Value, RpcError> {
+    if let Err(err) = stop_job(&state.data, as_engine(kind), name, false).await {
+        warn!(error = %err, "停止现有作业失败，仍将尝试启动");
+    }
+    tokio::time::sleep(Duration::from_millis(800)).await;
+    spawn_job(state, kind, name, false)
+}
+
+fn control_job(
+    state: &DaemonState,
+    kind: JobKind,
+    name: &str,
+    command: &str,
+) -> Result<Value, RpcError> {
+    let view = send_job(&state.data, as_engine(kind), name, command)
+        .map_err(|e| classify(&e.into()))?;
+    as_data(&view)
+}
+
+/// `start_job` 拉起的子进程：只跑 supervisor，不占 IPC 锁。
+async fn run_supervised(args: &Args, data: &Path, config: RuntimeConfig) -> Result<()> {
+    let kind = EngineJobKind::from(args.kind.expect("--supervised 需要 --kind"));
+    let job_id = args.job_id.as_deref().expect("--supervised 需要 --job-id");
+    let mut registry = ActionRegistry::new();
+    registry.register_builtins();
+    registry.remove_disabled(&config.plugins);
+    {
+        let plugin_dir = if config.plugins.plugin_dir.is_absolute() {
+            config.plugins.plugin_dir.clone()
+        } else {
+            data.join(&config.plugins.plugin_dir)
+        };
+        if let Err(e) = corex_registry::discovery::discover(&plugin_dir, &mut registry) {
+            warn!(error = %e, "插件发现失败");
+        }
+    }
+    let registry = Arc::new(registry);
+    let validate = admission(Arc::clone(&registry));
+    let (store, _) = DirectiveStore::open_in_data_dir(
+        data,
+        BootstrapOptions::from_config(data, &config),
+        &validate,
+    )
+    .context("无法打开指令库")?;
+    let store = Arc::new(store);
+    let history = history_sink(Arc::clone(&store), &config);
+    let source: Arc<dyn DirectiveSource> = Arc::new(StoreDirectiveSource::new(Arc::clone(&store)));
+    let io = SupervisorIo {
+        source: Some(source),
+        history,
+    };
+    let meta = corex_engine::JobMeta::read(data, kind, job_id).with_context(|| {
+        format!("读取 {} job `{job_id}` 的 meta", kind.as_str())
+    })?;
+    info!(job = job_id, kind = kind.as_str(), "supervisor 已接管");
+    match kind {
+        EngineJobKind::Watch => {
+            supervise_watch_job(&meta, registry, config, data, args.immediate, &io).await?;
+        }
+        EngineJobKind::Cron => {
+            supervise_cron_job(&meta, registry, config, data, &io).await?;
+        }
+    }
+    Ok(())
 }
 
 /// 指令库里的一条指令。
@@ -595,6 +819,8 @@ struct DirectiveSummary {
     step_count: usize,
     input_count: usize,
     trigger_count: usize,
+    has_cron: bool,
+    has_watch: bool,
 }
 
 /// 一条指令的规范化 YAML 与模型。
@@ -714,6 +940,8 @@ fn directives(state: &DaemonState) -> Result<Value, RpcError> {
                 step_count: summary.step_count,
                 input_count: summary.input_count,
                 trigger_count: summary.trigger_count,
+                has_cron: summary.has_cron,
+                has_watch: summary.has_watch,
             }),
             last_run: ran.get(&meta.name).cloned(),
             name: meta.name,

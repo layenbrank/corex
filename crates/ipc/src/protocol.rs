@@ -8,6 +8,14 @@ use std::collections::HashMap;
 /// NDJSON 单行最大长度（1 MiB）。
 pub const MAX_LINE_BYTES: usize = 1024 * 1024;
 
+/// watch / cron 作业族；与引擎 [`JobKind`] 同形。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum JobKind {
+    Watch,
+    Cron,
+}
+
 /// 客户端 → daemon 的请求。
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
@@ -138,6 +146,58 @@ pub enum Request {
         #[serde(default)]
         stream: bool,
     },
+    /// 已登记的 cron / watch 作业。
+    Jobs {
+        #[serde(default)]
+        id: u64,
+        #[serde(default)]
+        auth_token: Option<String>,
+        /// 只看这一族；不给则两族都列。
+        #[serde(default)]
+        kind: Option<JobKind>,
+    },
+    /// 按指令名启动对应族的 supervisor。
+    StartJob {
+        #[serde(default)]
+        id: u64,
+        #[serde(default)]
+        auth_token: Option<String>,
+        kind: JobKind,
+        name: String,
+        /// watch 先立刻跑一次再跟文件事件；cron 忽略。
+        #[serde(default)]
+        immediate: bool,
+    },
+    /// 停止作业。`force` 为真时等不及就杀进程树。
+    StopJob {
+        #[serde(default)]
+        id: u64,
+        #[serde(default)]
+        auth_token: Option<String>,
+        kind: JobKind,
+        name: String,
+        #[serde(default)]
+        force: bool,
+    },
+    /// 先停再起。
+    RestartJob {
+        #[serde(default)]
+        id: u64,
+        #[serde(default)]
+        auth_token: Option<String>,
+        kind: JobKind,
+        name: String,
+    },
+    /// 给运行中的 supervisor 发控制消息：`run-now` / `status` / `stop` / `stop-force`。
+    SendJob {
+        #[serde(default)]
+        id: u64,
+        #[serde(default)]
+        auth_token: Option<String>,
+        kind: JobKind,
+        name: String,
+        command: String,
+    },
 }
 
 impl Request {
@@ -145,7 +205,7 @@ impl Request {
         match self {
             Request::Ping { id, .. }
             | Request::Shutdown { id, .. }
-            | Request::ListDirectives { id, .. }
+            | Request::Directives { id, .. }
             | Request::ReadDirective { id, .. }
             | Request::SaveDirective { id, .. }
             | Request::DeleteDirective { id, .. }
@@ -153,7 +213,12 @@ impl Request {
             | Request::ListRuns { id, .. }
             | Request::ListActions { id, .. }
             | Request::RunDirective { id, .. }
-            | Request::Invoke { id, .. } => *id,
+            | Request::Invoke { id, .. }
+            | Request::Jobs { id, .. }
+            | Request::StartJob { id, .. }
+            | Request::StopJob { id, .. }
+            | Request::RestartJob { id, .. }
+            | Request::SendJob { id, .. } => *id,
         }
     }
 
@@ -187,7 +252,12 @@ impl Request {
             | Request::ListRuns { auth_token, .. }
             | Request::ListActions { auth_token, .. }
             | Request::RunDirective { auth_token, .. }
-            | Request::Invoke { auth_token, .. } => auth_token.as_deref(),
+            | Request::Invoke { auth_token, .. }
+            | Request::Jobs { auth_token, .. }
+            | Request::StartJob { auth_token, .. }
+            | Request::StopJob { auth_token, .. }
+            | Request::RestartJob { auth_token, .. }
+            | Request::SendJob { auth_token, .. } => auth_token.as_deref(),
         }
     }
 
@@ -205,7 +275,12 @@ impl Request {
             | Request::ListRuns { auth_token, .. }
             | Request::ListActions { auth_token, .. }
             | Request::RunDirective { auth_token, .. }
-            | Request::Invoke { auth_token, .. } => *auth_token = t,
+            | Request::Invoke { auth_token, .. }
+            | Request::Jobs { auth_token, .. }
+            | Request::StartJob { auth_token, .. }
+            | Request::StopJob { auth_token, .. }
+            | Request::RestartJob { auth_token, .. }
+            | Request::SendJob { auth_token, .. } => *auth_token = t,
         }
         self
     }
@@ -434,5 +509,25 @@ mod tests {
         };
         assert_eq!(name.as_deref(), Some("build"));
         assert_eq!(limit, Some(20));
+    }
+
+    #[test]
+    fn job_lifecycle_requests_are_control() {
+        let json = r#"{"type":"jobs","id":8,"kind":"cron"}"#;
+        let req: Request = serde_json::from_str(json).unwrap();
+        assert!(!req.is_execution());
+        assert!(!req.wants_stream());
+        let Request::Jobs { kind, .. } = req.with_auth_token("tok") else {
+            panic!("判成了别的请求");
+        };
+        assert_eq!(kind, Some(JobKind::Cron));
+        assert_eq!(
+            serde_json::from_str::<Request>(
+                r#"{"type":"start_job","id":1,"kind":"watch","name":"build","immediate":true}"#
+            )
+            .unwrap()
+            .id(),
+            1
+        );
     }
 }

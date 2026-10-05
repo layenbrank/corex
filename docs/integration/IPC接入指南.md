@@ -172,6 +172,16 @@ Token 不匹配 → 响应 `error`，code **401**。
 }
 ```
 
+### 启动 / 列出 cron 作业
+
+```json
+{ "type": "start_job", "id": 4, "auth_token": "<your-token>", "kind": "cron", "name": "nightly" }
+{ "type": "jobs", "id": 5, "auth_token": "<your-token>", "kind": "cron" }
+{ "type": "stop_job", "id": 6, "auth_token": "<your-token>", "kind": "cron", "name": "nightly", "force": true }
+```
+
+`kind` 为 `cron` 或 `watch`。指令 YAML 须已声明对应 `triggers`。daemon 拉起的是自身的 `--supervised` 子进程，与 `corex cron run` / `corex watch run` 共用 `<data-dir>/cron|watch/<name>/`。
+
 ### 调用单个 Action
 
 ```json
