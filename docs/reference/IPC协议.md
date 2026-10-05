@@ -151,7 +151,7 @@ CLI / 宿主 / SDK 侧的 token 解析顺序（一处实现：`corex_ipc::find_t
   "type": "ok",
   "id": 2,
   "data": {
-    "version": "13.0.0",
+    "version": "13.1.0",
     "count": 80,
     "bucket": null,
     "actions": [
