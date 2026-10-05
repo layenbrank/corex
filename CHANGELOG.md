@@ -8,6 +8,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 See also [Conventional Commits](https://www.conventionalcommits.org/).
 
 ---
+## [13.1.0](https://github.com/layenbrank/corex/compare/v13.0.0..v13.1.0) - 2026-10-05
+
+### 🚀 Features
+- **(cli,daemon,mcp)** 对齐 corex.db 与 visible 对外面 · ([`585a784`](https://github.com/layenbrank/corex/commit/585a784b1c674c351faed7fc3c0910be3efd47d0)) · layen
+- **(engine)** 预配置系统指令（capture-screenshot） · ([`e2ade62`](https://github.com/layenbrank/corex/commit/e2ade6247feaef4d69cd8859d9b8cb49ce25b110)) · layen
+- **(store)** corex.db + visible + camelCase 列 · ([`efc24ca`](https://github.com/layenbrank/corex/commit/efc24ca5516c0e0434f274a1f7c7a10ab4e8f93b)) · layen
+
+
+### 🐛 Bug Fixes
+- **(deps)** wasmtime 抬到 48.0.3，修掉新公告导致的 cargo deny 红灯 · ([`dca5a79`](https://github.com/layenbrank/corex/commit/dca5a797036480e4f10880a632317160530a2ea4)) · lh
+
+
+### 📚 Documentation
+- **(ops)** 发布流程补 --tag 与 git-cliff 写文件的两个坑 · ([`e30b538`](https://github.com/layenbrank/corex/commit/e30b5389ede54af005ccf529d849bee9a38c7c5d)) · lh
+- 同步 corex.db 与指令库列名说明 · ([`29ebf2a`](https://github.com/layenbrank/corex/commit/29ebf2a6de86bd44444b3d17eb29bca91eff34fd)) · layen
+
+
+### 📦 Release
+- **(release)** bump version to 13.1.0 · ([`3beef18`](https://github.com/layenbrank/corex/commit/3beef1888d01f90d24516a9974e196f7296ed149)) · layen
+
+---
 ## [13.0.0](https://github.com/layenbrank/corex/compare/v12.1.0..v13.0.0) - 2026-09-30
 
 ### 💥 Breaking Changes
@@ -720,6 +741,8 @@ See also [Conventional Commits](https://www.conventionalcommits.org/).
 - fluxor.yml · ([`322cb9c`](https://github.com/layenbrank/corex/commit/322cb9cb8c1e91f0b0a0b47e0014ae4c872fa846)) · layenbrank
 - Remove legacy notification examples and related files to streamline the project structure and focus on the updated notification system. This includes deleting old test files, configuration files, and XML templates that are no longer in use. · ([`fc89b31`](https://github.com/layenbrank/corex/commit/fc89b313725223dd1b0ce38ed5ad6b877f9a16e8)) · 李贺
 
+[13.1.0]: https://github.com/layenbrank/corex/compare/v13.0.0..v13.1.0
+[13.0.0]: https://github.com/layenbrank/corex/compare/v12.1.0..v13.0.0
 [12.1.0]: https://github.com/layenbrank/corex/compare/v12.0.0..v12.1.0
 [12.0.0]: https://github.com/layenbrank/corex/compare/v11.0.0..v12.0.0
 [11.0.0]: https://github.com/layenbrank/corex/compare/v10.0.0..v11.0.0
