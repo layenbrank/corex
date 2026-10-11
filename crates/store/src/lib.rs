@@ -15,6 +15,7 @@
 //! 由调用方（CLI / daemon）用 `corex_engine::validate_registered` / `validate_allowed` 判，
 //! 判定结果经 [`Validator`] 传进下面这些导入函数。库只负责「存得住、取得回、改得动」。
 
+pub mod catalog;
 mod error;
 mod history;
 mod record;

@@ -3,17 +3,18 @@
 use anyhow::{Context, Result};
 use clap::Parser;
 use corex_core::{
-    ActionError, ActionStore, DaemonConfig, EngineError, ExecutionContext, LoggingConfig, Mark,
-    Observer, PermissionKind, PermissionSet, RuntimeConfig, Spot, Stream, Value,
+    ActionError, ActionStore, Bucket, DaemonConfig, EngineError, ExecutionContext, LoggingConfig,
+    Mark, Observer, PermissionKind, PermissionSet, RuntimeConfig, Spot, Stream, Value,
     check_runtime_allowed,
 };
 use corex_engine::{
     AuditEntry, Directive, DirectiveHistory, DirectiveSource, ExecutionAudit, HistoryEntry,
     HistorySink, JobKind as EngineJobKind, JobView, Pipeline, SupervisorIo, admission,
     ensure_trigger, jobs, required_permissions, send_job, start_detached, stop_job,
-    supervise_cron_job, supervise_watch_job, validate_allowed, validate_registered,
+    supervise_cron_job, supervise_watch_job, validate_allowed, validate_permissions,
+    validate_registered,
 };
-use corex_ipc::protocol::{JobKind, Request, Response, RpcError};
+use corex_ipc::protocol::{JobKind, Request, Response, RpcError, RpcErrorDetail};
 use corex_ipc::{FrameSink, Outlet, ProgressEvent, config_paths, data_dir, serve_ipc_ready};
 use corex_registry::ActionRegistry;
 use corex_store::{
@@ -23,9 +24,11 @@ use corex_store::{
 use fs2::FileExt;
 use rand::RngExt;
 use serde::Serialize;
+use std::collections::HashMap;
 use std::fs::File;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use std::sync::Mutex;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::time::Duration;
 use tokio::sync::Semaphore;
@@ -97,6 +100,31 @@ struct DaemonState {
     jobs: Arc<Semaphore>,
     /// `ui.*` 与 `capture.*` 共享屏幕 / 输入设备，不能同时执行。
     interactive: Arc<Semaphore>,
+    /// 进行中的执行请求：`cancel_execution` 按请求 id 协作取消。
+    executions: Mutex<HashMap<u64, Arc<ExecutionCancel>>>,
+}
+
+/// 单次执行的取消门闩（watch 通知，无需 tokio-util）。
+#[derive(Debug, Default)]
+struct ExecutionCancel {
+    is_cancelled: AtomicBool,
+    notify: tokio::sync::Notify,
+}
+
+impl ExecutionCancel {
+    fn cancel(&self) {
+        self.is_cancelled.store(true, Ordering::SeqCst);
+        self.notify.notify_waiters();
+    }
+
+    async fn cancelled(&self) {
+        loop {
+            if self.is_cancelled.load(Ordering::SeqCst) {
+                return;
+            }
+            self.notify.notified().await;
+        }
+    }
 }
 
 #[tokio::main]
@@ -213,6 +241,7 @@ async fn main() -> Result<()> {
         shutdown: AtomicBool::new(false),
         jobs,
         interactive,
+        executions: Mutex::new(HashMap::new()),
     });
 
     // 信号处理
@@ -320,16 +349,20 @@ impl StreamObserver {
 
 impl Observer for StreamObserver {
     fn begin(&self, at: Spot<'_>) {
+        let step = at.id.to_string();
         self.emit(ProgressEvent::StepStart {
             seq: self.next_step(),
-            step: at.id.to_string(),
+            scope: ProgressEvent::leaf_scope(&step),
+            step,
             action: at.action.to_string(),
         });
     }
 
     fn chunk(&self, at: Spot<'_>, mark: Mark) {
+        let step = at.id.to_string();
         self.emit(ProgressEvent::StepProgress {
-            step: at.id.to_string(),
+            scope: ProgressEvent::leaf_scope(&step),
+            step,
             action: at.action.to_string(),
             done: mark.done,
             total: mark.total,
@@ -338,8 +371,10 @@ impl Observer for StreamObserver {
     }
 
     fn output(&self, at: Spot<'_>, stream: Stream, text: &str) {
+        let step = at.id.to_string();
         self.emit(ProgressEvent::StepOutput {
-            step: at.id.to_string(),
+            scope: ProgressEvent::leaf_scope(&step),
+            step,
             action: at.action.to_string(),
             stream,
             text: text.to_string(),
@@ -347,8 +382,10 @@ impl Observer for StreamObserver {
     }
 
     fn end(&self, at: Spot<'_>, took: Duration, ok: bool) {
+        let step = at.id.to_string();
         self.emit(ProgressEvent::StepEnd {
-            step: at.id.to_string(),
+            scope: ProgressEvent::leaf_scope(&step),
+            step,
             action: at.action.to_string(),
             took_ms: took.as_millis() as u64,
             ok,
@@ -477,14 +514,43 @@ async fn handle_request(state: &DaemonState, req: Request, outlet: Outlet) -> Re
             state.shutdown.store(true, Ordering::SeqCst);
             Response::Bye { id }
         }
-        Request::ListActions { id, .. } => {
-            // 整个目录而不是一串 id：宿主与 agent 需要知道「怎么调」——参数类型、
-            // 默认值与要声明的权限都在里面。形状就是 `corex actions --json` 那一份
-            // `catalog::document`（含 `version`，宿主据此判断参数表要不要重拉）。
-            Response::ok(
-                id,
-                Value::from_json(corex_registry::catalog::document(&state.registry, None)),
-            )
+        Request::ListActions {
+            id, bucket, ids, ..
+        } => match list_actions_reply(state, bucket.as_deref(), ids.as_deref()) {
+            Ok(data) => Response::ok(id, data),
+            Err(e) => Response::error(id, e),
+        },
+        Request::ValidateDirective {
+            id,
+            definition,
+            strict,
+            ..
+        } => match validate_directive_reply(state, definition, strict) {
+            Ok(data) => Response::ok(id, data),
+            Err(e) => Response::error(id, e),
+        },
+        Request::CancelExecution { id, target_id, .. } => {
+            let gate = state
+                .executions
+                .lock()
+                .ok()
+                .and_then(|guard| guard.get(&target_id).cloned());
+            match gate {
+                Some(gate) => {
+                    gate.cancel();
+                    Response::ok(
+                        id,
+                        Value::from_json(serde_json::json!({
+                            "target_id": target_id,
+                            "cancelled": true
+                        })),
+                    )
+                }
+                None => Response::error(
+                    id,
+                    RpcError::not_found(format!("没有进行中的执行: {target_id}")),
+                ),
+            }
         }
         Request::Directives { id, .. } => match directives(state) {
             Ok(data) => Response::ok(id, data),
@@ -525,24 +591,33 @@ async fn handle_request(state: &DaemonState, req: Request, outlet: Outlet) -> Re
             Ok(data) => Response::ok(id, data),
             Err(e) => Response::error(id, e),
         },
-        Request::RunDirective { id, input, .. } => match run_directive(
-            state,
-            prepared_directive
-                .as_ref()
-                .expect("RunDirective 已在调度前解析"),
-            input,
-            observer.as_ref(),
-        )
+        Request::RunDirective { id, input, .. } => {
+            match run_cancellable(state, id, async {
+                run_directive(
+                    state,
+                    prepared_directive
+                        .as_ref()
+                        .expect("RunDirective 已在调度前解析"),
+                    input,
+                    observer.as_ref(),
+                )
+                .await
+            })
+            .await
+            {
+                Ok(v) => Response::ok(id, v),
+                Err(e) => Response::error(id, e),
+            }
+        }
+        Request::Invoke {
+            id, action, params, ..
+        } => match run_cancellable(state, id, async {
+            invoke_action(state, &action, params, observer.as_ref()).await
+        })
         .await
         {
             Ok(v) => Response::ok(id, v),
-            Err(e) => Response::error(id, classify(&e)),
-        },
-        Request::Invoke {
-            id, action, params, ..
-        } => match invoke_action(state, &action, params, observer.as_ref()).await {
-            Ok(v) => Response::ok(id, v),
-            Err(e) => Response::error(id, classify(&e)),
+            Err(e) => Response::error(id, e),
         },
         Request::Jobs { id, kind, .. } => match jobs_reply(state, kind) {
             Ok(data) => Response::ok(id, data),
@@ -568,9 +643,7 @@ async fn handle_request(state: &DaemonState, req: Request, outlet: Outlet) -> Re
             Ok(data) => Response::ok(id, data),
             Err(e) => Response::error(id, e),
         },
-        Request::RestartJob {
-            id, kind, name, ..
-        } => match restart_job(state, kind, &name).await {
+        Request::RestartJob { id, kind, name, .. } => match restart_job(state, kind, &name).await {
             Ok(data) => Response::ok(id, data),
             Err(e) => Response::error(id, e),
         },
@@ -721,8 +794,8 @@ fn control_job(
     name: &str,
     command: &str,
 ) -> Result<Value, RpcError> {
-    let view = send_job(&state.data, as_engine(kind), name, command)
-        .map_err(|e| classify(&e.into()))?;
+    let view =
+        send_job(&state.data, as_engine(kind), name, command).map_err(|e| classify(&e.into()))?;
     as_data(&view)
 }
 
@@ -758,9 +831,8 @@ async fn run_supervised(args: &Args, data: &Path, config: RuntimeConfig) -> Resu
         source: Some(source),
         history,
     };
-    let meta = corex_engine::JobMeta::read(data, kind, job_id).with_context(|| {
-        format!("读取 {} job `{job_id}` 的 meta", kind.as_str())
-    })?;
+    let meta = corex_engine::JobMeta::read(data, kind, job_id)
+        .with_context(|| format!("读取 {} job `{job_id}` 的 meta", kind.as_str()))?;
     info!(job = job_id, kind = kind.as_str(), "supervisor 已接管");
     match kind {
         EngineJobKind::Watch => {
@@ -977,7 +1049,92 @@ fn list_runs(
 
 fn read_directive(state: &DaemonState, name: &str) -> Result<Value, RpcError> {
     let record = state.store.fetch(name).map_err(from_store)?;
-    as_data(&DirectiveDocument::of(record))
+    // 与 MCP `corex_directive` 同一份形状（store::catalog），禁止各抄一份。
+    Ok(Value::from_json(corex_store::catalog::document_of(record)))
+}
+
+fn list_actions_reply(
+    state: &DaemonState,
+    bucket: Option<&str>,
+    ids: Option<&[String]>,
+) -> Result<Value, RpcError> {
+    let parsed = match bucket {
+        None => None,
+        Some(name) => Some(
+            Bucket::parse(name).ok_or_else(|| RpcError::invalid(format!("未知 bucket: {name}")))?,
+        ),
+    };
+    Ok(Value::from_json(
+        corex_registry::catalog::document_filtered(&state.registry, parsed, ids),
+    ))
+}
+
+fn validate_directive_reply(
+    state: &DaemonState,
+    definition: Value,
+    strict: bool,
+) -> Result<Value, RpcError> {
+    let directive: Directive = serde_json::from_value(definition.to_json()).map_err(|e| {
+        RpcError::invalid(format!("指令定义不合法: {e}")).with_details(vec![RpcErrorDetail {
+            path: String::new(),
+            code: "parse".into(),
+            message: e.to_string(),
+        }])
+    })?;
+    if let Err(e) = validate_registered(&*state.registry, &directive) {
+        return Err(from_engine(&e).with_details(details_from_registered(&e)));
+    }
+    if let Err(e) = validate_allowed(&*state.registry, &directive) {
+        return Err(from_action(&e).with_details(details_from_allowed(&e)));
+    }
+    if strict {
+        if let Err(message) = validate_permissions(&*state.registry, &directive) {
+            return Err(
+                RpcError::invalid(message).with_details(vec![RpcErrorDetail {
+                    path: String::new(),
+                    code: "strict_permissions".into(),
+                    message: "strict permissions".into(),
+                }]),
+            );
+        }
+    }
+    as_data(&serde_json::json!({ "ok": true, "name": directive.name }))
+}
+
+fn details_from_registered(err: &EngineError) -> Vec<RpcErrorDetail> {
+    let message = err.to_string();
+    vec![RpcErrorDetail {
+        path: String::new(),
+        code: "not_registered".into(),
+        message,
+    }]
+}
+
+fn details_from_allowed(err: &ActionError) -> Vec<RpcErrorDetail> {
+    let message = err.to_string();
+    vec![RpcErrorDetail {
+        path: String::new(),
+        code: "permission_denied".into(),
+        message,
+    }]
+}
+
+async fn run_cancellable<F>(state: &DaemonState, id: u64, fut: F) -> Result<Value, RpcError>
+where
+    F: std::future::Future<Output = Result<Value>>,
+{
+    let gate = Arc::new(ExecutionCancel::default());
+    if let Ok(mut guard) = state.executions.lock() {
+        guard.insert(id, Arc::clone(&gate));
+    }
+    let outcome = tokio::select! {
+        result = fut => result.map_err(|e| classify(&e)),
+        _ = gate.cancelled() => Err(RpcError::canceled("execution cancelled")),
+    };
+    if let Ok(mut guard) = state.executions.lock() {
+        guard.remove(&id);
+    }
+    outcome
 }
 
 /// 保存一条指令，并把**规范化之后**的那份还给宿主。

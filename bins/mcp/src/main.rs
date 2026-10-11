@@ -5,6 +5,7 @@
 //!   子进程拉起，日志写 stderr，stdout 只放 MCP 消息。
 //! - `--transport http`：Streamable HTTP，单 `/mcp` 端点，默认只绑 127.0.0.1。
 
+mod errors;
 mod exec;
 mod handler;
 mod tools;

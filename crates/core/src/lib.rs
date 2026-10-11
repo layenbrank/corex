@@ -13,8 +13,8 @@ pub mod value;
 pub use action::{Action, ActionMeta, ActionStore, Bucket, HashMapStore, ParamSchema};
 pub use context::{
     DaemonConfig, DirectivesConfig, ExecutionContext, HistoryConfig, LoggingConfig, MAX_PARALLEL,
-    PluginConfig, RUNTIME_CONFIG, RuntimeConfig, SELECTOR_DEPTH, UI_PROFILE, UiProfileOverrides,
-    UiProfilePreset, UiSession, UpdateChannel, UpdateConfig, VERSION,
+    McpConfig, PluginConfig, RUNTIME_CONFIG, RuntimeConfig, SELECTOR_DEPTH, UI_PROFILE,
+    UiProfileOverrides, UiProfilePreset, UiSession, UpdateChannel, UpdateConfig, VERSION,
 };
 pub use error::{ActionError, EngineError};
 pub use permission::{PermissionKind, PermissionSet, check_runtime_allowed};

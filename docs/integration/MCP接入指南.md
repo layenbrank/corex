@@ -1,10 +1,14 @@
 # MCP 接入指南
 
-把 corex 的内置 Action 与指令暴露成 **Model Context Protocol（MCP）** 工具，让
-Cursor / Claude Desktop / VS Code Copilot 等 agent 客户端直接调用。
+把 corex 的动作发现与指令编排暴露成 **Model Context Protocol（MCP）** 工具，供
+Cursor / Claude Desktop / VS Code Copilot / goose ACP 等 Agent 调用。
 
-二进制：**`corex-mcp`**（`bins/mcp`）。用官方 Rust SDK [`rmcp`](https://github.com/modelcontextprotocol/rust-sdk)，
-支持 **stdio** 与 **Streamable HTTP** 两种传输。
+二进制：**`corex-mcp`**（`bins/mcp`）。SDK：[`rmcp`](https://github.com/modelcontextprotocol/rust-sdk)。
+传输：**stdio**（本地子进程）与 **Streamable HTTP**（`/mcp`）。
+
+> **破坏性（v14）**：已删除全部摊平 action tools（如 `file_copy`）与旧名
+> `corex_run_directive`。`tools/list` **仅**返回下表 7 个 meta-tool。详见
+> [破坏性变更 v14](../changelog/破坏性变更-v14.md)。
 
 ---
 
@@ -15,31 +19,122 @@ cargo build -p corex-mcp            # 或 --release
 # 产物：target/<profile>/corex-mcp.exe（Windows）/ corex-mcp
 ```
 
-与 CLI / daemon 共用同一份配置：`corex.toml`、`COREX_DATA_DIR`、`COREX_TOKEN` 全部生效。
+与 CLI / daemon 共用：`corex.toml`、`COREX_DATA_DIR`；HTTP 另认 `COREX_TOKEN`。
 
 ---
 
-## 2. 工具清单
+## 2. 工具面（唯一）
 
-`tools/list` 返回 **80 个内置 Action 各一个工具**，外加一个 meta-tool：
+| 工具               | 职责                                            |
+| ------------------ | ----------------------------------------------- |
+| `corex_actions`    | 动作目录摘要（`bucket` / `ids` / `limit`）      |
+| `corex_action`     | 单条：完整 `input_schema` + permissions + risk  |
+| `corex_invoke`     | 执行单个动作：`id` + `params`                   |
+| `corex_directives` | 指令库摘要（`names` / `limit`）                 |
+| `corex_directive`  | 单条：`yaml` + `definition`                     |
+| `corex_validate`   | 校验 definition（`strict?`）                    |
+| `corex_run`        | 跑指令：`name` **或** `path`（oneOf）+ `input?` |
 
-| 规则                                                        | 示例                                                                     |
-| ----------------------------------------------------------- | ------------------------------------------------------------------------ |
-| Action id `a.b.c` → tool 名 `a_b_c`                         | `file.copy` → `file_copy`、`codec.base64.encode` → `codec_base64_encode` |
-| `title` = Action 中文名，`description` 直接取 Action 的说明 | `file_copy` →「文件复制」                                                |
-| `inputSchema` = 与 `corex actions --json` 同一份            | 参数类型 / 必填 / 默认值 / 说明                                          |
-| 破坏性动作打 `annotations.destructiveHint`                  | `file.remove` / `file.write` / `shell.run` / `ui.*` / `capture.*` …      |
+### 推荐编排
 
-外加 **`corex_run_directive`**：按名或路径跑一条指令（`name` / `path` / `input` 三个参数），
-返回结果 JSON。它对应 `corex run`，让 agent 既可用「一个动作」粒度、也可用「一条指令」粒度。
-`name` 查的是指令库（`<数据目录>/corex.db`），`path` 是调用方直接给的 ad-hoc YAML
-（不入库）；给 `path` 时忽略 `name`。
+动作：`corex_actions` → `corex_action` → `corex_invoke`
+
+指令：`corex_directives` → `corex_directive` → `corex_validate` → `corex_run`
+
+Instructions 已声明：**同步阻塞**直至完成（Tasks / Cancel 为后续能力）。
 
 ---
 
-## 3. 接入本地编辑器（stdio）
+## 3. 配置 `[mcp]`
 
-stdio 下客户端把 `corex-mcp` 当子进程拉起，**stdout 只放 MCP 消息，日志走 stderr**。
+```toml
+[mcp]
+# 空 = 不额外白名单（仍尊重 disabled_actions / strict_permissions）
+allow_actions = []
+allow_directives = []
+# true：空白名单即拒 invoke / 按名 run；并禁止 corex_run 的 path 旁路
+is_deny_default = false
+```
+
+| 约束                                      | 行为                                       |
+| ----------------------------------------- | ------------------------------------------ |
+| `allow_actions` / `allow_directives`      | 非空时 list 与 call 两侧强制               |
+| `is_deny_default`                         | 空 allow = 拒执行；`path` 禁用             |
+| `filesystem_roots`                        | 非 deny-default 时，`path` 须落在 roots 内 |
+| `strict_permissions` / `disabled_actions` | 与 CLI 相同；目录亦不暴露                  |
+
+`risk` / MCP `destructiveHint` **只是提示**，不是门禁。
+
+---
+
+## 4. 错误契约
+
+工具失败（`isError: true`）：
+
+```json
+{
+  "structuredContent": {
+    "code": "policy_denied",
+    "message": "…",
+    "retryable": false
+  },
+  "content": [{ "type": "text", "text": "…" }]
+}
+```
+
+`content[0].text` 与 `structuredContent.message` **同文**。`code` 为稳定子集：
+`unknown_tool` / `invalid_params` / `policy_denied` / `permission_denied` /
+`not_found` / `timeout` / `disabled` / `not_registered` / `parse` / `resolve` /
+`control_flow` / `config` / `usage` / `conflict` / `io` / `execution`。
+
+未知工具 → JSON-RPC `-32602`（附 `code: unknown_tool`）。
+
+审计 `audit.jsonl` 额外字段：`tool`、`action_or_directive`、`session`
+（可用环境变量 `COREX_MCP_SESSION` 标注 Agent 会话）。
+
+---
+
+## 5. 部署矩阵：stdio vs HTTP
+
+|          | **stdio**                                               | **HTTP**（`--transport http`）                   |
+| -------- | ------------------------------------------------------- | ------------------------------------------------ |
+| 典型     | 编辑器 / ACP 子进程                                     | 本机多客户端、网关后                             |
+| 信任边界 | **OS 用户 / 进程**；能起进程即等价本机权限              | 默认绑 `127.0.0.1`；`COREX_TOKEN` → Bearer       |
+| Token    | **不**走 HTTP 鉴权；设 `COREX_TOKEN` **不会**限制 stdio | 未设 token = 仅环回信任；生产务必设 token + 反代 |
+| 配置     | `[mcp]` / `strict_permissions` / roots 仍生效           | 同左                                             |
+
+禁止误读：「设了 `COREX_TOKEN` 就等于 stdio 也受限」——不会。stdio 的门禁是
+`[mcp]` 与 runtime 权限，不是 Bearer。
+
+```powershell
+# HTTP 示例
+$env:COREX_TOKEN = "…"
+corex-mcp --transport http --bind 127.0.0.1 --port 3000
+# 客户端：http://127.0.0.1:3000/mcp  + Authorization: Bearer …
+```
+
+> Windows 部分端口在系统排除范围会报 `os error 10013`，换高位端口即可。
+
+---
+
+## 6. 接入本地编辑器（stdio）
+
+### Cursor（`.cursor/mcp.json`）
+
+```json
+{
+  "mcpServers": {
+    "corex": {
+      "command": "corex-mcp",
+      "args": ["--import", "examples/directives"],
+      "env": {
+        "COREX_DATA_DIR": "C:/path/to/data",
+        "COREX_MCP_SESSION": "cursor"
+      }
+    }
+  }
+}
+```
 
 ### VS Code Copilot（`.vscode/mcp.json`）
 
@@ -55,98 +150,33 @@ stdio 下客户端把 `corex-mcp` 当子进程拉起，**stdout 只放 MCP 消�
 }
 ```
 
-### Cursor（`.cursor/mcp.json`）
-
-```json
-{
-  "mcpServers": {
-    "corex": {
-      "command": "corex-mcp",
-      "args": ["--import", "examples/directives"]
-    }
-  }
-}
-```
-
-### Claude Desktop（`claude_desktop_config.json`）
-
-```json
-{
-  "mcpServers": {
-    "corex": {
-      "command": "corex-mcp",
-      "args": ["--import", "examples/directives"]
-    }
-  }
-}
-```
-
-> 各客户端的配置键名（`servers` / `mcpServers`）以其当前版本为准，命令与参数不变。
-> v13 起指令住在指令库里（`<数据目录>/corex.db`），`--import` 是**启动时把这个目录或
-> 文件里的 YAML 导入一次**（等价于 `corex directive import`），而不是「换一个指令根」——
-> 想用仓库示例就显式指过去，它们会进库，之后按名字就能跑。旧名 `--directives` 仍作别名可用。
+`--import`：启动时把目录/文件 YAML **导入一次**指令库（等价 `corex directive import`），
+不是换指令根。旧别名 `--directives` 仍可用。
 
 ---
 
-## 4. 远程 / 多客户端（Streamable HTTP）
+## 7. 与其它接入方式
 
-```powershell
-corex-mcp --transport http --bind 127.0.0.1 --port 3000
-```
-
-单 `/mcp` 端点（POST + GET），支持会话（`Mcp-Session-Id`）与无状态模式。客户端 URL 形如
-`http://127.0.0.1:3000/mcp`。
-
-**安全默认**：只绑 `127.0.0.1`；设置环境变量 `COREX_TOKEN` 后，所有请求必须带
-`Authorization: Bearer <token>`，否则 401。要对外提供服务时请自行加反代 / OAuth 网关
-（完整 OAuth 2.1 资源服务器在规划中，见文末）。
-
-> Windows 上某些端口（如 8123）落在系统「排除端口范围」里，绑定时会报
-> `os error 10013`——换个高位端口（如 38123）即可。
+| 需求                       | 选哪个                |
+| -------------------------- | --------------------- |
+| Agent 渐进披露 + 编排执行  | **corex-mcp**（本页） |
+| 应用批量跑、流式进度、WASM | daemon + IPC          |
+| 脚本 / CI                  | `corex run`           |
+| Rust 同进程                | Rust 嵌入指南         |
 
 ---
 
-## 5. 权限与审计（与 corex 完全一致）
+## 8. 已知限制
 
-MCP server **内嵌引擎**，执行路径与 `corex run` / daemon 相同，不是另写一套：
-
-| 项                           | 行为                                                                   |
-| ---------------------------- | ---------------------------------------------------------------------- |
-| `strict_permissions`         | 生效；未声明 `permissions` 的指令被拒                                  |
-| `[plugins].disabled_actions` | 生效；被禁用的动作**不出现**在 `tools/list` 里                         |
-| `filesystem_roots`           | 生效；`file.*` / `exec.run` 的路径被沙箱约束                           |
-| `destructiveHint`            | 破坏性动作打上注解，客户端据此在调用前弹确认（「人在环」）             |
-| 审计 / 历史                  | `audit.jsonl` 照常落盘；执行日志进指令库的 `runs` 表                   |
-| 结果                         | `structuredContent` 给结构化 JSON，`content[0]` 附一份文本（向后兼容） |
-
-错误语义：工具执行失败 → `isError: true`（消息带 `[kind]` 前缀，如 `[permission_denied]`）；
-未知工具 → JSON-RPC `-32602`。详见 [退出码与错误码](../reference/退出码与错误码.md)。
-
----
-
-## 6. 与其它接入方式的取舍
-
-| 需求                                       | 选哪个                                              |
-| ------------------------------------------ | --------------------------------------------------- |
-| agent 要**逐个调用**动作、要参数 schema    | **corex-mcp**（本页）                               |
-| 应用要**批量**跑、要流式进度、要 WASM 插件 | daemon + IPC（[IPC 接入指南](./IPC接入指南.md)）    |
-| 脚本 / CI                                  | CLI `corex run`（[快速开始](../guide/快速开始.md)） |
-| Rust 同进程                                | [Rust 嵌入指南](./Rust嵌入指南.md)                  |
-
----
-
-## 7. 已知限制（v1）
-
-- **不含 WASM 插件**：内嵌引擎与 `corex run` 一样不加载插件；需要插件能力时请走 daemon（将来可加 `--remote` 桥接）。
-- **长任务同步返回**：`tools/call` 是请求-响应；大文件复制这类长动作会一直等到完成。
-  需要轮询时用 MCP 2026-07-28 的 Tasks 扩展（规划中）。
-- **无渐进披露**：80 个工具一次性返回，目录约 100 KB；需要分组 / 懒加载时再议。
+- **无 WASM 插件**（与 `corex run` 内嵌引擎一致）。
+- **长任务同步**：无 Tasks / Cancel（规划中）。
+- **无 Resources / Prompts / listChanged 推送**。
 
 ---
 
 ## 相关文档
 
-- [接入总览](./接入总览.md) — CLI / Daemon / 嵌入 / MCP 全景
-- [编辑器集成](./编辑器集成.md) — schema 补全、任务与机器出口
-- [IPC 协议](../reference/IPC协议.md) — `list_actions` 目录与端点发现
-- [运行时配置](../guide/运行时配置.md) — 权限与审计配置
+- [接入总览](./接入总览.md)
+- [破坏性变更 v14](../changelog/破坏性变更-v14.md)
+- [运行时配置](../guide/运行时配置.md)
+- [退出码与错误码](../reference/退出码与错误码.md)

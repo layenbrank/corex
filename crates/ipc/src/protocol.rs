@@ -115,6 +115,32 @@ pub enum Request {
         id: u64,
         #[serde(default)]
         auth_token: Option<String>,
+        /// 只返回该 bucket（如 `data` / `ui`）；不给则全量。
+        #[serde(default)]
+        bucket: Option<String>,
+        /// 只返回这些动作 id；不给则按 bucket/全量。
+        #[serde(default)]
+        ids: Option<Vec<String>>,
+    },
+    /// 只校验定义、不落库（编排器保存前 fail-closed）。
+    ValidateDirective {
+        #[serde(default)]
+        id: u64,
+        #[serde(default)]
+        auth_token: Option<String>,
+        definition: Value,
+        /// 为真时额外要求显式 `permissions`（同 CLI `--strict`）。
+        #[serde(default)]
+        strict: bool,
+    },
+    /// 取消进行中的 `run_directive` / `invoke`（按请求 `id`）。
+    CancelExecution {
+        #[serde(default)]
+        id: u64,
+        #[serde(default)]
+        auth_token: Option<String>,
+        /// 要取消的那条执行请求的 `id`。
+        target_id: u64,
     },
     RunDirective {
         #[serde(default)]
@@ -212,6 +238,8 @@ impl Request {
             | Request::ImportDirectives { id, .. }
             | Request::ListRuns { id, .. }
             | Request::ListActions { id, .. }
+            | Request::ValidateDirective { id, .. }
+            | Request::CancelExecution { id, .. }
             | Request::RunDirective { id, .. }
             | Request::Invoke { id, .. }
             | Request::Jobs { id, .. }
@@ -251,6 +279,8 @@ impl Request {
             | Request::ImportDirectives { auth_token, .. }
             | Request::ListRuns { auth_token, .. }
             | Request::ListActions { auth_token, .. }
+            | Request::ValidateDirective { auth_token, .. }
+            | Request::CancelExecution { auth_token, .. }
             | Request::RunDirective { auth_token, .. }
             | Request::Invoke { auth_token, .. }
             | Request::Jobs { auth_token, .. }
@@ -274,6 +304,8 @@ impl Request {
             | Request::ImportDirectives { auth_token, .. }
             | Request::ListRuns { auth_token, .. }
             | Request::ListActions { auth_token, .. }
+            | Request::ValidateDirective { auth_token, .. }
+            | Request::CancelExecution { auth_token, .. }
             | Request::RunDirective { auth_token, .. }
             | Request::Invoke { auth_token, .. }
             | Request::Jobs { auth_token, .. }
@@ -328,10 +360,24 @@ impl Response {
     }
 }
 
+/// 结构化校验明细（编排器把错误挂到节点 / 字段）。
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct RpcErrorDetail {
+    /// JSON Pointer 风格路径，如 `/steps/1/action`；未知时为空。
+    #[serde(default)]
+    pub path: String,
+    /// 机器可读码，如 `not_registered` / `permission_denied`。
+    #[serde(default)]
+    pub code: String,
+    pub message: String,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RpcError {
     pub code: i32,
     pub message: String,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub details: Vec<RpcErrorDetail>,
 }
 
 impl RpcError {
@@ -339,7 +385,13 @@ impl RpcError {
         Self {
             code,
             message: message.into(),
+            details: Vec::new(),
         }
+    }
+
+    pub fn with_details(mut self, details: Vec<RpcErrorDetail>) -> Self {
+        self.details = details;
+        self
     }
 
     pub fn not_found(msg: impl Into<String>) -> Self {
@@ -367,6 +419,11 @@ impl RpcError {
     /// 与 400 分开是因为调用方能做的事不一样：400 要改自己发的内容，409 要换个名字或先删旧的。
     pub fn conflict(msg: impl Into<String>) -> Self {
         Self::new(409, msg)
+    }
+
+    /// 客户端协作取消（HTTP 语义借用 499）。
+    pub fn canceled(msg: impl Into<String>) -> Self {
+        Self::new(499, msg)
     }
 }
 

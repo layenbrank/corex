@@ -1,6 +1,6 @@
 //! 候选路径 → [`RuntimeConfig`]，以及随之产生的告警。
 
-use crate::context::{DaemonConfig, HistoryConfig, LoggingConfig};
+use crate::context::{DaemonConfig, HistoryConfig, LoggingConfig, McpConfig};
 use crate::context::{
     DirectivesConfig, PluginConfig, RuntimeConfig, UiProfileOverrides, UpdateConfig,
 };
@@ -67,6 +67,8 @@ struct ConfigFile {
     #[serde(default)]
     daemon: Option<DaemonConfig>,
     #[serde(default)]
+    mcp: Option<McpConfig>,
+    #[serde(default)]
     logging: Option<LoggingConfig>,
     #[serde(default)]
     runtime: Option<RuntimeSection>,
@@ -110,6 +112,9 @@ impl ConfigFile {
         }
         if let Some(v) = self.daemon {
             cfg.daemon = v;
+        }
+        if let Some(v) = self.mcp {
+            cfg.mcp = v;
         }
         if let Some(v) = self.logging {
             cfg.logging = v;

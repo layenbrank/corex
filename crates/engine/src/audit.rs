@@ -31,6 +31,15 @@ pub struct AuditEntry {
     /// 脱敏后的 selector 提示（不含隐私）；来自 [`ActionError::selector_hint`]。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub selector_hint: Option<String>,
+    /// MCP / Agent 入口工具名（如 `corex_invoke`）；非 MCP 调用为空。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tool: Option<String>,
+    /// 目标动作 id 或指令名（与 `action_id` 可重合；指令跑时指指令键）。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub action_or_directive: Option<String>,
+    /// 会话标签（如 `COREX_MCP_SESSION` 或宿主注入的 agent session）。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub session: Option<String>,
 }
 
 impl AuditEntry {
@@ -101,6 +110,9 @@ impl AuditEntry {
             ui_phase: infer_ui_phase(&action_id),
             error_code: None,
             selector_hint: None,
+            tool: None,
+            action_or_directive: None,
+            session: None,
         }
     }
 
@@ -125,7 +137,23 @@ impl AuditEntry {
             ui_phase: infer_ui_phase(&action_id),
             error_code: action.and_then(|a| a.ui_code()).map(str::to_string),
             selector_hint: action.and_then(|a| a.selector_hint()).map(str::to_string),
+            tool: None,
+            action_or_directive: None,
+            session: None,
         }
+    }
+
+    /// 绑 MCP / Agent 调用上下文（工具名、目标、会话标签）。
+    pub fn with_mcp(
+        mut self,
+        tool: impl Into<String>,
+        action_or_directive: impl Into<String>,
+        session: impl Into<String>,
+    ) -> Self {
+        self.tool = Some(tool.into());
+        self.action_or_directive = Some(action_or_directive.into());
+        self.session = Some(session.into());
+        self
     }
 }
 

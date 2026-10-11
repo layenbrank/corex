@@ -250,6 +250,7 @@ impl Observer for Events {
             seq: self.seq.fetch_add(1, Ordering::Relaxed) + 1,
             step: at.id.to_string(),
             action: at.action.to_string(),
+            scope: Default::default(),
         });
     }
 
@@ -260,6 +261,7 @@ impl Observer for Events {
             done: mark.done,
             total: mark.total,
             unit: mark.unit,
+            scope: Default::default(),
         });
     }
 
@@ -269,6 +271,7 @@ impl Observer for Events {
             action: at.action.to_string(),
             stream,
             text: text.to_string(),
+            scope: Default::default(),
         });
     }
 
@@ -278,6 +281,7 @@ impl Observer for Events {
             action: at.action.to_string(),
             took_ms: took.as_millis() as u64,
             ok,
+            scope: Default::default(),
         });
     }
 }

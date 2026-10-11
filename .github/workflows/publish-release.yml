@@ -3,8 +3,8 @@ name: Publish Release
 # 企业级 Windows x64 发版（供 i-thinking / Tauri 消费）
 # - SemVer tag 与 workspace.package.version 强制对齐
 # - 渠道：stable | alpha | beta | rc（由 tag 后缀决定）
-# - ZIP：corex.exe + corex-daemon.exe
-# - 资产名：corex-{tag}-windows-x64.zip（prepare.ts 约定）
+# - ZIP：corex.exe + corex-daemon.exe + corex-mcp.exe + pdfium.dll
+# - 资产名：corex-{tag}-windows-x64.zip（prepare.ts / sidecar tools.lock 约定）
 #
 # 发布示例（changelog 须在 tag 前本地用 git-cliff 生成并提交，本 workflow 不跑 cliff）：
 #   git-cliff --bumped-version
@@ -122,7 +122,40 @@ jobs:
       - name: Build release binaries
         shell: pwsh
         run: |
-          cargo build -p corex -p corex-daemon --release --locked --target $env:RUST_TARGET --verbose
+          cargo build -p corex -p corex-daemon -p corex-mcp --release --locked --target $env:RUST_TARGET --verbose
+
+      - name: Fetch pdfium.dll (bundled runtime)
+        shell: pwsh
+        run: |
+          $version = (Get-Content 'assets/pdfium/VERSION' -Raw).Trim()
+          if ([string]::IsNullOrWhiteSpace($version)) {
+            Write-Error "assets/pdfium/VERSION is empty"
+            exit 1
+          }
+          $expected = (Get-Content 'assets/pdfium/pdfium-win-x64.tgz.sha256' -Raw).Trim().ToLowerInvariant()
+          $url = "https://github.com/bblanchon/pdfium-binaries/releases/download/chromium%2F$version/pdfium-win-x64.tgz"
+          $archive = Join-Path $env:RUNNER_TEMP "pdfium-$version-win-x64.tgz"
+          $extract = Join-Path $env:RUNNER_TEMP "pdfium-$version-extract"
+          Write-Host "Downloading pdfium chromium/$version → $url"
+          Invoke-WebRequest -Uri $url -OutFile $archive -UseBasicParsing
+          $actual = (Get-FileHash $archive -Algorithm SHA256).Hash.ToLowerInvariant()
+          if ($actual -ne $expected) {
+            Write-Error "pdfium archive sha256 mismatch: expected $expected, got $actual"
+            exit 1
+          }
+          if (Test-Path $extract) { Remove-Item -Recurse -Force $extract }
+          New-Item -ItemType Directory -Force -Path $extract | Out-Null
+          tar -xf $archive -C $extract
+          $dll = Get-ChildItem -Path $extract -Recurse -Filter 'pdfium.dll' | Select-Object -First 1
+          if (-not $dll) {
+            Write-Error "pdfium.dll not found inside archive"
+            Get-ChildItem $extract -Recurse | Select-Object FullName
+            exit 1
+          }
+          $dest = Join-Path $env:TARGET_DIR 'pdfium.dll'
+          Copy-Item $dll.FullName $dest -Force
+          $sizeMb = (Get-Item $dest).Length / 1MB
+          Write-Host "OK pdfium.dll ($([math]::Round($sizeMb, 2)) MB) from chromium/$version"
 
       - name: Test workspace (release)
         shell: pwsh
@@ -132,7 +165,8 @@ jobs:
         shell: pwsh
         run: |
           $dir = $env:TARGET_DIR
-          $required = @('corex.exe', 'corex-daemon.exe')
+          # 宿主 sidecar / Agent MCP / PDF 动作都依赖完整包，缺一不可。
+          $required = @('corex.exe', 'corex-daemon.exe', 'corex-mcp.exe', 'pdfium.dll')
           foreach ($name in $required) {
             $path = Join-Path $dir $name
             if (-not (Test-Path $path)) {
@@ -140,7 +174,12 @@ jobs:
               Get-ChildItem $dir -ErrorAction SilentlyContinue | Select-Object Name, Length
               exit 1
             }
-            $sizeMb = (Get-Item $path).Length / 1MB
+            $item = Get-Item $path
+            if ($item.Length -eq 0) {
+              Write-Error "Required artifact is empty: $path"
+              exit 1
+            }
+            $sizeMb = $item.Length / 1MB
             Write-Host "OK $name ($([math]::Round($sizeMb, 2)) MB)"
           }
 
@@ -155,6 +194,14 @@ jobs:
             exit 1
           }
           Write-Host "corex-daemon check OK (--socket present)"
+
+          $mcp = Join-Path $dir 'corex-mcp.exe'
+          $mcpHelp = & $mcp --help 2>&1 | Out-String
+          if ($mcpHelp -notmatch '(?i)transport|stdio|mcp') {
+            Write-Error "corex-mcp.exe --help did not look like the MCP server. Output:`n$mcpHelp"
+            exit 1
+          }
+          Write-Host "corex-mcp check OK"
 
           $cli = Join-Path $dir 'corex.exe'
           $cliHelp = & $cli --help 2>&1 | Out-String
@@ -195,8 +242,9 @@ jobs:
           New-Item -ItemType Directory -Force -Path $pkg | Out-Null
           New-Item -ItemType Directory -Force -Path $out | Out-Null
 
-          Copy-Item (Join-Path $dir 'corex.exe') $pkg
-          Copy-Item (Join-Path $dir 'corex-daemon.exe') $pkg
+          foreach ($name in @('corex.exe', 'corex-daemon.exe', 'corex-mcp.exe', 'pdfium.dll')) {
+            Copy-Item (Join-Path $dir $name) $pkg
+          }
 
           if (Test-Path 'README.md') { Copy-Item README.md $pkg }
           if (Test-Path 'LICENSE') { Copy-Item LICENSE $pkg }
@@ -213,7 +261,7 @@ jobs:
 
           # 先写包内文件：`corex update` 会读 `corex.exe` 和
           # `corex-daemon.exe` 这两条记录来校验解包出的二进制，
-          # 并判断守护进程是否需要重启。
+          # 并判断守护进程是否需要重启。mcp / pdfium 一并进清单供 sidecar 校验。
           Get-ChildItem $pkg -File | ForEach-Object {
             $h = (Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
             "$h  $($_.Name)" | Out-File -Encoding ascii -Append $sums
@@ -281,12 +329,13 @@ jobs:
             ### Build
             - Rust: ${{ steps.build_info.outputs.rust_version }}
             - Cargo: ${{ steps.build_info.outputs.cargo_version }}
-            - `cargo build -p corex -p corex-daemon --release --locked --target x86_64-pc-windows-msvc`
+            - `cargo build -p corex -p corex-daemon -p corex-mcp --release --locked --target x86_64-pc-windows-msvc`
+            - 捆绑 `pdfium.dll`（版本见 `assets/pdfium/VERSION`）
 
             ### Artifacts
             - `corex.exe` — 单文件 CLI（`corex update` 优先使用，无需解压）
             - `install.ps1` — 一键安装脚本（首次安装，或无法自更新的机器）
-            - `${{ steps.meta.outputs.zip_name }}` — 完整包：`corex.exe` + `corex-daemon.exe`（解压后同目录）
+            - `${{ steps.meta.outputs.zip_name }}` — 完整包：`corex.exe` + `corex-daemon.exe` + `corex-mcp.exe` + `pdfium.dll`
             - `${{ steps.meta.outputs.zip_name }}.sha256` · `corex.exe.sha256` — 单文件 SHA-256 旁车
             - `SHA256SUMS.txt` — 全部产物校验清单（`corex update` 以此校验下载）
 

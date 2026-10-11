@@ -1,26 +1,31 @@
-//! 执行面：单动作直调 + 指令运行，与 `corex-daemon` 同一条路径。
-//!
-//! 刻意**内嵌**引擎（像 `corex run`，不像 `corex run --remote`）：权限、审计、历史
-//! 都走 `corex-engine` 的既有实现，不另写一套。代价是拿不到 WASM 插件——与
-//! `corex run` 的限制一致，将来需要时再加「桥接 daemon」的开关。
+//! 执行面：发现 + 校验 + invoke / run；与 daemon 同源权限与审计。
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Instant;
 
-use anyhow::{Context, Result};
-use corex_core::{EngineError, ExecutionContext, RuntimeConfig, Value, check_runtime_allowed};
-use corex_engine::{AuditEntry, Directive, DirectiveSource, ExecutionAudit, HistorySink, Pipeline};
+use anyhow::{Context, Result, bail};
+use corex_core::path::confine_in_roots;
+use corex_core::{
+    ActionError, Bucket, EngineError, ExecutionContext, RuntimeConfig, Value, check_runtime_allowed,
+};
+use corex_engine::{
+    AuditEntry, Directive, DirectiveSource, ExecutionAudit, HistorySink, Pipeline,
+    validate_allowed, validate_permissions, validate_registered,
+};
 use corex_registry::ActionRegistry;
 use corex_store::{
     BootstrapOptions, DirectiveStore, ImportOptions, StoreDirectiveSource, history_sink,
 };
+use serde_json::json;
 
-/// 一次 MCP server 进程持有的状态：注册表、配置、指令库、执行日志与审计。
+const ACTIONS_LIMIT: usize = 100;
+const DIRECTIVES_LIMIT: usize = 100;
+
+/// 一次 MCP server 进程持有的状态。
 pub struct State {
     pub registry: Arc<ActionRegistry>,
     pub config: RuntimeConfig,
-    /// 指令的唯一真相源；`--dir` 里的 YAML 只是一次性导入的来源，不是第二个指令根。
     store: Arc<DirectiveStore>,
     source: Arc<dyn DirectiveSource>,
     history: Option<Arc<dyn HistorySink>>,
@@ -28,11 +33,6 @@ pub struct State {
 }
 
 impl State {
-    /// 与 daemon 相同的装配顺序：注册内置动作 → 应用 `disabled_actions` → 打开指令库与审计。
-    /// 配置的读取（`corex_core::config::read`）在 `main.rs`。
-    ///
-    /// `import` 给的是**启动时一次性导入**的目录或文件（等价于 `corex directive import`）：
-    /// v13 起指令的根只有一个，就是库；指向别处的 YAML 只有收进来才有意义。
     pub fn build(config: RuntimeConfig, data: &Path, import: Option<&Path>) -> Result<Self> {
         let mut registry = ActionRegistry::new();
         registry.register_builtins();
@@ -73,9 +73,233 @@ impl State {
         })
     }
 
-    /// 按 id 调用单个动作。镜像 `bins/daemon/src/main.rs::invoke_action`，去掉观察者。
-    pub async fn invoke_action(&self, action_id: &str, params: Value) -> Result<Value> {
-        // 严格模式 + 配置层停用；保留 `ActionError` 类型供上层取 `kind()`。
+    pub fn session_tag() -> String {
+        std::env::var("COREX_MCP_SESSION")
+            .ok()
+            .filter(|s| !s.trim().is_empty())
+            .unwrap_or_else(|| "mcp".into())
+    }
+
+    pub fn directive_count(&self) -> usize {
+        self.store.count().unwrap_or(0)
+    }
+
+    /// 动作是否允许出现在目录 / 被 invoke（disabled + allowlist + deny-default + strict）。
+    pub fn can_expose_action(&self, action_id: &str) -> bool {
+        if !self.registry.contains(action_id) {
+            return false;
+        }
+        if check_runtime_allowed(&self.config, &*self.registry, action_id).is_err() {
+            return false;
+        }
+        let allow = &self.config.mcp.allow_actions;
+        if self.config.mcp.is_deny_default && allow.is_empty() {
+            return false;
+        }
+        if !allow.is_empty() && !allow.iter().any(|id| id == action_id) {
+            return false;
+        }
+        true
+    }
+
+    pub fn can_expose_directive(&self, name: &str) -> bool {
+        let allow = &self.config.mcp.allow_directives;
+        if self.config.mcp.is_deny_default && allow.is_empty() {
+            return false;
+        }
+        if !allow.is_empty() && !allow.iter().any(|n| n == name) {
+            return false;
+        }
+        true
+    }
+
+    pub fn ensure_action_allowed(&self, action_id: &str) -> Result<(), ActionError> {
+        if !self.registry.contains(action_id) {
+            return Err(ActionError::NotFound(action_id.into()));
+        }
+        if self.can_expose_action(action_id) {
+            return Ok(());
+        }
+        Err(ActionError::PermissionDenied(format!(
+            "MCP 策略拒绝动作 {action_id}（allow_actions / is_deny_default / disabled / strict_permissions）"
+        )))
+    }
+
+    pub fn ensure_directive_allowed(&self, name: &str) -> Result<(), ActionError> {
+        if self.can_expose_directive(name) {
+            return Ok(());
+        }
+        Err(ActionError::PermissionDenied(format!(
+            "MCP 策略拒绝指令 {name}（allow_directives / is_deny_default）"
+        )))
+    }
+
+    pub fn fetch_actions(
+        &self,
+        bucket: Option<&str>,
+        ids: Option<&[String]>,
+        limit: Option<usize>,
+    ) -> Result<Value, EngineError> {
+        let parsed = match bucket {
+            None => None,
+            Some(name) => Some(
+                Bucket::parse(name)
+                    .ok_or_else(|| EngineError::Usage(format!("未知 bucket: {name}")))?,
+            ),
+        };
+        let allow_ids: Option<Vec<String>> = match ids {
+            Some(wanted) => Some(
+                wanted
+                    .iter()
+                    .filter(|id| self.can_expose_action(id))
+                    .cloned()
+                    .collect(),
+            ),
+            None if !self.config.mcp.allow_actions.is_empty()
+                || self.config.mcp.is_deny_default =>
+            {
+                Some(
+                    self.registry
+                        .actions()
+                        .iter()
+                        .map(|meta| meta.id.clone())
+                        .filter(|id| self.can_expose_action(id))
+                        .collect(),
+                )
+            }
+            None => {
+                // 仍过滤 disabled / strict
+                let filtered: Vec<String> = self
+                    .registry
+                    .actions()
+                    .iter()
+                    .map(|meta| meta.id.clone())
+                    .filter(|id| self.can_expose_action(id))
+                    .collect();
+                // 若全部可暴露，传 None 让 catalog 走全表；否则传白名单
+                if filtered.len() == self.registry.len() {
+                    None
+                } else {
+                    Some(filtered)
+                }
+            }
+        };
+        let cap = limit.unwrap_or(ACTIONS_LIMIT);
+        Ok(Value::from_json(corex_registry::catalog::fetch_actions(
+            &self.registry,
+            parsed,
+            allow_ids.as_deref(),
+            Some(cap),
+        )))
+    }
+
+    pub fn find_action(&self, id: &str) -> Result<Value, ActionError> {
+        self.ensure_action_allowed(id)?;
+        corex_registry::catalog::find_action(&self.registry, id)
+            .map(Value::from_json)
+            .ok_or_else(|| ActionError::NotFound(id.into()))
+    }
+
+    pub fn fetch_directives(
+        &self,
+        names: Option<&[String]>,
+        limit: Option<usize>,
+    ) -> Result<Value, anyhow::Error> {
+        let filtered: Option<Vec<String>> = match names {
+            Some(wanted) => Some(
+                wanted
+                    .iter()
+                    .filter(|name| self.can_expose_directive(name))
+                    .cloned()
+                    .collect(),
+            ),
+            None if !self.config.mcp.allow_directives.is_empty()
+                || self.config.mcp.is_deny_default =>
+            {
+                let metas = self.store.metas()?;
+                Some(
+                    metas
+                        .into_iter()
+                        .map(|meta| meta.name)
+                        .filter(|name| self.can_expose_directive(name))
+                        .collect(),
+                )
+            }
+            None => None,
+        };
+        // deny-default 且空 allow → 上面得到 Some([])；正常开放则 None
+        if self.config.mcp.is_deny_default
+            && self.config.mcp.allow_directives.is_empty()
+            && filtered.as_ref().is_some_and(|v| v.is_empty())
+        {
+            return Ok(Value::from_json(json!({
+                "count": 0,
+                "directives": []
+            })));
+        }
+        let mut doc = corex_store::catalog::fetch_directives(
+            &self.store,
+            filtered.as_deref(),
+            Some(limit.unwrap_or(DIRECTIVES_LIMIT)),
+        )?;
+        // 再滤一遍（库里可能有 allow 外的）
+        let retained = doc
+            .get("directives")
+            .and_then(|v| v.as_array())
+            .map(|arr| {
+                arr.iter()
+                    .filter(|item| {
+                        item.get("name")
+                            .and_then(|v| v.as_str())
+                            .is_some_and(|name| self.can_expose_directive(name))
+                    })
+                    .cloned()
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default();
+        if let Some(obj) = doc.as_object_mut() {
+            let count = retained.len();
+            obj.insert("directives".into(), json!(retained));
+            obj.insert("count".into(), json!(count));
+        }
+        Ok(Value::from_json(doc))
+    }
+
+    pub fn fetch_directive(&self, name: &str) -> Result<Value, anyhow::Error> {
+        self.ensure_directive_allowed(name)?;
+        Ok(Value::from_json(corex_store::catalog::fetch_directive(
+            &self.store,
+            name,
+        )?))
+    }
+
+    pub fn validate_directive(
+        &self,
+        definition: serde_json::Value,
+        strict: bool,
+    ) -> Result<Value, anyhow::Error> {
+        let directive: Directive = serde_json::from_value(definition)
+            .map_err(|e| EngineError::parse(format!("指令定义不合法: {e}")))?;
+        validate_registered(&*self.registry, &directive)?;
+        validate_allowed(&*self.registry, &directive)?;
+        if strict {
+            validate_permissions(&*self.registry, &directive).map_err(EngineError::Usage)?;
+        }
+        // 策略：指令名若在 allow 外也提示（校验本身不执行）
+        if !directive.name.is_empty() && !self.can_expose_directive(&directive.name) {
+            bail!(ActionError::PermissionDenied(format!(
+                "MCP 策略拒绝指令 {}",
+                directive.name
+            )));
+        }
+        Ok(Value::from_json(json!({
+            "ok": true,
+            "name": directive.name,
+        })))
+    }
+
+    pub async fn invoke_action(&self, action_id: &str, params: Value, tool: &str) -> Result<Value> {
+        self.ensure_action_allowed(action_id)?;
         check_runtime_allowed(&self.config, &*self.registry, action_id)?;
         let action = self
             .registry
@@ -84,7 +308,6 @@ impl State {
 
         let t0 = Instant::now();
         let mut ctx = ExecutionContext::new(self.config.clone());
-        // 让动作的 `ctx.chunk()` 知道自己属于哪一步（单动作直调绕过了 Pipeline）。
         ctx.enter_step("invoke", action_id);
         let outcome = async {
             action.validate(&params).await?;
@@ -101,24 +324,43 @@ impl State {
                 action_id,
                 duration_ms,
                 outcome.as_ref().map(|_| ()),
-            );
+            )
+            .with_mcp(tool, action_id, Self::session_tag());
             audit.record_best_effort(&entry);
         }
         Ok(outcome?)
     }
 
-    /// 按名（或显式给的 ad-hoc 文件）执行一条指令。镜像 `bins/daemon/src/main.rs::run_directive`。
     pub async fn run_directive(
         &self,
-        name: &str,
+        name: Option<&str>,
         path: Option<&str>,
         input: serde_json::Map<String, serde_json::Value>,
+        tool: &str,
     ) -> Result<Value> {
-        // 给了 `path` 就是调用方明确指的 ad-hoc 文件（agent 生成的临时指令）：认它，不查库。
-        let directive = match path {
-            Some(p) => Directive::from_yaml_file(Path::new(p))?,
-            None => self.source.load(name)?,
+        let path = match path {
+            Some(p) => Some(self.resolve_run_path(p)?),
+            None => None,
         };
+        let directive = match (&path, name) {
+            (Some(p), _) => Directive::from_yaml_file(p)?,
+            (None, Some(n)) => {
+                self.ensure_directive_allowed(n)?;
+                check_name(n)?;
+                self.source.load(n)?
+            }
+            (None, None) => {
+                bail!(EngineError::Usage(
+                    "corex_run 需要 name 或 path 之一".into()
+                ));
+            }
+        };
+        let target = path
+            .as_ref()
+            .map(|p| p.display().to_string())
+            .or_else(|| name.map(str::to_string))
+            .unwrap_or_default();
+
         let input = input
             .into_iter()
             .map(|(k, v)| (k, Value::from_json(v)))
@@ -132,19 +374,43 @@ impl State {
         if let Some(audit) = &self.audit {
             pipeline = pipeline.with_audit(audit.clone());
         }
-        Ok(pipeline.execute(&directive, ctx).await?)
+        let t0 = Instant::now();
+        let outcome = pipeline.execute(&directive, ctx).await;
+        let duration_ms = t0.elapsed().as_millis() as u64;
+        if let Some(audit) = &self.audit {
+            let mapped: Result<(), &EngineError> = match &outcome {
+                Ok(_) => Ok(()),
+                Err(e) => Err(e),
+            };
+            let entry = AuditEntry::from_engine(
+                directive.name.as_str(),
+                "run",
+                "directive",
+                duration_ms,
+                mapped,
+            )
+            .with_mcp(tool, &target, Self::session_tag());
+            audit.record_best_effort(&entry);
+        }
+        Ok(outcome?)
     }
 
-    /// 库里有多少条指令；`--dir` 导入之后报一句，让调用方知道收进来多少。
-    pub fn directive_count(&self) -> usize {
-        self.store.count().unwrap_or(0)
+    /// `path` 旁路：deny-default 禁止；否则若配置了 filesystem_roots 则 confine。
+    fn resolve_run_path(&self, path: &str) -> Result<PathBuf> {
+        if self.config.mcp.is_deny_default {
+            bail!(ActionError::PermissionDenied(
+                "is_deny_default 下禁止 corex_run 的 path 旁路，请用指令库 name".into()
+            ));
+        }
+        let raw = PathBuf::from(path);
+        if self.config.filesystem_roots.is_empty() {
+            return Ok(raw);
+        }
+        confine_in_roots(&self.config.filesystem_roots, &raw)
+            .map_err(|e| ActionError::PermissionDenied(e.to_string()).into())
     }
 }
 
-/// 指令名必须是裸名：库里已经没有路径概念，但名字会被拿去拼临时文件名、写进 IPC 请求。
-///
-/// 与 `corex_store::validate_name` 同一套规则；这里留一层包装只是为了把错误折成
-/// [`EngineError`]，让 MCP 与 CLI 对同一个名字问题给出同一种答复。
 pub fn check_name(name: &str) -> Result<(), EngineError> {
     corex_store::validate_name(name).map_err(EngineError::from)
 }

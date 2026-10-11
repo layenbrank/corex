@@ -8,6 +8,12 @@ strict_permissions = true
 filesystem_roots = ["C:/ProgramData/corex/data"]
 ui_settle_limit  = 500
 
+[mcp]
+# Agent 面默认拒绝；按需填写 allow_*（空 allow + deny-default = 不可 invoke / 不可按名 run）
+is_deny_default = true
+allow_actions = []
+allow_directives = []
+
 [plugins]
 # 也可以直接禁用整个 UI 插件：disabled = ["ui"]
 disabled_actions = [

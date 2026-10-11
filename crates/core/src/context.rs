@@ -102,6 +102,34 @@ impl Default for HistoryConfig {
     }
 }
 
+/// 配置里 `[mcp]` 的 Agent 工具面约束。
+///
+/// 空 `allow_*` = **不额外白名单**（仍尊重 `disabled_actions` / `strict_permissions`）；
+/// `is_deny_default = true` 时空白名单拒绝 invoke / 按名 run。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct McpConfig {
+    /// 允许经 `corex_invoke` 执行的动作 id；空且非 deny-default = 不额外限制。
+    #[serde(default)]
+    pub allow_actions: Vec<String>,
+    /// 允许经 `corex_run` 按名执行的指令；空且非 deny-default = 不额外限制。
+    #[serde(default)]
+    pub allow_directives: Vec<String>,
+    /// 为真时：空 `allow_actions` / `allow_directives` 即拒绝对应执行；并禁止 `path` 旁路。
+    #[serde(default)]
+    pub is_deny_default: bool,
+}
+
+impl Default for McpConfig {
+    fn default() -> Self {
+        Self {
+            allow_actions: Vec::new(),
+            allow_directives: Vec::new(),
+            is_deny_default: false,
+        }
+    }
+}
+
 /// 配置里 `[daemon]` 的 IPC / 锁设置。
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -386,6 +414,8 @@ pub struct RuntimeConfig {
     #[serde(default)]
     pub daemon: DaemonConfig,
     #[serde(default)]
+    pub mcp: McpConfig,
+    #[serde(default)]
     pub logging: LoggingConfig,
     #[serde(default = "init_max_parallel")]
     pub max_parallel: usize,
@@ -438,6 +468,7 @@ impl Default for RuntimeConfig {
             history: HistoryConfig::default(),
             directives: DirectivesConfig::default(),
             daemon: DaemonConfig::default(),
+            mcp: McpConfig::default(),
             logging: LoggingConfig::default(),
             max_parallel: init_max_parallel(),
             step_timeout: 0,

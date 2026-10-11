@@ -20,7 +20,16 @@ pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 /// `bucket` 给了就只收这一组，并**原样回报**筛选条件——读方不必猜手里这份
 /// 是全量还是子集。
 pub fn document(registry: &ActionRegistry, bucket: Option<Bucket>) -> Value {
-    let actions = actions(registry, bucket);
+    document_filtered(registry, bucket, None)
+}
+
+/// 同 [`document`]，额外可按动作 id 白名单过滤。
+pub fn document_filtered(
+    registry: &ActionRegistry,
+    bucket: Option<Bucket>,
+    ids: Option<&[String]>,
+) -> Value {
+    let actions = actions_filtered(registry, bucket, ids);
     json!({
         "version": VERSION,
         "count": actions.len(),
@@ -31,10 +40,22 @@ pub fn document(registry: &ActionRegistry, bucket: Option<Bucket>) -> Value {
 
 /// 全部动作，按 id 排序（`ActionRegistry::actions` 已经排好）。
 pub fn actions(registry: &ActionRegistry, bucket: Option<Bucket>) -> Vec<Value> {
+    actions_filtered(registry, bucket, None)
+}
+
+/// 按 bucket 与可选 id 白名单过滤。
+pub fn actions_filtered(
+    registry: &ActionRegistry,
+    bucket: Option<Bucket>,
+    ids: Option<&[String]>,
+) -> Vec<Value> {
     registry
         .actions()
         .iter()
         .filter(|meta| bucket.is_none_or(|only| only == meta.bucket))
+        .filter(|meta| {
+            ids.is_none_or(|allow| allow.iter().any(|id| id == &meta.id))
+        })
         .map(|meta| action(registry, meta))
         .collect()
 }
@@ -47,7 +68,89 @@ pub fn action(registry: &ActionRegistry, meta: &ActionMeta) -> Value {
         json!(permission_names(registry, &meta.id)),
     );
     doc.insert("input_schema".into(), input_schema(meta));
+    doc.insert(
+        "risk".into(),
+        serde_json::to_value(find_risk_annotations(registry, meta)).unwrap_or(Value::Null),
+    );
     Value::Object(doc)
+}
+
+/// 目录摘要：无 `params` / `input_schema`，供渐进披露的第一跳。
+pub fn action_summary(registry: &ActionRegistry, meta: &ActionMeta) -> Value {
+    json!({
+        "id": meta.id,
+        "name": meta.name,
+        "description": meta.description,
+        "bucket": meta.bucket,
+        "tags": meta.tags,
+        "permissions": permission_names(registry, &meta.id),
+        "risk": find_risk_annotations(registry, meta),
+    })
+}
+
+/// 按 id 取完整描述；找不到则 `None`。
+pub fn find_action(registry: &ActionRegistry, id: &str) -> Option<Value> {
+    registry
+        .actions()
+        .iter()
+        .find(|meta| meta.id == id)
+        .map(|meta| action(registry, meta))
+}
+
+/// 摘要档目录（带可选 bucket / ids / limit）。
+pub fn fetch_actions(
+    registry: &ActionRegistry,
+    bucket: Option<Bucket>,
+    ids: Option<&[String]>,
+    limit: Option<usize>,
+) -> Value {
+    let mut actions: Vec<Value> = registry
+        .actions()
+        .iter()
+        .filter(|meta| bucket.is_none_or(|only| only == meta.bucket))
+        .filter(|meta| ids.is_none_or(|allow| allow.iter().any(|id| id == &meta.id)))
+        .map(|meta| action_summary(registry, meta))
+        .collect();
+    if let Some(cap) = limit {
+        actions.truncate(cap);
+    }
+    json!({
+        "version": VERSION,
+        "count": actions.len(),
+        "bucket": bucket.map(Bucket::as_str),
+        "actions": actions,
+    })
+}
+
+/// 由权限声明派生的 MCP / Agent 风险提示（**提示不是门禁**）。
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+pub struct RiskAnnotations {
+    pub is_destructive: bool,
+    pub is_read_only: bool,
+    pub is_open_world: bool,
+}
+
+/// 唯一风险注解来源：读动作自己的 [`Action::permissions`]，不用 id 字符串启发式。
+pub fn find_risk_annotations(registry: &ActionRegistry, meta: &ActionMeta) -> RiskAnnotations {
+    let permissions = registry
+        .get(&meta.id)
+        .map(|action| action.permissions())
+        .unwrap_or(corex_core::PermissionSet::NONE);
+    let is_destructive = permissions.contains(corex_core::PermissionKind::Shell)
+        || permissions.contains(corex_core::PermissionKind::Ui)
+        || permissions.contains(corex_core::PermissionKind::Capture)
+        || permissions.contains(corex_core::PermissionKind::Filesystem)
+        || permissions.contains(corex_core::PermissionKind::Secret)
+        || permissions.contains(corex_core::PermissionKind::Clipboard)
+        || permissions.contains(corex_core::PermissionKind::Notifications);
+    let is_open_world = permissions.contains(corex_core::PermissionKind::Network)
+        || permissions.contains(corex_core::PermissionKind::Ui)
+        || permissions.contains(corex_core::PermissionKind::Capture);
+    RiskAnnotations {
+        is_destructive,
+        is_read_only: permissions.is_empty(),
+        is_open_world,
+    }
 }
 
 /// `ActionMeta` 自己序列化出来的那些字段。
@@ -99,6 +202,14 @@ pub fn input_schema(meta: &ActionMeta) -> Value {
         }
         if let Some(format) = json_format(param.ty) {
             spec.insert("format".into(), json!(format));
+        }
+        // Array / Map 补形状关键词，便于严格 JSON Schema 宿主做基本校验。
+        // 元素类型动作侧未声明时用空 schema（任意项）/ 任意附加属性。
+        if param.ty == SchemaType::Array {
+            spec.insert("items".into(), json!({}));
+        }
+        if param.ty == SchemaType::Map {
+            spec.insert("additionalProperties".into(), json!(true));
         }
         if let Some(description) = &param.description {
             spec.insert("description".into(), json!(description));
@@ -217,6 +328,45 @@ mod tests {
         assert_eq!(schema["properties"]["from"]["type"], json!("string"));
         assert_eq!(schema["properties"]["from"]["format"], json!("path"));
         assert_eq!(schema["required"], json!(["from", "to"]));
+    }
+
+    #[test]
+    fn input_schema_array_has_items_and_map_has_additional_properties() {
+        let registry = builtins();
+        let meta = registry
+            .actions()
+            .into_iter()
+            .find(|meta| meta.id == "shell.run")
+            .expect("shell.run 已注册");
+        let schema = input_schema(&meta);
+        assert_eq!(schema["properties"]["args"]["type"], json!("array"));
+        assert!(schema["properties"]["args"]["items"].is_object());
+        assert_eq!(
+            schema["properties"]["if_running_window"]["additionalProperties"],
+            json!(true)
+        );
+    }
+
+    #[test]
+    fn find_risk_annotations_uses_permissions_not_id_heuristics() {
+        let registry = builtins();
+        let shell = registry
+            .actions()
+            .into_iter()
+            .find(|meta| meta.id == "shell.run")
+            .expect("shell.run");
+        let risk = find_risk_annotations(&registry, &shell);
+        assert!(risk.is_destructive);
+        assert!(!risk.is_read_only);
+
+        let parse = registry
+            .actions()
+            .into_iter()
+            .find(|meta| meta.id == "codec.json.parse")
+            .expect("codec.json.parse");
+        let quiet = find_risk_annotations(&registry, &parse);
+        assert!(quiet.is_read_only);
+        assert!(!quiet.is_destructive);
     }
 
     /// 不限类型的参数不该凭空写上一个 `type`。

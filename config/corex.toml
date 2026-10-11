@@ -54,11 +54,18 @@ seed = true
 # 执行日志写进指令库（corex.db 的 runs 表）；关掉 = 不记
 enabled = true
 # 旧版 JSONL 账本的位置：只在首次打开指令库时导入一次，之后不再读
-file    = "history.jsonl"
+file = "history.jsonl"
+
+[mcp]
+# Agent / MCP 工具面约束（corex-mcp）。空 allow = 不额外白名单。
+# allow_actions = []
+# allow_directives = []
+# true：空白名单即拒 invoke / 按名 run，并禁止 corex_run 的 path 旁路
+# is_deny_default = false
 
 [logging]
 level = "info"
-json  = false
+json = false
 
 [runtime]
 # parallel 块内最大并行步数

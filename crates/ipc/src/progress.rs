@@ -16,6 +16,20 @@ use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::mpsc;
 
+/// 步骤帧上的可选层级信息（编排器树映射）；旧客户端可忽略。
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ProgressScope {
+    /// 从根到当前步骤的 id 路径，如 `["fanout", "copy"]`。
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub path: Vec<String>,
+    /// 并行分支下标（若有）。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub branch_index: Option<u32>,
+    /// 本次执行 id（若宿主/守护已分配）。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub run_id: Option<String>,
+}
+
 /// 一次进度的中间帧。
 ///
 /// 与 [`Observer`] 的四个方法一一对应，因此任何一侧都能无损地重放它。
@@ -27,6 +41,8 @@ pub enum ProgressEvent {
         seq: u64,
         step: String,
         action: String,
+        #[serde(flatten)]
+        scope: ProgressScope,
     },
     /// 步骤内的分块进度（大文件复制、目录删除…）。`total` 未知时为 `null`。
     StepProgress {
@@ -35,6 +51,8 @@ pub enum ProgressEvent {
         done: u64,
         total: Option<u64>,
         unit: Unit,
+        #[serde(flatten)]
+        scope: ProgressScope,
     },
     /// 动作吐出来的一段文本（子进程 stdout / stderr）。
     ///
@@ -45,6 +63,8 @@ pub enum ProgressEvent {
         action: String,
         stream: Stream,
         text: String,
+        #[serde(flatten)]
+        scope: ProgressScope,
     },
     /// 动作步骤结束。`took_ms` 是整步（含重试）的墙钟耗时。
     StepEnd {
@@ -52,12 +72,10 @@ pub enum ProgressEvent {
         action: String,
         took_ms: u64,
         ok: bool,
+        #[serde(flatten)]
+        scope: ProgressScope,
     },
     /// 执行请求的**心跳**：从请求到达到它跑完，每两秒一帧。
-    ///
-    /// 它不对应任何一步，只解决一件事：**排队与卡死在客户端看来是一样的**——两者都是
-    /// 「一段时间没有任何帧」，而一段几分钟的排队足够撞穿宿主的请求时限（超时被报成失败，
-    /// 请求其实还排在队列里，之后照样执行）。有心跳之后，「多久没有帧」才等于「对面是不是死了」。
     Heartbeat {
         /// 还在队列里等执行名额（`false` = 已经在跑了）
         is_queued: bool,
@@ -68,9 +86,6 @@ pub enum ProgressEvent {
 
 impl ProgressEvent {
     /// 把这一帧重放进一个上报口。
-    ///
-    /// 收到 `Response::Event` 的一方不必自己去拼 `Spot` / `Mark`——CLI 的 `Steps` /
-    /// `Events` 两个渲染器正是靠它同时服务于本地执行与远程执行。
     pub fn replay(&self, observer: &dyn Observer) {
         match self {
             Self::StepStart { step, action, .. } => observer.begin(Spot { id: step, action }),
@@ -80,6 +95,7 @@ impl ProgressEvent {
                 done,
                 total,
                 unit,
+                ..
             } => observer.chunk(
                 Spot { id: step, action },
                 Mark {
@@ -93,37 +109,39 @@ impl ProgressEvent {
                 action,
                 stream,
                 text,
+                ..
             } => observer.output(Spot { id: step, action }, *stream, text),
             Self::StepEnd {
                 step,
                 action,
                 took_ms,
                 ok,
+                ..
             } => observer.end(
                 Spot { id: step, action },
                 Duration::from_millis(*took_ms),
                 *ok,
             ),
-            // 心跳不属于任何一步：它服务的是「连接的另一头别把我当卡死」，不是渲染器。
-            // 上报口没有它的位置，所以直接丢掉。
             Self::Heartbeat { .. } => {}
+        }
+    }
+
+    /// 叶子步骤的默认 scope：`path = [step]`。
+    pub fn leaf_scope(step: &str) -> ProgressScope {
+        ProgressScope {
+            path: vec![step.to_string()],
+            branch_index: None,
+            run_id: None,
         }
     }
 }
 
 /// 中间帧的落点。
-///
-/// 两个方向的实现共用这一个形状，因为它们对帧的态度完全一致——**尽力而为，绝不阻塞执行**：
-/// 服务端队列满就丢帧（不该让一条渲染慢的客户端把指令执行拖住），客户端直接把帧喂给渲染器。
 pub trait FrameSink: Send + Sync {
-    /// 收下一帧。实现必须立刻返回：它跑在连接的读写路径上。
     fn frame(&self, progress: &ProgressEvent);
 }
 
 /// 服务端：把帧写回发起这条请求的连接。
-///
-/// 每一帧都带着请求 `id` 回去，客户端才知道这是哪条请求的进度；终帧仍由
-/// `serve_ipc` 的 handler 返回，顺序上排在所有帧之后。
 #[derive(Debug, Clone)]
 pub struct Outlet {
     id: u64,
@@ -131,12 +149,10 @@ pub struct Outlet {
 }
 
 impl Outlet {
-    /// `id` 是发起请求的编号（见 [`Request::id`](crate::protocol::Request::id)）。
     pub fn new(id: u64, tx: mpsc::Sender<Response>) -> Self {
         Self { id, tx }
     }
 
-    /// 投递一帧；队列满时返回 `false`。调用方通常不必关心——丢帧是设计的一部分。
     pub fn offer(&self, progress: ProgressEvent) -> bool {
         self.tx
             .try_send(Response::Event {
@@ -149,15 +165,11 @@ impl Outlet {
 
 impl FrameSink for Outlet {
     fn frame(&self, progress: &ProgressEvent) {
-        // 丢帧是刻意的，也是这里唯一正确的选择：`frame` 会被 `parallel` 分支并发调用，
-        // 一旦在这里等待（`send().await`），一条渲染慢的客户端就能把整条流水线拖住。
         let _ = self.offer(progress.clone());
     }
 }
 
 /// 客户端：把帧重放进本地的上报口。
-///
-/// `observer` 为 `None` 时整条路径是空操作，`--quiet` 因此不需要另写一套渲染器。
 #[derive(Debug, Clone)]
 pub struct Replay {
     observer: Option<Arc<dyn Observer>>,

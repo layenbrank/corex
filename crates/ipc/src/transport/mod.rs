@@ -794,6 +794,7 @@ mod tests {
                             seq: 1,
                             step: "copy".into(),
                             action: "file.copy".into(),
+                            scope: Default::default(),
                         });
                         tokio::time::sleep(slow).await;
                         Response::ok(id, "done")

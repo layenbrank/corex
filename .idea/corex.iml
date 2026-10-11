@@ -23,6 +23,7 @@
       <sourceFolder url="file://$MODULE_DIR$/crates/registry/src" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/crates/registry/tests" isTestSource="true" />
       <sourceFolder url="file://$MODULE_DIR$/crates/updater/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/bins/mcp/src" isTestSource="false" />
       <excludeFolder url="file://$MODULE_DIR$/target" />
     </content>
     <orderEntry type="inheritedJdk" />
