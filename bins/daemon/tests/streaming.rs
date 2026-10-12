@@ -124,6 +124,9 @@ async fn list_actions_carries_the_action_catalog() {
         .send(&authed(Request::ListActions {
             id: 1,
             auth_token: None,
+            // 两个筛选都不给 = 全量目录，正是这份用例要验的形状。
+            bucket: None,
+            ids: None,
         }))
         .await
         .expect("list_actions");
