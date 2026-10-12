@@ -80,9 +80,14 @@ if (-not $isWindowsHost) {
 }
 
 $architecture = if ($env:PROCESSOR_ARCHITECTURE -eq 'ARM64') { 'arm64' } else { 'x64' }
-$slug = "windows-$architecture"
-if ($slug -ne 'windows-x64') {
-    throw "No published build for '$slug'. Only windows-x64 artefacts are released today."
+# 平台标识与发版侧同名：就是 Rust target triple（不再用自造的 windows-x64）。
+$slug = if ($architecture -eq 'arm64') {
+    'aarch64-pc-windows-msvc'
+} else {
+    'x86_64-pc-windows-msvc'
+}
+if ($slug -ne 'x86_64-pc-windows-msvc') {
+    throw "No published build for '$slug'. Only x86_64-pc-windows-msvc artefacts are released today."
 }
 
 # --- 解析 Release ----------------------------------------------------------

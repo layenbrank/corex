@@ -5,18 +5,20 @@ use crate::github::{Asset, Release};
 /// 与产物一并发布的校验清单文件名。
 pub const SUMS: &str = "SHA256SUMS.txt";
 
-/// release 产物名里用的平台标识（`windows-x64`）。
+/// release 产物名里用的平台标识：Rust target triple（`x86_64-pc-windows-msvc`）。
 ///
-/// 目前只发布 `windows-x64` 产物。其余标识是给未来目标预先约定的命名，
+/// 用 triple 而不是自造简称，是为了让产物名、`--target`、CI 的 `RUST_TARGET`
+/// 与外部消费方（`prepare.ts` / sidecar tools.lock）指的是同一个名字。
+/// 目前只发布 `x86_64-pc-windows-msvc` 产物。其余标识是给未来目标预先约定的命名，
 /// 这样新增平台时选择器不用改。
 pub fn platform_slug() -> Option<&'static str> {
     Some(match (std::env::consts::OS, std::env::consts::ARCH) {
-        ("windows", "x86_64") => "windows-x64",
-        ("windows", "aarch64") => "windows-arm64",
-        ("macos", "x86_64") => "macos-x64",
-        ("macos", "aarch64") => "macos-arm64",
-        ("linux", "x86_64") => "linux-x64",
-        ("linux", "aarch64") => "linux-arm64",
+        ("windows", "x86_64") => "x86_64-pc-windows-msvc",
+        ("windows", "aarch64") => "aarch64-pc-windows-msvc",
+        ("macos", "x86_64") => "x86_64-apple-darwin",
+        ("macos", "aarch64") => "aarch64-apple-darwin",
+        ("linux", "x86_64") => "x86_64-unknown-linux-gnu",
+        ("linux", "aarch64") => "aarch64-unknown-linux-gnu",
         _ => return None,
     })
 }
@@ -35,7 +37,7 @@ pub fn daemon_name() -> &'static str {
     }
 }
 
-/// release 工作流产出的常规压缩包名，如 `corex-v6.0.2-windows-x64.zip`。
+/// release 工作流产出的常规压缩包名，如 `corex-v6.0.2-x86_64-pc-windows-msvc.zip`。
 pub fn archive_name(tag: &str, slug: &str) -> String {
     format!("corex-{tag}-{slug}.zip")
 }
@@ -117,33 +119,33 @@ mod tests {
 
     #[test]
     fn prefers_bare_binary_over_archive() {
-        let names = ["corex.exe", "corex-v6.0.2-windows-x64.zip", SUMS];
+        let names = ["corex.exe", "corex-v6.0.2-x86_64-pc-windows-msvc.zip", SUMS];
         let rel = release("v6.0.2", &names);
-        let choice = pick(&rel, "windows-x64").expect("asset");
+        let choice = pick(&rel, "x86_64-pc-windows-msvc").expect("asset");
         assert_eq!(choice.asset.name, binary_name());
         assert_eq!(choice.kind, Kind::Binary);
     }
 
     #[test]
     fn falls_back_to_archive() {
-        let names = ["corex-v6.0.2-windows-x64.zip", SUMS];
+        let names = ["corex-v6.0.2-x86_64-pc-windows-msvc.zip", SUMS];
         let rel = release("v6.0.2", &names);
-        let choice = pick(&rel, "windows-x64").expect("asset");
-        assert_eq!(choice.asset.name, "corex-v6.0.2-windows-x64.zip");
+        let choice = pick(&rel, "x86_64-pc-windows-msvc").expect("asset");
+        assert_eq!(choice.asset.name, "corex-v6.0.2-x86_64-pc-windows-msvc.zip");
         assert_eq!(choice.kind, Kind::Zip);
     }
 
     #[test]
     fn archive_name_matches_workflow_convention() {
         assert_eq!(
-            archive_name("v6.0.1", "windows-x64"),
-            "corex-v6.0.1-windows-x64.zip"
+            archive_name("v6.0.1", "x86_64-pc-windows-msvc"),
+            "corex-v6.0.1-x86_64-pc-windows-msvc.zip"
         );
     }
 
     #[test]
     fn no_asset_when_platform_is_unpublished() {
-        let rel = release("v6.0.2", &["corex-v6.0.2-linux-x64.zip"]);
-        assert!(pick(&rel, "windows-x64").is_none());
+        let rel = release("v6.0.2", &["corex-v6.0.2-aarch64-unknown-linux-gnu.zip"]);
+        assert!(pick(&rel, "x86_64-pc-windows-msvc").is_none());
     }
 }

@@ -89,7 +89,7 @@ git push origin v7.0.0-beta.1
 |------|----------------|
 | `corex.exe --version` == tag 去掉 `v` | 自更新用它与 tag 比较。CI 的 `Verify release artifacts` 会断言；不一致会让用户反复“升级”或永不升级 |
 | `corex.exe` 含可用的 `update` 子命令 | 同上步骤一并断言；缺失则本次发布的自更新链路失效 |
-| 资产名 `corex-v{tag}-windows-x64.zip` | 单文件资产缺失时按此名回退查找 |
+| 资产名 `corex-v{tag}-x86_64-pc-windows-msvc.zip` | 单文件资产缺失时按此名回退查找（平台标识 = target triple） |
 | 单文件 `corex.exe` 资产存在 | 自更新优先使用，省去解压 |
 | ZIP 含 `corex.exe`、`corex-daemon.exe`、`corex-mcp.exe`、`pdfium.dll` | 宿主 sidecar / Agent MCP / PDF 动作硬依赖；缺一 CI 失败 |
 | `SHA256SUMS.txt` 含上述二进制 + 压缩包名 | `corex update` 校验解压产物；sidecar bootstrap 亦依赖完整包 |

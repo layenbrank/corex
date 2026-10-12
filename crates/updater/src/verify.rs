@@ -191,7 +191,7 @@ not-a-digest  README.md
 
     #[test]
     fn parses_the_zip_sidecar() {
-        let text = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855  corex-v6.0.1-windows-x64.zip\n";
+        let text = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855  corex-v6.0.1-x86_64-pc-windows-msvc.zip\n";
         assert_eq!(
             parse_sidecar(text).as_deref(),
             Some("e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855")
