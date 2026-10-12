@@ -142,6 +142,16 @@ if ($ZipUrl) {
     $archiveName = Split-Path $ZipUrl -Leaf
 } else {
     $asset = $release.assets | Where-Object { $_.name -eq $archiveName } | Select-Object -First 1
+
+    # 改名（windows-x64 -> x86_64-pc-windows-msvc）之前的 Release 用的是旧名，而
+    # v2.0.4 – v6.0.1 那一段只发了归档、没有单文件 corex.exe，所以旧名要回退找一次。
+    # 只有 Windows x64 用过旧名，这是唯一需要回退的平台。
+    if (-not $asset -and $slug -eq 'x86_64-pc-windows-msvc') {
+        $legacyName = "corex-$tag-windows-x64.zip"
+        $asset = $release.assets | Where-Object { $_.name -eq $legacyName } | Select-Object -First 1
+        if ($asset) { $archiveName = $legacyName }
+    }
+
     if (-not $asset) {
         $names = ($release.assets | ForEach-Object { $_.name }) -join ', '
         throw "Release $tag 中没有 $archiveName。可用资产：$names"

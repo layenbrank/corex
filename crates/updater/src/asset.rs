@@ -73,17 +73,30 @@ pub struct Choice<'a> {
     pub kind: Kind,
 }
 
+/// 改名前的平台标识（`windows-x64` → `x86_64-pc-windows-msvc`，2026-10-12）。
+///
+/// v2.0.4 – v6.0.1 那一段 release **没有**裸 `corex.exe`，取件只能靠归档名 —— 这正是
+/// 归档名回退存在的理由（`corex update --version <旧版本>`），所以旧名要一直留在候选里。
+/// 只有 Windows x64 用过它；别的 target 不给这条回退，免得跨平台挑到 Windows 的包。
+fn legacy_slug(slug: &str) -> Option<&'static str> {
+    (slug == "x86_64-pc-windows-msvc").then_some("windows-x64")
+}
+
 /// 按优先级依次尝试的产物名。
 ///
 /// release 工作流会同时发布裸 `corex.exe` *和* 打包压缩文件。
 /// 裸二进制优先，因为它不需要解包；压缩文件是它出现之前的 release 的兼容选项，
 /// `corex update --version <旧版本>` 能工作就靠这个。选择是数据，
 /// 所以优先级在这里重排，而不是在调用方。
-fn candidates(tag: &str, slug: &str) -> [(String, Kind); 2] {
-    [
+fn candidates(tag: &str, slug: &str) -> Vec<(String, Kind)> {
+    let mut names = vec![
         (binary_name().to_string(), Kind::Binary),
         (archive_name(tag, slug), Kind::Zip),
-    ]
+    ];
+    if let Some(legacy) = legacy_slug(slug) {
+        names.push((archive_name(tag, legacy), Kind::Zip));
+    }
+    names
 }
 
 /// 从 `release` 中选出优先级最高的产物。
@@ -147,5 +160,32 @@ mod tests {
     fn no_asset_when_platform_is_unpublished() {
         let rel = release("v6.0.2", &["corex-v6.0.2-aarch64-unknown-linux-gnu.zip"]);
         assert!(pick(&rel, "x86_64-pc-windows-msvc").is_none());
+    }
+
+    #[test]
+    fn still_finds_pre_rename_archives() {
+        // v2.0.4 – v6.0.1 只发了归档，而且用的是改名前的 windows-x64。
+        let names = ["corex-v5.3.1-windows-x64.zip", SUMS];
+        let rel = release("v5.3.1", &names);
+        let choice = pick(&rel, "x86_64-pc-windows-msvc").expect("asset");
+        assert_eq!(choice.asset.name, "corex-v5.3.1-windows-x64.zip");
+        assert_eq!(choice.kind, Kind::Zip);
+    }
+
+    #[test]
+    fn new_name_beats_the_legacy_one() {
+        let names = [
+            "corex-v6.1.0-x86_64-pc-windows-msvc.zip",
+            "corex-v6.1.0-windows-x64.zip",
+        ];
+        let rel = release("v6.1.0", &names);
+        let choice = pick(&rel, "x86_64-pc-windows-msvc").expect("asset");
+        assert_eq!(choice.asset.name, "corex-v6.1.0-x86_64-pc-windows-msvc.zip");
+    }
+
+    #[test]
+    fn legacy_fallback_is_windows_only() {
+        let rel = release("v5.3.1", &["corex-v5.3.1-windows-x64.zip"]);
+        assert!(pick(&rel, "x86_64-unknown-linux-gnu").is_none());
     }
 }
