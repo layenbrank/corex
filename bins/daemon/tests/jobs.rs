@@ -128,11 +128,7 @@ async fn start_list_and_force_stop_a_cron_job() {
         }
         tokio::time::sleep(Duration::from_millis(100)).await;
     }
-    assert!(
-        alive,
-        "supervisor 该活着:\n{}",
-        daemon.log_text()
-    );
+    assert!(alive, "supervisor 该活着:\n{}", daemon.log_text());
 
     let _ = data(
         send(

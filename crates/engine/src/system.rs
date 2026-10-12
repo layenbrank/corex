@@ -27,9 +27,8 @@ mod tests {
     #[test]
     fn system_yaml_parses() {
         for (name, yaml) in SYSTEM {
-            let definition = Directive::from_yaml_str(yaml).unwrap_or_else(|error| {
-                panic!("系统指令 {name} 解析失败: {error}")
-            });
+            let definition = Directive::from_yaml_str(yaml)
+                .unwrap_or_else(|error| panic!("系统指令 {name} 解析失败: {error}"));
             assert_eq!(definition.name, *name);
         }
     }

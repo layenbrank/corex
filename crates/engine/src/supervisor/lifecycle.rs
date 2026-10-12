@@ -3,9 +3,7 @@
 use crate::definition::Directive;
 use crate::supervisor::control::{ControlMsg, send_control};
 use crate::supervisor::job::{JobKind, JobMeta};
-use crate::supervisor::process::{
-    child_supervisor_identity, kill_process_tree, spawn_detached,
-};
+use crate::supervisor::process::{child_supervisor_identity, kill_process_tree, spawn_detached};
 use crate::trigger::{find_cron_trigger, find_watch_trigger};
 use corex_core::EngineError;
 use serde::Serialize;
@@ -72,7 +70,11 @@ pub fn jobs(data: &Path, kind: Option<JobKind>) -> Vec<JobView> {
     let mut out = Vec::new();
     for kind in kinds {
         JobMeta::prune_stale(data, kind);
-        out.extend(JobMeta::scan(data, kind).into_iter().map(JobView::from_meta));
+        out.extend(
+            JobMeta::scan(data, kind)
+                .into_iter()
+                .map(JobView::from_meta),
+        );
     }
     out
 }
@@ -162,9 +164,7 @@ pub fn send_job(
 ) -> Result<JobView, EngineError> {
     let meta = find_job(data, kind, name)?;
     let job_dir = JobMeta::job_dir(data, kind, &meta.id);
-    let control = command
-        .parse::<ControlMsg>()
-        .map_err(EngineError::Usage)?;
+    let control = command.parse::<ControlMsg>().map_err(EngineError::Usage)?;
     send_control(&job_dir, control)?;
     Ok(JobView::from_meta(meta))
 }

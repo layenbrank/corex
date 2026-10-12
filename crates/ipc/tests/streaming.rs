@@ -74,7 +74,7 @@ fn spawn_server(endpoint: PathBuf) -> tokio::task::JoinHandle<()> {
                     seq: 1,
                     step: "copy".into(),
                     action: "file.copy".into(),
-                    scope: Default::default()
+                    scope: Default::default(),
                 });
                 outlet.offer(ProgressEvent::StepProgress {
                     step: "copy".into(),
@@ -82,21 +82,21 @@ fn spawn_server(endpoint: PathBuf) -> tokio::task::JoinHandle<()> {
                     done: 7,
                     total: Some(10),
                     unit: Unit::Items,
-                    scope: Default::default()
+                    scope: Default::default(),
                 });
                 outlet.offer(ProgressEvent::StepOutput {
                     step: "copy".into(),
                     action: "file.copy".into(),
                     stream: Stream::Stdout,
                     text: "copied 7 items\n".into(),
-                    scope: Default::default()
+                    scope: Default::default(),
                 });
                 outlet.offer(ProgressEvent::StepEnd {
                     step: "copy".into(),
                     action: "file.copy".into(),
                     took_ms: 12,
                     ok: true,
-                    scope: Default::default()
+                    scope: Default::default(),
                 });
             }
             Response::ok(id, "done")
@@ -141,7 +141,7 @@ async fn frames_arrive_before_the_final_response() {
                 seq: 1,
                 step: "copy".into(),
                 action: "file.copy".into(),
-                    scope: Default::default()
+                scope: Default::default()
             },
             ProgressEvent::StepProgress {
                 step: "copy".into(),
@@ -149,21 +149,21 @@ async fn frames_arrive_before_the_final_response() {
                 done: 7,
                 total: Some(10),
                 unit: Unit::Items,
-                    scope: Default::default()
+                scope: Default::default()
             },
             ProgressEvent::StepOutput {
                 step: "copy".into(),
                 action: "file.copy".into(),
                 stream: Stream::Stdout,
                 text: "copied 7 items\n".into(),
-                    scope: Default::default()
+                scope: Default::default()
             },
             ProgressEvent::StepEnd {
                 step: "copy".into(),
                 action: "file.copy".into(),
                 took_ms: 12,
                 ok: true,
-                    scope: Default::default()
+                scope: Default::default()
             },
         ]
     );
@@ -221,7 +221,7 @@ fn a_frame_is_a_tagged_line() {
             done: 1,
             total: None,
             unit: Unit::Bytes,
-                    scope: Default::default()
+            scope: Default::default(),
         },
     })
     .expect("serialize frame");
@@ -243,7 +243,7 @@ fn an_output_frame_keeps_its_stream_and_text() {
         action: "shell.run".into(),
         stream: Stream::Stderr,
         text: "warning: unused import\n".into(),
-                    scope: Default::default()
+        scope: Default::default(),
     };
     let line = serde_json::to_string(&Response::Event {
         id: 3,
@@ -312,7 +312,7 @@ fn replay_feeds_all_four_callbacks_in_order() {
             seq: 1,
             step: "build".into(),
             action: "shell.run".into(),
-                    scope: Default::default()
+            scope: Default::default(),
         },
         ProgressEvent::StepProgress {
             step: "build".into(),
@@ -320,21 +320,21 @@ fn replay_feeds_all_four_callbacks_in_order() {
             done: 1,
             total: None,
             unit: Unit::Bytes,
-                    scope: Default::default()
+            scope: Default::default(),
         },
         ProgressEvent::StepOutput {
             step: "build".into(),
             action: "shell.run".into(),
             stream: Stream::Stderr,
             text: "boom".into(),
-                    scope: Default::default()
+            scope: Default::default(),
         },
         ProgressEvent::StepEnd {
             step: "build".into(),
             action: "shell.run".into(),
             took_ms: 5,
             ok: false,
-                    scope: Default::default()
+            scope: Default::default(),
         },
     ];
     for frame in &frames {

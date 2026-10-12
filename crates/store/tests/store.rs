@@ -59,7 +59,13 @@ fn save_keeps_folder_and_source() {
     let store = DirectiveStore::open_in_memory().unwrap();
     let definition = parse("name: demo\nsteps: []\n");
     store
-        .put("demo", &definition, Some("build"), Some("/tmp/demo.yaml"), true)
+        .put(
+            "demo",
+            &definition,
+            Some("build"),
+            Some("/tmp/demo.yaml"),
+            true,
+        )
         .unwrap();
 
     store
@@ -106,7 +112,13 @@ fn rename_refuses_a_taken_name_and_a_missing_source() {
 fn save_with_rename_carries_metadata() {
     let store = DirectiveStore::open_in_memory().unwrap();
     store
-        .put("old", &parse("name: old\nsteps: []\n"), Some("build"), Some("/tmp/old.yaml"), true)
+        .put(
+            "old",
+            &parse("name: old\nsteps: []\n"),
+            Some("build"),
+            Some("/tmp/old.yaml"),
+            true,
+        )
         .unwrap();
 
     let record = store
@@ -492,7 +504,13 @@ fn hidden_directives_stay_out_of_default_metas() {
         .put("capture-screenshot", &definition, None, None, false)
         .unwrap();
     store
-        .put("user-demo", &parse("name: user-demo\nsteps: []\n"), None, None, true)
+        .put(
+            "user-demo",
+            &parse("name: user-demo\nsteps: []\n"),
+            None,
+            None,
+            true,
+        )
         .unwrap();
 
     let names: Vec<_> = store

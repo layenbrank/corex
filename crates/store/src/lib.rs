@@ -25,8 +25,8 @@ mod store;
 pub use error::StoreError;
 pub use history::{SqliteHistory, StoreDirectiveSource, history_sink};
 pub use record::{
-    DATABASE_FILE, DirectiveMeta, DirectiveRecord, DirectiveSummary, ImportEntry,
-    ImportOptions, ImportReport, ImportStatus,
+    DATABASE_FILE, DirectiveMeta, DirectiveRecord, DirectiveSummary, ImportEntry, ImportOptions,
+    ImportReport, ImportStatus,
 };
 pub use store::{
     BootstrapOptions, BootstrapReport, DirectiveStore, Validator, database_path, validate_name,

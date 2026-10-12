@@ -2,8 +2,8 @@
 
 use super::error::StoreError;
 use super::record::{
-    DATABASE_FILE, LEGACY_DATABASE_FILE, DirectiveMeta, DirectiveRecord, DirectiveSummary, ImportEntry,
-    ImportOptions, ImportReport, ImportStatus,
+    DATABASE_FILE, DirectiveMeta, DirectiveRecord, DirectiveSummary, ImportEntry, ImportOptions,
+    ImportReport, ImportStatus, LEGACY_DATABASE_FILE,
 };
 use super::schema;
 use corex_engine::{Directive, DirectiveHistory, HistoryEntry};
@@ -841,8 +841,7 @@ impl DirectiveStore {
 }
 
 /// 一条记录要选的列，`list` / `find` 共用一份，免得两处列名各写一遍再慢慢走偏。
-const SELECT_COLUMNS: &str =
-    "name, folder, source, definitionJson, visible, createdAt, updatedAt";
+const SELECT_COLUMNS: &str = "name, folder, source, definitionJson, visible, createdAt, updatedAt";
 
 /// 库里的一行原始数据：模型还是 JSON，读出来才解析。
 struct RawRow {
@@ -879,12 +878,14 @@ impl RawRow {
                 step_count: definition.steps.len(),
                 input_count: definition.inputs.len(),
                 trigger_count: definition.triggers.len(),
-                has_cron: definition.triggers.iter().any(|trigger| {
-                    matches!(trigger, corex_engine::Trigger::Cron { .. })
-                }),
-                has_watch: definition.triggers.iter().any(|trigger| {
-                    matches!(trigger, corex_engine::Trigger::Watch(_))
-                }),
+                has_cron: definition
+                    .triggers
+                    .iter()
+                    .any(|trigger| matches!(trigger, corex_engine::Trigger::Cron { .. })),
+                has_watch: definition
+                    .triggers
+                    .iter()
+                    .any(|trigger| matches!(trigger, corex_engine::Trigger::Watch(_))),
             });
 
         DirectiveMeta {

@@ -75,7 +75,10 @@ impl FileProgress {
             name: name.to_string(),
             at_ms: now_ms(),
         };
-        std::fs::write(run_marker_path(job_dir), serde_json::to_string_pretty(&marker)?)?;
+        std::fs::write(
+            run_marker_path(job_dir),
+            serde_json::to_string_pretty(&marker)?,
+        )?;
 
         Ok(Self {
             kind,

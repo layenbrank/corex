@@ -53,9 +53,7 @@ pub fn actions_filtered(
         .actions()
         .iter()
         .filter(|meta| bucket.is_none_or(|only| only == meta.bucket))
-        .filter(|meta| {
-            ids.is_none_or(|allow| allow.iter().any(|id| id == &meta.id))
-        })
+        .filter(|meta| ids.is_none_or(|allow| allow.iter().any(|id| id == &meta.id)))
         .map(|meta| action(registry, meta))
         .collect()
 }

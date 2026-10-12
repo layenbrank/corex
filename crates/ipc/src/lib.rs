@@ -6,7 +6,7 @@ pub mod protocol;
 pub mod transport;
 
 pub use progress::{FrameSink, Outlet, ProgressEvent, ProgressScope, Replay};
-pub use protocol::{MAX_LINE_BYTES, JobKind, Request, Response, RpcError, RpcErrorDetail};
+pub use protocol::{JobKind, MAX_LINE_BYTES, Request, Response, RpcError, RpcErrorDetail};
 pub use transport::{
     PlatformTransport, Transport, TransportError, config_paths, data_dir, find_endpoint,
     find_token, ipc_connect, ipc_endpoint, resolve_data_relative, resolve_endpoint, serve_ipc,

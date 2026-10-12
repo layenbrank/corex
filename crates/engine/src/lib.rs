@@ -12,8 +12,8 @@ pub mod run;
 #[cfg(feature = "schema")]
 pub mod schema;
 pub mod starter;
-pub mod system;
 pub mod supervisor;
+pub mod system;
 pub mod trigger;
 pub mod watch;
 

@@ -4,8 +4,8 @@ use crate::audit::ExecutionAudit;
 use crate::definition::Directive;
 use crate::history::HistorySink;
 use crate::pipeline::Pipeline;
-use crate::supervisor::progress::FileProgress;
 use crate::supervisor::JobKind;
+use crate::supervisor::progress::FileProgress;
 use corex_core::{ActionStore, EngineError, ExecutionContext, Observer, RuntimeConfig, Value};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -205,14 +205,7 @@ pub async fn run_supervised_directive(
     };
     let observer = progress.clone().map(|p| p as Arc<dyn Observer>);
     let result = run_directive_spec_with_observer(
-        store,
-        runtime,
-        data_dir,
-        source,
-        history,
-        name,
-        path,
-        observer,
+        store, runtime, data_dir, source, history, name, path, observer,
     )
     .await;
     if let Some(progress) = progress {
