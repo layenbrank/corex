@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "corex": {
+      "command": "corex-mcp",
+      "args": ["--import", "examples/directives"],
+      "env": {
+        "COREX_DATA_DIR": "C:/Users/MACHENIKE/.corex",
+        "COREX_MCP_SESSION": "cursor"
+      }
+    }
+  }
+}

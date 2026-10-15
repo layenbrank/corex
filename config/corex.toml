@@ -58,10 +58,10 @@ file = "history.jsonl"
 
 [mcp]
 # Agent / MCP 工具面约束（corex-mcp）。空 allow = 不额外白名单。
-# allow_actions = []
-# allow_directives = []
+allow_actions = []
+allow_directives = []
 # true：空白名单即拒 invoke / 按名 run，并禁止 corex_run 的 path 旁路
-# is_deny_default = false
+is_deny_default = false
 
 [logging]
 level = "info"
